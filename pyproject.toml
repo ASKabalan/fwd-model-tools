@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61", "wheel", "setuptools-scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fwd-model-tools"
+version = "0.1.0"
+description = "Forward-modeling and sampling on top of JAXPM + JAX-Decomp (no painting)"
+authors = [
+    { name = "Forward Model Tools Contributors" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["jax", "cosmology", "nbody", "sampling", "mcmc", "bayesian-inference"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    "jax>=0.4.35",
+    "equinox>=0.11.0",
+    "blackjax>=1.0.0",
+    "numpyro>=0.13.0",
+    "jaxtyping>=0.2.0",
+    "jaxpm>=0.1.0",
+    "jax-cosmo>=0.1.0",
+    "diffrax>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
+Documentation = "https://fwd-model-tools.readthedocs.io"
+Repository = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
+Issues = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/issues"
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+fix = true
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "UP",  # pyupgrade
+    "T10", # flake8-debugger
+    "I",   # isort
+]
+ignore = [
+    "E501",  # line too long
+    "E402",  # module level import not at top of file
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=fwd_model_tools --cov-report=term-missing"
