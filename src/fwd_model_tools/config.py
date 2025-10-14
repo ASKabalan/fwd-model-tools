@@ -55,6 +55,8 @@ class Configurations(NamedTuple):
         Maximum redshift for source integration.
     geometry : str, default="spherical"
         Coordinate system geometry: "spherical" (HEALPix) or "flat" (Cartesian).
+    observer_position : tuple or list, default=(0.5, 0.5, 0.5)
+        Observer position as fraction of box size (x, y, z) between 0 and 1.
 
     Notes
     -----
@@ -84,3 +86,4 @@ class Configurations(NamedTuple):
     min_redshift: float = 0.01
     max_redshift: float = 3.0
     geometry: str = "spherical"
+    observer_position: tuple | list = (0.5, 0.5, 0.5)

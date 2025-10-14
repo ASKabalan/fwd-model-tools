@@ -146,6 +146,7 @@ def make_full_field_model(
     sharding=None,
     halo_size=0,
     geometry="spherical",
+    observer_position=None,
 ):
     """
     Create the full forward model: linear field -> lensing convergence maps.
@@ -191,6 +192,9 @@ def make_full_field_model(
         Halo exchange size for distributed operations.
     geometry : str, default="spherical"
         Coordinate system: "spherical" (HEALPix) or "flat" (Cartesian).
+    observer_position : tuple or list, optional
+        Observer position as fraction of box size (x, y, z) between 0 and 1.
+        If None, defaults to box center (0.5, 0.5, 0.5).
 
     Returns
     -------
@@ -217,8 +221,14 @@ def make_full_field_model(
     assert density_plane_width is not None
     assert density_plane_npix is not None
 
-    observer_position = jnp.array(
-        [box_size[0] / 2, box_size[1] / 2, box_size[2] / 2])
+    if observer_position is None:
+        observer_position = (0.5, 0.5, 0.5)
+
+    observer_position_mpc = jnp.array([
+        observer_position[0] * box_size[0],
+        observer_position[1] * box_size[1],
+        observer_position[2] * box_size[2],
+    ])
 
     def forward_model(cosmo, nz_shear, initial_conditions):
         k = jnp.logspace(-4, 1, 128)
@@ -267,7 +277,7 @@ def make_full_field_model(
                 fn=lambda t, y, args: spherical_density_fn(box_shape,
                                                            box_size,
                                                            nside,
-                                                           observer_position,
+                                                           observer_position_mpc,
                                                            density_plane_width,
                                                            sharding=sharding)
                 (t, y[1], args),
@@ -397,6 +407,7 @@ def full_field_probmodel(config):
             sharding=config.sharding,
             halo_size=config.halo_size,
             geometry=config.geometry,
+            observer_position=config.observer_position,
         )
 
         cosmo = config.fiducial_cosmology(**{
