@@ -25,12 +25,10 @@ def plot_initial_conditions_comparison(samples, output_dir):
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 12))
 
-    data_slices = [
-        (true_ic[..., slice_idx], "True Initial Conditions"),
-        (mean_ic[..., slice_idx], "Mean Sampled IC"),
-        (std_ic[..., slice_idx], "Std Dev Sampled IC"),
-        (residual_ic[..., slice_idx], "Residual (Mean - True)")
-    ]
+    data_slices = [(true_ic[..., slice_idx], "True Initial Conditions"),
+                   (mean_ic[..., slice_idx], "Mean Sampled IC"),
+                   (std_ic[..., slice_idx], "Std Dev Sampled IC"),
+                   (residual_ic[..., slice_idx], "Residual (Mean - True)")]
 
     for ax, (data, title) in zip(axes.flat, data_slices):
         im = ax.imshow(data, cmap='viridis', origin='lower')
@@ -40,8 +38,12 @@ def plot_initial_conditions_comparison(samples, output_dir):
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
         stats_text = f'min={np.min(data):.3e}\nmax={np.max(data):.3e}\nmean={np.mean(data):.3e}'
-        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                fontsize=9, verticalalignment='top',
+        ax.text(0.02,
+                0.98,
+                stats_text,
+                transform=ax.transAxes,
+                fontsize=9,
+                verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
     plt.tight_layout()
@@ -61,8 +63,12 @@ def plot_posterior_diagnostics(samples, true_values, output_dir):
         n_chains = 2
         samples_per_chain = n_samples // 2
         samples_dict = {
-            'Omega_c': samples['Omega_c'][:samples_per_chain * 2].reshape(n_chains, samples_per_chain),
-            'sigma8': samples['sigma8'][:samples_per_chain * 2].reshape(n_chains, samples_per_chain)
+            'Omega_c':
+            samples['Omega_c'][:samples_per_chain * 2].reshape(
+                n_chains, samples_per_chain),
+            'sigma8':
+            samples['sigma8'][:samples_per_chain * 2].reshape(
+                n_chains, samples_per_chain)
         }
     else:
         samples_dict = {
@@ -80,13 +86,19 @@ def plot_posterior_diagnostics(samples, true_values, output_dir):
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     az.plot_trace(idata, var_names=['Omega_c'], axes=axes[0, :])
-    axes[0, 1].axvline(true_values['Omega_c'], color='red', linestyle='--',
-                       linewidth=2, label='True value')
+    axes[0, 1].axvline(true_values['Omega_c'],
+                       color='red',
+                       linestyle='--',
+                       linewidth=2,
+                       label='True value')
     axes[0, 1].legend()
 
     az.plot_trace(idata, var_names=['sigma8'], axes=axes[1, :])
-    axes[1, 1].axvline(true_values['sigma8'], color='red', linestyle='--',
-                       linewidth=2, label='True value')
+    axes[1, 1].axvline(true_values['sigma8'],
+                       color='red',
+                       linestyle='--',
+                       linewidth=2,
+                       label='True value')
     axes[1, 1].legend()
 
     plt.tight_layout()
@@ -98,11 +110,17 @@ def plot_posterior_diagnostics(samples, true_values, output_dir):
     fig = plt.figure(figsize=(14, 5))
 
     ax1 = plt.subplot(1, 2, 1)
-    az.plot_posterior(idata, var_names=['Omega_c'], ax=ax1, ref_val=true_values['Omega_c'])
+    az.plot_posterior(idata,
+                      var_names=['Omega_c'],
+                      ax=ax1,
+                      ref_val=true_values['Omega_c'])
     ax1.set_title('Posterior: Omega_c')
 
     ax2 = plt.subplot(1, 2, 2)
-    az.plot_posterior(idata, var_names=['sigma8'], ax=ax2, ref_val=true_values['sigma8'])
+    az.plot_posterior(idata,
+                      var_names=['sigma8'],
+                      ax=ax2,
+                      ref_val=true_values['sigma8'])
     ax2.set_title('Posterior: sigma8')
 
     plt.tight_layout()
@@ -120,12 +138,27 @@ def plot_posterior_diagnostics(samples, true_values, output_dir):
     extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
 
     ax.contourf(H.T, extent=extent, levels=15, cmap='Blues', alpha=0.6)
-    ax.contour(H.T, extent=extent, levels=10, colors='black', linewidths=0.5, alpha=0.3)
+    ax.contour(H.T,
+               extent=extent,
+               levels=10,
+               colors='black',
+               linewidths=0.5,
+               alpha=0.3)
 
-    ax.scatter(Omega_c_flat, sigma8_flat, alpha=0.2, s=5, color='steelblue', label='Samples')
+    ax.scatter(Omega_c_flat,
+               sigma8_flat,
+               alpha=0.2,
+               s=5,
+               color='steelblue',
+               label='Samples')
     ax.scatter([true_values['Omega_c']], [true_values['sigma8']],
-               color='red', s=200, marker='*', edgecolors='black', linewidths=1.5,
-               label='True values', zorder=10)
+               color='red',
+               s=200,
+               marker='*',
+               edgecolors='black',
+               linewidths=1.5,
+               label='True values',
+               zorder=10)
 
     ax.set_xlabel('Omega_c', fontsize=12)
     ax.set_ylabel('sigma8', fontsize=12)
@@ -156,8 +189,8 @@ def plot_posterior_diagnostics(samples, true_values, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Plot MCMC results: initial conditions and posteriors using ArviZ'
-    )
+        description=
+        'Plot MCMC results: initial conditions and posteriors using ArviZ')
     parser.add_argument(
         '--output-dir',
         type=str,
@@ -174,7 +207,8 @@ def main():
     if not samples_dir.exists():
         raise FileNotFoundError(f"Samples directory not found: {samples_dir}")
     if not true_data_dir.exists():
-        raise FileNotFoundError(f"True data directory not found: {true_data_dir}")
+        raise FileNotFoundError(
+            f"True data directory not found: {true_data_dir}")
 
     print('=' * 60)
     print('PLOTTING MCMC RESULTS')

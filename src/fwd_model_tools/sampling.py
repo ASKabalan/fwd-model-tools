@@ -175,8 +175,8 @@ def batched_sampling(
                 progress_bar=True,
             )
             if postprocess_fn is not None:
-                samples = jax.vmap(postprocess_fn(*model_args, **model_kwargs))(
-                    raw_samples)
+                samples = jax.vmap(postprocess_fn(*model_args,
+                                                  **model_kwargs))(raw_samples)
             else:
                 samples = raw_samples
             nb_evals = 0  # Don't know how to get the number of evaluations in blackjax

@@ -43,12 +43,10 @@ class TestLoadSamples:
 
             assert samples["Omega_c"].shape == (5, )
             assert samples["sigma8"].shape == (5, )
-            assert jnp.allclose(
-                samples["Omega_c"],
-                jnp.array([0.26, 0.27, 0.28, 0.265, 0.275]))
-            assert jnp.allclose(
-                samples["sigma8"],
-                jnp.array([0.81, 0.82, 0.80, 0.815, 0.805]))
+            assert jnp.allclose(samples["Omega_c"],
+                                jnp.array([0.26, 0.27, 0.28, 0.265, 0.275]))
+            assert jnp.allclose(samples["sigma8"],
+                                jnp.array([0.81, 0.82, 0.80, 0.815, 0.805]))
 
     def test_load_samples_with_multidimensional_parameters(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -119,8 +117,7 @@ class TestLoadSamples:
             np.savez(f"{tmpdir}/samples_0.npz",
                      Omega_c=np.array([0.26, 0.27]),
                      sigma8=np.array([0.81, 0.82]))
-            np.savez(f"{tmpdir}/samples_1.npz", Omega_c=np.array([0.28,
-                                                                   0.29]))
+            np.savez(f"{tmpdir}/samples_1.npz", Omega_c=np.array([0.28, 0.29]))
 
             samples = load_samples(tmpdir)
 
@@ -145,12 +142,9 @@ class TestLoadSamples:
 
     def test_load_samples_sorts_files_correctly(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            np.savez(f"{tmpdir}/samples_0.npz",
-                     batch_id=np.array([0, 0, 0]))
-            np.savez(f"{tmpdir}/samples_2.npz",
-                     batch_id=np.array([2, 2, 2]))
-            np.savez(f"{tmpdir}/samples_1.npz",
-                     batch_id=np.array([1, 1, 1]))
+            np.savez(f"{tmpdir}/samples_0.npz", batch_id=np.array([0, 0, 0]))
+            np.savez(f"{tmpdir}/samples_2.npz", batch_id=np.array([2, 2, 2]))
+            np.savez(f"{tmpdir}/samples_1.npz", batch_id=np.array([1, 1, 1]))
 
             samples = load_samples(tmpdir)
 

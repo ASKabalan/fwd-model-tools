@@ -274,13 +274,13 @@ def make_full_field_model(
         if geometry == "spherical":
             saveat = SaveAt(
                 ts=a_center[::-1],
-                fn=lambda t, y, args: spherical_density_fn(box_shape,
-                                                           box_size,
-                                                           nside,
-                                                           observer_position_mpc,
-                                                           density_plane_width,
-                                                           sharding=sharding)
-                (t, y[1], args),
+                fn=lambda t, y, args: spherical_density_fn(
+                    box_shape,
+                    box_size,
+                    nside,
+                    observer_position_mpc,
+                    density_plane_width,
+                    sharding=sharding)(t, y[1], args),
             )
         else:
             saveat = SaveAt(
@@ -423,8 +423,11 @@ def full_field_probmodel(config):
 
         convergence_maps, lc, lin_field = forward_model(
             cosmo, config.nz_shear, initial_conditions)
-        numpyro.deterministic("lightcone", lc)
-        numpyro.deterministic("ic", lin_field)
+
+        if config.log_lightcone:
+            numpyro.deterministic("lightcone", lc)
+        if config.log_ic:
+            numpyro.deterministic("ic", lin_field)
 
         observed_maps = [
             numpyro.sample(

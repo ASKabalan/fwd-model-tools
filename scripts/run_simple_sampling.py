@@ -39,18 +39,37 @@ def toy_model():
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a simple batched sampling example")
-    parser.add_argument("--output-dir", type=str, default="output/simple",
+    parser = argparse.ArgumentParser(
+        description="Run a simple batched sampling example")
+    parser.add_argument("--output-dir",
+                        type=str,
+                        default="output/simple",
                         help="Directory to store samples and state")
-    parser.add_argument("--backend", type=str, choices=["numpyro", "blackjax"], default="numpyro",
+    parser.add_argument("--backend",
+                        type=str,
+                        choices=["numpyro", "blackjax"],
+                        default="numpyro",
                         help="Sampling backend")
-    parser.add_argument("--sampler", type=str, choices=["NUTS", "HMC", "MCLMC"], default="NUTS",
+    parser.add_argument("--sampler",
+                        type=str,
+                        choices=["NUTS", "HMC", "MCLMC"],
+                        default="NUTS",
                         help="Sampler (MCLMC only available with blackjax)")
-    parser.add_argument("--num-warmup", type=int, default=200, help="Warmup steps")
-    parser.add_argument("--num-samples", type=int, default=500, help="Samples per batch")
-    parser.add_argument("--batch-count", type=int, default=1, help="Number of batches")
+    parser.add_argument("--num-warmup",
+                        type=int,
+                        default=200,
+                        help="Warmup steps")
+    parser.add_argument("--num-samples",
+                        type=int,
+                        default=500,
+                        help="Samples per batch")
+    parser.add_argument("--batch-count",
+                        type=int,
+                        default=1,
+                        help="Number of batches")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--include-deterministic", action="store_true",
+    parser.add_argument("--include-deterministic",
+                        action="store_true",
                         help="Also save deterministic sites (e.g., 'y')")
     args = parser.parse_args()
 
@@ -82,4 +101,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

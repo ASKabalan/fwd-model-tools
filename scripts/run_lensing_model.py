@@ -34,7 +34,6 @@ import jax_cosmo as jc
 import matplotlib
 
 matplotlib.use('Agg')
-import healpy as hp
 import matplotlib.pyplot as plt
 import numpy as np
 import numpyro
@@ -45,6 +44,8 @@ from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
 from fwd_model_tools import Configurations, Planck18, full_field_probmodel
+from fwd_model_tools.plotting import (plot_ic_summary, plot_kappa_maps,
+                                      plot_lightcones, plot_posterior_pair)
 from fwd_model_tools.sampling import batched_sampling, load_samples
 
 
@@ -79,12 +80,12 @@ def setup_sharding(pdims=(4, 2)):
 
 
 def create_redshift_distribution(
-    cosmo,
-    box_size,
-    plots_dir,
-    observer_position=(0.5, 0.5, 0.5),
-    geometry="spherical",
-    los_axis=2,
+        cosmo,
+        box_size,
+        plots_dir,
+        observer_position=(0.5, 0.5, 0.5),
+        geometry="spherical",
+        los_axis=2,
 ):
     """Create and visualize redshift distribution.
 
@@ -154,7 +155,8 @@ def create_redshift_distribution(
     return nz_shear, nbins, max_redshift
 
 
-def generate_synthetic_observations(config, fiducial_cosmology, initial_conditions, true_data_dir, plots_dir):
+def generate_synthetic_observations(config, fiducial_cosmology,
+                                    initial_conditions, true_data_dir):
     """Generate synthetic observations by tracing the fiducial model."""
     print('\n' + '=' * 60)
     print('Generating synthetic observations')
@@ -190,67 +192,24 @@ def generate_synthetic_observations(config, fiducial_cosmology, initial_conditio
     )
     print(f'✓ Saved true kappas to {true_data_dir / "true_kappas.npz"}')
 
-    print('Creating true kappa maps visualization...')
-    plot_kappa_maps(true_kappas, nbins, config.geometry, plots_dir / 'true_kappa_maps.png', title_prefix='True')
+    true_lightcone = None
+    true_ic = None
 
-    return model_trace, true_kappas
+    if config.log_lightcone and "lightcone" in model_trace:
+        true_lightcone = np.asarray(model_trace["lightcone"]["value"])
+        np.save(true_data_dir / "true_lightcone.npy",
+                true_lightcone,
+                allow_pickle=True)
+        print(
+            f'✓ Saved true lightcone to {true_data_dir / "true_lightcone.npy"}'
+        )
 
+    if config.log_ic and "ic" in model_trace:
+        true_ic = np.asarray(model_trace["ic"]["value"])
+        np.save(true_data_dir / "true_ic.npy", true_ic, allow_pickle=True)
+        print(f'✓ Saved true IC to {true_data_dir / "true_ic.npy"}')
 
-def plot_kappa_maps(kappas_dict, nbins, geometry, save_path, title_prefix=''):
-    """Plot kappa maps for all redshift bins."""
-    kappas = [kappas_dict[f"kappa_{i}"] for i in range(nbins)]
-
-    all_kappas = np.concatenate([np.ravel(k) for k in kappas])
-    all_kappas_valid = all_kappas[np.isfinite(all_kappas)]
-    if len(all_kappas_valid) > 0:
-        kappa_vmin = np.percentile(all_kappas_valid, 2)
-        kappa_vmax = np.percentile(all_kappas_valid, 98)
-    else:
-        kappa_vmin = 0.0
-        kappa_vmax = 1.0
-
-    plt.figure(figsize=(15, 4))
-
-    if geometry == 'spherical':
-        for i in range(nbins):
-            k_min = np.min(kappas[i])
-            k_max = np.max(kappas[i])
-            k_mean = np.mean(kappas[i])
-            k_std = np.std(kappas[i])
-            hp.mollview(
-                kappas[i],
-                title=
-                f'{title_prefix} Kappa bin {i}\nmin={k_min:.2e}, max={k_max:.2e}\nmean={k_mean:.2e}, std={k_std:.2e}',
-                sub=(1, nbins, i + 1),
-                cmap='viridis',
-                min=kappa_vmin,
-                max=kappa_vmax,
-                bgcolor=(0, ) * 4,
-                cbar=True,
-            )
-    else:
-        for i in range(nbins):
-            k_min = np.min(kappas[i])
-            k_max = np.max(kappas[i])
-            k_mean = np.mean(kappas[i])
-            k_std = np.std(kappas[i])
-            ax = plt.subplot(1, nbins, i + 1)
-            im = ax.imshow(
-                kappas[i],
-                cmap='viridis',
-                origin='lower',
-                vmin=kappa_vmin,
-                vmax=kappa_vmax,
-            )
-            ax.set_title(
-                f'{title_prefix} Kappa bin {i}\nmin={k_min:.2e}, max={k_max:.2e}\nmean={k_mean:.2e}, std={k_std:.2e}'
-            )
-            plt.colorbar(im, ax=ax)
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f'✓ Saved kappa maps to {save_path}')
+    return model_trace, true_kappas, true_lightcone, true_ic
 
 
 def run_mcmc_inference(config, true_kappas, samples_dir, args):
@@ -264,11 +223,14 @@ def run_mcmc_inference(config, true_kappas, samples_dir, args):
     nbins = len(config.nz_shear)
     observed_model = condition(
         full_field_basemodel,
-        {f"kappa_{i}": true_kappas[f"kappa_{i}"] for i in range(nbins)},
+        {f"kappa_{i}": true_kappas[f"kappa_{i}"]
+         for i in range(nbins)},
     )
 
     print(f'Sampling with {args.sampler} using {args.backend} backend')
-    print(f'Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}')
+    print(
+        f'Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}'
+    )
 
     batched_sampling(
         model=observed_model,
@@ -285,7 +247,7 @@ def run_mcmc_inference(config, true_kappas, samples_dir, args):
     print('✓ MCMC sampling completed')
 
 
-def analyze_results(samples_dir, true_data_dir, plots_dir, config, args):
+def analyze_results(samples_dir, true_data_dir, plots_dir, config):
     """Load samples and create diagnostic plots."""
     print('\n' + '=' * 60)
     print('Analyzing results')
@@ -304,78 +266,60 @@ def analyze_results(samples_dir, true_data_dir, plots_dir, config, args):
     print('Posterior Statistics')
     print('-' * 60)
     print(f'True Omega_c: {true_Omega_c:.4f}')
-    print(f'Inferred Omega_c: {samples["Omega_c"].mean():.4f} ± {samples["Omega_c"].std():.4f}')
+    print(
+        f'Inferred Omega_c: {samples["Omega_c"].mean():.4f} ± {samples["Omega_c"].std():.4f}'
+    )
     print(f'True sigma8: {true_sigma8:.4f}')
-    print(f'Inferred sigma8: {samples["sigma8"].mean():.4f} ± {samples["sigma8"].std():.4f}')
+    print(
+        f'Inferred sigma8: {samples["sigma8"].mean():.4f} ± {samples["sigma8"].std():.4f}'
+    )
 
-    print('\nCreating posterior plots...')
-    plt.figure(figsize=(12, 5))
+    print('\nCreating result plots...')
+    kappas = {
+        k: true_data[k]
+        for k in true_data.files if k.startswith('kappa_')
+    }
+    plot_kappa_maps(
+        kappas,
+        geometry=config.geometry,
+        save_path=plots_dir / 'true_kappa_maps.png',
+        title_prefix='True ',
+    )
 
-    plt.subplot(1, 2, 1)
-    plt.hist(samples["Omega_c"], bins=30, alpha=0.7, edgecolor='black')
-    plt.axvline(true_Omega_c, color='red', linestyle='--', linewidth=2, label='True value')
-    plt.xlabel('Omega_c')
-    plt.ylabel('Frequency')
-    plt.title('Posterior: Omega_c')
-    plt.legend()
+    posterior_pair_path = plots_dir / 'posterior_pair.png'
+    plot_posterior_pair(
+        samples["Omega_c"],
+        samples["sigma8"],
+        save_path=posterior_pair_path,
+        true_values={
+            "Omega_c": true_Omega_c,
+            "sigma8": true_sigma8
+        },
+    )
+    print(f'✓ Saved posterior pair plot to {posterior_pair_path}')
 
-    plt.subplot(1, 2, 2)
-    plt.hist(samples["sigma8"], bins=30, alpha=0.7, edgecolor='black')
-    plt.axvline(true_sigma8, color='red', linestyle='--', linewidth=2, label='True value')
-    plt.xlabel('sigma8')
-    plt.ylabel('Frequency')
-    plt.title('Posterior: sigma8')
-    plt.legend()
+    true_lightcone_path = true_data_dir / 'true_lightcone.npy'
+    if true_lightcone_path.exists():
+        true_lightcone = np.load(true_lightcone_path, allow_pickle=True)
+        plot_lightcones(true_lightcone, config.geometry,
+                        plots_dir / 'true_lightcone.png')
+        print(
+            f'✓ Saved true lightcone visualization to {plots_dir / "true_lightcone.png"}'
+        )
 
-    plt.tight_layout()
-    plt.savefig(plots_dir / 'posterior_histograms.png', dpi=150, bbox_inches='tight')
-    plt.close()
-    print('✓ Saved posterior histograms')
+    if 'lightcone' in samples:
+        posterior_lightcone = np.asarray(samples['lightcone']).mean(axis=0)
+        plot_lightcones(posterior_lightcone, config.geometry,
+                        plots_dir / 'posterior_lightcone.png')
+        print(
+            f'✓ Saved posterior lightcone visualization to {plots_dir / "posterior_lightcone.png"}'
+        )
 
-    plt.figure(figsize=(8, 8))
-    plt.scatter(samples["Omega_c"], samples["sigma8"], alpha=0.3, s=10)
-    plt.scatter([true_Omega_c], [true_sigma8], color='red', s=100, marker='*',
-                label='True values', zorder=10)
-    plt.xlabel('Omega_c')
-    plt.ylabel('sigma8')
-    plt.title('Joint Posterior: Omega_c vs sigma8')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(plots_dir / 'posterior_joint.png', dpi=150, bbox_inches='tight')
-    plt.close()
-    print('✓ Saved joint posterior plot')
-
-    if 'initial_conditions' in samples:
-        print('\nAnalyzing initial conditions recovery...')
-        true_ic_path = true_data_dir / 'true_ic.npy'
-        if true_ic_path.exists():
-            true_ic = np.load(true_ic_path)
-            mean_ic = samples["initial_conditions"].mean(axis=0)
-            std_ic = samples["initial_conditions"].std(axis=0)
-
-            slice_idx = true_ic.shape[-1] // 2
-            plot_ic_comparison(true_ic[..., slice_idx], mean_ic[..., slice_idx],
-                             std_ic[..., slice_idx], plots_dir / 'ic_comparison.png')
-
-
-def plot_ic_comparison(true_ic_slice, mean_ic_slice, std_ic_slice, save_path):
-    """Plot comparison of true vs recovered initial conditions."""
-    residual_ic = mean_ic_slice - true_ic_slice
-
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
-    for ax, img, title in zip(
-        axes,
-        [true_ic_slice, mean_ic_slice, std_ic_slice, residual_ic],
-        ["True IC", "Mean IC", "Std Dev IC", "Residuals IC"],
-    ):
-        im = ax.imshow(img, cmap="viridis")
-        ax.set_title(title)
-        plt.colorbar(im, ax=ax)
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f'✓ Saved IC comparison to {save_path}')
+    true_ic_path = true_data_dir / 'true_ic.npy'
+    if true_ic_path.exists() and 'ic' in samples:
+        true_ic = np.load(true_ic_path, allow_pickle=True)
+        plot_ic_summary(true_ic, samples['ic'], plots_dir / 'ic_summary.png')
+        print(f'✓ Saved IC summary plot to {plots_dir / "ic_summary.png"}')
 
 
 def main():
@@ -414,7 +358,7 @@ def main():
         nargs=3,
         default=[0.5, 0.5, 0.0],
         help='Observer position in box coordinates (x y z) between 0 and 1',
-    )   
+    )
     parser.add_argument(
         '--num-warmup',
         type=int,
@@ -437,7 +381,7 @@ def main():
         '--sampler',
         type=str,
         choices=['NUTS', 'HMC', 'MCLMC'],
-        default='MCLMC',
+        default='NUTS',
         help='MCMC sampler to use',
     )
     parser.add_argument(
@@ -459,6 +403,17 @@ def main():
         default=42,
         help='Random seed',
     )
+    parser.add_argument(
+        '--log-lightcone',
+        action='store_true',
+        help='Record lightcone as deterministic and enable related plots',
+    )
+    parser.add_argument(
+        '--log-ic',
+        action='store_true',
+        help=
+        'Record linear field (ic) as deterministic and enable related plots',
+    )
 
     args = parser.parse_args()
 
@@ -466,7 +421,8 @@ def main():
     print('LENSING BAYESIAN INFERENCE WORKFLOW')
     print('=' * 60)
 
-    output_dir, plots_dir, samples_dir, true_data_dir = setup_output_dir(args.output_dir)
+    output_dir, plots_dir, samples_dir, true_data_dir = setup_output_dir(
+        args.output_dir)
     sharding = setup_sharding()
 
     fiducial_cosmology = Planck18()
@@ -506,6 +462,8 @@ def main():
         adjoint=RecursiveCheckpointAdjoint(4),
         geometry=args.geometry,
         observer_position=tuple(args.observer_position),
+        log_lightcone=args.log_lightcone,
+        log_ic=args.log_ic,
     )
 
     print('\nGenerating initial conditions...')
@@ -513,12 +471,12 @@ def main():
                                       config.box_shape,
                                       sharding=sharding)
 
-    model_trace, true_kappas = generate_synthetic_observations(
-        config, fiducial_cosmology, initial_conditions, true_data_dir, plots_dir)
+    _, true_kappas, _, _ = generate_synthetic_observations(
+        config, fiducial_cosmology, initial_conditions, true_data_dir)
 
     run_mcmc_inference(config, true_kappas, samples_dir, args)
 
-    analyze_results(samples_dir, true_data_dir, plots_dir, config, args)
+    analyze_results(samples_dir, true_data_dir, plots_dir, config)
 
     print('\n' + '=' * 60)
     print('Workflow completed successfully!')

@@ -57,6 +57,10 @@ class Configurations(NamedTuple):
         Coordinate system geometry: "spherical" (HEALPix) or "flat" (Cartesian).
     observer_position : tuple or list, default=(0.5, 0.5, 0.5)
         Observer position as fraction of box size (x, y, z) between 0 and 1.
+    log_lightcone : bool, default=False
+        Whether the probabilistic model should record the lightcone as a deterministic site.
+    log_ic : bool, default=False
+        Whether the probabilistic model should record the linear field as a deterministic site.
 
     Notes
     -----
@@ -87,3 +91,5 @@ class Configurations(NamedTuple):
     max_redshift: float = 3.0
     geometry: str = "spherical"
     observer_position: tuple | list = (0.5, 0.5, 0.5)
+    log_lightcone: bool = False
+    log_ic: bool = False
