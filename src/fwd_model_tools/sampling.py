@@ -45,7 +45,7 @@ def batched_sampling(
 
     rng_key, init_key, warmup_key, run_key = jax.random.split(rng_key, 4)
     if backend == "blackjax":
-        init_params, potential_fn, *_ = initialize_model(
+        init_params, potential_fn, postprocess_fn, _ = initialize_model(
             init_key,
             model,
             model_args=model_args,
@@ -57,6 +57,7 @@ def batched_sampling(
     else:
         logdensity_fn = None
         initial_position = None
+        postprocess_fn = None
 
     if not os.path.exists(state_path):
         print(f"🔁 Starting fresh with warmup for {sampler} using {backend}...")
@@ -138,7 +139,11 @@ def batched_sampling(
             f"▶️ Resuming from saved warmup state for {sampler} using {backend}..."
         )
         with open(state_path, "rb") as f:
-            nb_samples, last_state, parameters = pickle.load(f)
+            saved_state = pickle.load(f)
+        nb_samples, last_state, parameters = saved_state[:3]
+        if backend == "blackjax" and len(saved_state) > 3:
+            # Legacy state files might contain a stored postprocess function; ignore it.
+            pass
 
         if backend == "blackjax":
             assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
@@ -161,7 +166,7 @@ def batched_sampling(
         print(f"at sample batch {i + 1}, total samples: {nb_samples}")
 
         if backend == "blackjax":
-            last_state, samples = blackjax.util.run_inference_algorithm(
+            last_state, raw_samples = blackjax.util.run_inference_algorithm(
                 rng_key=run_key,
                 initial_state=last_state,
                 inference_algorithm=sampler_fn,
@@ -169,6 +174,11 @@ def batched_sampling(
                 transform=lambda x, _: x.position,
                 progress_bar=True,
             )
+            if postprocess_fn is not None:
+                samples = jax.vmap(postprocess_fn(*model_args, **model_kwargs))(
+                    raw_samples)
+            else:
+                samples = raw_samples
             nb_evals = 0  # Don't know how to get the number of evaluations in blackjax
 
         elif backend == "numpyro":
@@ -237,6 +247,6 @@ def load_samples(path: str, param_names: list[str] = None) -> dict:
         data = np.load(file)
         for name in param_names:
             if name in data:
-                collected[name].append(jnp.array(data[name]))
+                collected[name].append(jnp.atleast_1d(jnp.array(data[name])))
 
     return {k: jnp.concatenate(v, axis=0) for k, v in collected.items() if v}

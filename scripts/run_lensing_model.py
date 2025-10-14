@@ -78,13 +78,40 @@ def setup_sharding(pdims=(4, 2)):
     return sharding
 
 
-def create_redshift_distribution(cosmo, box_size, plots_dir):
-    """Create and visualize redshift distribution."""
+def create_redshift_distribution(
+    cosmo,
+    box_size,
+    plots_dir,
+    observer_position=(0.5, 0.5, 0.5),
+    geometry="spherical",
+    los_axis=2,
+):
+    """Create and visualize redshift distribution.
+
+    Parameters
+    - cosmo: jax_cosmo.Cosmology
+    - box_size: sequence of 3 floats (Mpc/h)
+    - plots_dir: Path to save plots
+    - observer_position: (x, y, z) in [0, 1] fractions of box
+    - geometry: 'spherical' or 'flat'
+    - los_axis: line-of-sight axis index for flat sky (default: 2 -> z)
+    """
     print('\n' + '=' * 60)
     print('Creating redshift distribution')
     print('=' * 60)
 
-    max_comoving_distance = float(min(box_size) / 2.0)
+    # Compute a geometry-aware maximum comoving distance based on observer position
+    bs = np.asarray(box_size, dtype=float)
+    op = np.asarray(observer_position, dtype=float)
+
+    # Apply the user's linear factor rule along the chosen LOS axis for both geometries
+    #   factor(p) = 2 - |2p - 1|, with p in [0,1]
+    #   p=0.5 -> factor=2 (half box); p=0 or 1 -> factor=1 (full box)
+    p = float(np.clip(op[int(los_axis)], 0.0, 1.0))
+    factor = 2.0 - abs(2.0 * p - 1.0)
+    factor = float(np.clip(factor, 1.0, 2.0))
+    max_comoving_distance = float(bs[int(los_axis)] / factor)
+
     max_redshift = (1 / jc.background.a_of_chi(cosmo, max_comoving_distance) -
                     1).squeeze()
     z = jnp.linspace(0, max_redshift, 1000)
@@ -318,13 +345,13 @@ def analyze_results(samples_dir, true_data_dir, plots_dir, config, args):
     plt.close()
     print('✓ Saved joint posterior plot')
 
-    if 'ic' in samples:
+    if 'initial_conditions' in samples:
         print('\nAnalyzing initial conditions recovery...')
         true_ic_path = true_data_dir / 'true_ic.npy'
         if true_ic_path.exists():
             true_ic = np.load(true_ic_path)
-            mean_ic = samples["ic"].mean(axis=0)
-            std_ic = samples["ic"].std(axis=0)
+            mean_ic = samples["initial_conditions"].mean(axis=0)
+            std_ic = samples["initial_conditions"].std(axis=0)
 
             slice_idx = true_ic.shape[-1] // 2
             plot_ic_comparison(true_ic[..., slice_idx], mean_ic[..., slice_idx],
@@ -382,6 +409,13 @@ def main():
         help="Geometry type: 'flat' for Cartesian, 'spherical' for HEALPix",
     )
     parser.add_argument(
+        '--observer-position',
+        type=float,
+        nargs=3,
+        default=[0.5, 0.5, 0.0],
+        help='Observer position in box coordinates (x y z) between 0 and 1',
+    )   
+    parser.add_argument(
         '--num-warmup',
         type=int,
         default=50,
@@ -403,14 +437,14 @@ def main():
         '--sampler',
         type=str,
         choices=['NUTS', 'HMC', 'MCLMC'],
-        default='NUTS',
+        default='MCLMC',
         help='MCMC sampler to use',
     )
     parser.add_argument(
         '--backend',
         type=str,
         choices=['numpyro', 'blackjax'],
-        default='numpyro',
+        default='blackjax',
         help='Sampling backend',
     )
     parser.add_argument(
@@ -438,7 +472,13 @@ def main():
     fiducial_cosmology = Planck18()
 
     nz_shear, nbins, max_redshift = create_redshift_distribution(
-        fiducial_cosmology, args.box_size, plots_dir)
+        fiducial_cosmology,
+        args.box_size,
+        plots_dir,
+        observer_position=tuple(args.observer_position),
+        geometry=args.geometry,
+        los_axis=2,
+    )
 
     config = Configurations(
         field_size=9.6,
@@ -465,6 +505,7 @@ def main():
         halo_size=0 if sharding is None else args.box_shape[0] // 8,
         adjoint=RecursiveCheckpointAdjoint(4),
         geometry=args.geometry,
+        observer_position=tuple(args.observer_position),
     )
 
     print('\nGenerating initial conditions...')
