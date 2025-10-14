@@ -45,7 +45,8 @@ def get_pdims_from_sharding(sharding: NamedSharding):
     tuple
         A tuple of processor dimensions.
     """
-    return tuple([get_axis_size(sharding, i) for i in range(len(sharding.spec))])
+    return tuple(
+        [get_axis_size(sharding, i) for i in range(len(sharding.spec))])
 
 
 def save_sharded_array(array, prefix="shard_data"):
@@ -125,16 +126,19 @@ def load_sharded_array(sharding, prefix="shard_data"):
 
     current_pdims = get_pdims_from_sharding(sharding)
     if saved_pdims != current_pdims:
-        raise ValueError(f"Mesh shape mismatch: saved {saved_pdims}, got {current_pdims}")
+        raise ValueError(
+            f"Mesh shape mismatch: saved {saved_pdims}, got {current_pdims}")
 
-    saved_pdims = saved_pdims + (1,) * (len(saved_global_shape) - len(saved_pdims))
+    saved_pdims = saved_pdims + (1, ) * (len(saved_global_shape) -
+                                         len(saved_pdims))
 
-    nb_slices = tuple(saved_global_shape[i] // saved_pdims[i] for i in range(len(saved_pdims)))
+    nb_slices = tuple(saved_global_shape[i] // saved_pdims[i]
+                      for i in range(len(saved_pdims)))
 
     def index_to_flat(index, pdims):
         """Maps JAX slice-based index to flat shard index based on mesh dims."""
         flat_index = 0
-        flatted_pdims = pdims[1:] + (1,)
+        flatted_pdims = pdims[1:] + (1, )
         for i, (idx, size) in enumerate(zip(index, nb_slices)):
             if idx.start is None:
                 continue

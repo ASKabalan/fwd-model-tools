@@ -1,4 +1,5 @@
 from typing import Any, NamedTuple
+
 from diffrax import RecursiveCheckpointAdjoint
 
 

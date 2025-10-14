@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fwd-model-tools"
 version = "0.1.0"
-description = "Forward-modeling and sampling on top of JAXPM + JAX-Decomp (no painting)"
+description = "Forward-modeling and sampling on top of JAXPM + JAX-Decomp"
 authors = [
     { name = "Forward Model Tools Contributors" }
 ]

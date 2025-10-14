@@ -2,7 +2,8 @@ from collections.abc import Callable
 from typing import ClassVar, TypeAlias
 
 from diffrax import AbstractSolver
-from diffrax._custom_types import VF, Args, BoolScalarLike, DenseInfo, RealScalarLike
+from diffrax._custom_types import (VF, Args, BoolScalarLike, DenseInfo,
+                                   RealScalarLike)
 from diffrax._local_interpolation import LocalLinearInterpolation
 from diffrax._solution import RESULTS
 from diffrax._term import AbstractTerm
@@ -24,7 +25,8 @@ class SemiImplicitEuler(AbstractSolver):
     """
 
     term_structure: ClassVar = (AbstractTerm, AbstractTerm)
-    interpolation_cls: ClassVar[Callable[..., LocalLinearInterpolation]] = LocalLinearInterpolation
+    interpolation_cls: ClassVar[Callable[
+        ..., LocalLinearInterpolation]] = LocalLinearInterpolation
 
     def order(self, terms):
         return 1
@@ -44,7 +46,7 @@ class SemiImplicitEuler(AbstractSolver):
         control = term.contr(t0, t1)
         y0_1, y0_2 = y0
 
-        y1_2 = (y0_2**ω + term.vf_prod(t0, y0_1, args, control) ** ω).ω
+        y1_2 = (y0_2**ω + term.vf_prod(t0, y0_1, args, control)**ω).ω
 
         return (y0_1, y1_2)
 
@@ -57,7 +59,8 @@ class SemiImplicitEuler(AbstractSolver):
         args: Args,
         solver_state: _SolverState,
         made_jump: BoolScalarLike,
-    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState,
+               RESULTS]:
         del solver_state, made_jump
 
         term_1, term_2 = terms
@@ -65,8 +68,8 @@ class SemiImplicitEuler(AbstractSolver):
 
         control1 = term_1.contr(t0, t1)
         control2 = term_2.contr(t0, t1)
-        y1_1 = (y0_1**ω + term_1.vf_prod(t0, y0_2, args, control1) ** ω).ω
-        y1_2 = (y0_2**ω + term_2.vf_prod(t0, y1_1, args, control2) ** ω).ω
+        y1_1 = (y0_1**ω + term_1.vf_prod(t0, y0_2, args, control1)**ω).ω
+        y1_2 = (y0_2**ω + term_2.vf_prod(t0, y1_1, args, control2)**ω).ω
 
         y1 = (y1_1, y1_2)
 
@@ -82,7 +85,8 @@ class SemiImplicitEuler(AbstractSolver):
         args: Args,
         solver_state: _SolverState,
         made_jump: BoolScalarLike,
-    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
+    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState,
+               RESULTS]:
         del solver_state, made_jump
 
         term_1, term_2 = terms
@@ -90,8 +94,8 @@ class SemiImplicitEuler(AbstractSolver):
         control1 = term_1.contr(t0, t1)
         control2 = term_2.contr(t0, t1)
 
-        y0_2 = (y1_2**ω - term_2.vf_prod(t0, y1_1, args, control2) ** ω).ω
-        y0_1 = (y1_1**ω - term_1.vf_prod(t0, y0_2, args, control1) ** ω).ω
+        y0_2 = (y1_2**ω - term_2.vf_prod(t0, y1_1, args, control2)**ω).ω
+        y0_1 = (y1_1**ω - term_1.vf_prod(t0, y0_2, args, control1)**ω).ω
 
         y0 = (y0_1, y0_2)
 

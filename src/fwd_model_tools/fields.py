@@ -29,13 +29,11 @@ def linear_field(mesh_shape, box_size, pk, field):
     """
     field = fft3d(field)
     kvec = fftk(field)
-    kmesh = sum((kk / box_size[i] * mesh_shape[i]) ** 2 for i, kk in enumerate(kvec)) ** 0.5
-    pkmesh = (
-        pk(kmesh)
-        * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2])
-        / (box_size[0] * box_size[1] * box_size[2])
-    )
-    field = field * (pkmesh) ** 0.5
+    kmesh = sum((kk / box_size[i] * mesh_shape[i])**2
+                for i, kk in enumerate(kvec))**0.5
+    pkmesh = (pk(kmesh) * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2]) /
+              (box_size[0] * box_size[1] * box_size[2]))
+    field = field * (pkmesh)**0.5
     return ifft3d(field)
 
 
@@ -78,14 +76,12 @@ def lognormal_field(mesh_shape, box_size, pk, field, shift=1.0):
     """
     field_fft = fft3d(field)
     kvec = fftk(field_fft)
-    kmesh = sum((kk / box_size[i] * mesh_shape[i]) ** 2 for i, kk in enumerate(kvec)) ** 0.5
-    pkmesh = (
-        pk(kmesh)
-        * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2])
-        / (box_size[0] * box_size[1] * box_size[2])
-    )
+    kmesh = sum((kk / box_size[i] * mesh_shape[i])**2
+                for i, kk in enumerate(kvec))**0.5
+    pkmesh = (pk(kmesh) * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2]) /
+              (box_size[0] * box_size[1] * box_size[2]))
 
-    gaussian_field = ifft3d(field_fft * (pkmesh) ** 0.5)
+    gaussian_field = ifft3d(field_fft * (pkmesh)**0.5)
 
     sigma_sq = jnp.var(gaussian_field)
 
@@ -117,11 +113,18 @@ class DistributedNormal(Normal):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, sharding=None, *, validate_args=None):
+    def __init__(self,
+                 loc=0.0,
+                 scale=1.0,
+                 sharding=None,
+                 *,
+                 validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         self.sharding = sharding
-        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc),
+                                               jnp.shape(scale))
+        super(Normal, self).__init__(batch_shape=batch_shape,
+                                     validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         """
@@ -141,7 +144,9 @@ class DistributedNormal(Normal):
         """
         assert is_prng_key(key)
 
-        eps = normal_field(key, sample_shape + self.batch_shape + self.event_shape, self.sharding)
+        eps = normal_field(key,
+                           sample_shape + self.batch_shape + self.event_shape,
+                           self.sharding)
 
         return self.loc + eps * self.scale
 
@@ -174,12 +179,20 @@ class DistributedLogNormal(Normal):
     support = constraints.positive
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, shift=1.0, sharding=None, *, validate_args=None):
+    def __init__(self,
+                 loc=0.0,
+                 scale=1.0,
+                 shift=1.0,
+                 sharding=None,
+                 *,
+                 validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         self.shift = shift
         self.sharding = sharding
-        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc),
+                                               jnp.shape(scale))
+        super(Normal, self).__init__(batch_shape=batch_shape,
+                                     validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         """
@@ -199,7 +212,9 @@ class DistributedLogNormal(Normal):
         """
         assert is_prng_key(key)
 
-        eps = normal_field(key, sample_shape + self.batch_shape + self.event_shape, self.sharding)
+        eps = normal_field(key,
+                           sample_shape + self.batch_shape + self.event_shape,
+                           self.sharding)
 
         gaussian_sample = self.loc + eps * self.scale
 
