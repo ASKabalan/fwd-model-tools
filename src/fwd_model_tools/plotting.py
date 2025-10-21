@@ -1,15 +1,6 @@
-"""Plotting utilities for forward-modeling workflows.
+"""Lightweight plotting utilities for forward-modeling workflows."""
 
-This module centralizes the visualization routines used by the lensing workflow
-so that scripts remain thin orchestrators. Each helper takes NumPy-compatible
-arrays and writes plots to disk.
-"""
-
-from __future__ import annotations
-
-import math
 from pathlib import Path
-from typing import Iterable
 
 import arviz as az
 import healpy as hp
@@ -17,226 +8,233 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-
-
-def plot_lightcones(lightcone, geometry: str, save_path: Path | str, max_planes: int = 6) -> None:
-    """Plot a few representative lightcone planes.
+def plot_kappa(kappa, outdir, spherical=False, titles=None):
+    """Plot convergence maps.
 
     Parameters
     ----------
-    lightcone : array-like
-        Collection of density planes (num_planes, ...).
-    geometry : str
-        Either "spherical" (HEALPix) or "flat" (Cartesian).
-    save_path : Path or str
-        Destination for the PNG file.
-    max_planes : int, optional
-        Number of planes to show to avoid gigantic figures.
+    kappa : array_like
+        Shape (n_kappa, H, W) for flat geometry or (n_kappa, npix) for spherical.
+    outdir : str or Path
+        Output directory for saved plots.
+    spherical : bool, optional
+        If True, use HEALPix mollview projection. Default is False (flat).
+    titles : list of str, optional
+        Custom titles for each kappa map. If None, uses "Kappa 0", "Kappa 1", etc.
     """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    if lightcone is None:
-        return
+    kappa = np.asarray(kappa)
+    n_kappa = kappa.shape[0]
 
-    save_path = Path(save_path)
+    if titles is None:
+        titles = [f"Kappa {i}" for i in range(n_kappa)]
 
-    # If stacking failed (object dtype), fall back to list of planes
+    vmin, vmax = np.percentile(kappa[np.isfinite(kappa)], [2, 98])
 
-    planes = lightcone[:max_planes]
-    if not planes:
-        return
-
-    if geometry == "spherical":
-        cols = len(planes)
-        plt.figure(figsize=(4 * cols, 3.5))
-        for idx, plane in enumerate(planes, start=1):
-            plane = np.asarray(plane).ravel()
-            finite = plane[np.isfinite(plane)]
-            if finite.size == 0:
-                vmin, vmax = None, None
-            else:
-                vmin = np.percentile(finite, 2)
-                vmax = np.percentile(finite, 98)
+    if spherical:
+        fig = plt.figure(figsize=(4 * n_kappa, 3.5))
+        for i in range(n_kappa):
             hp.mollview(
-                plane,
-                sub=(1, cols, idx),
+                kappa[i].ravel(),
+                sub=(1, n_kappa, i + 1),
                 cmap="viridis",
-                title=f"Lightcone plane {idx}",
+                title=titles[i],
                 min=vmin,
                 max=vmax,
-                bgcolor=(0, 0, 0, 0),
                 cbar=True,
             )
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.savefig(outdir / "kappa_maps.png", dpi=150, bbox_inches="tight")
         plt.close()
     else:
-        rows = math.ceil(len(planes) / 3)
-        cols = min(len(planes), 3)
-        plt.figure(figsize=(5 * cols, 4 * rows))
-        for idx, plane in enumerate(planes, start=1):
-            ax = plt.subplot(rows, cols, idx)
-            im = ax.imshow(np.asarray(plane), origin="lower", cmap="viridis")
-            ax.set_title(f"Lightcone plane {idx}")
+        fig, axes = plt.subplots(1, n_kappa, figsize=(5 * n_kappa, 4))
+        if n_kappa == 1:
+            axes = [axes]
+        for i, ax in enumerate(axes):
+            im = ax.imshow(kappa[i], origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+            ax.set_title(titles[i])
             plt.colorbar(im, ax=ax)
         plt.tight_layout()
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.savefig(outdir / "kappa_maps.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
-def plot_kappa_maps(
-    kappas: dict[str, np.ndarray] | Iterable[np.ndarray],
-    geometry: str,
-    save_path: Path | str,
-    title_prefix: str = "",
-) -> None:
-    """Visualize convergence maps for all redshift bins."""
+def plot_lightcone(lightcone, outdir, spherical=False, titles=None):
+    """Plot lightcone density planes.
 
-    save_path = Path(save_path)
+    Parameters
+    ----------
+    lightcone : array_like
+        Shape (n_planes, H, W) for flat or (n_planes, npix) for spherical.
+    outdir : str or Path
+        Output directory for saved plots.
+    spherical : bool, optional
+        If True, use HEALPix mollview projection. Default is False (flat).
+    titles : list of str, optional
+        Custom titles for each plane. If None, uses "Plane 0", "Plane 1", etc.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    if isinstance(kappas, dict):
-        ordered = [kappas[key] for key in sorted(kappas.keys())]
-    else:
-        ordered = list(kappas)
+    lightcone = np.asarray(lightcone)
+    n_planes = lightcone.shape[0]
 
-    ordered = [np.asarray(k) for k in ordered]
-    if not ordered:
-        return
+    if titles is None:
+        titles = [f"Plane {i}" for i in range(n_planes)]
 
-    nbins = len(ordered)
-    flat_kappas = np.concatenate([k.ravel() for k in ordered])
-    valid = flat_kappas[np.isfinite(flat_kappas)]
-    if valid.size:
-        vmin, vmax = np.percentile(valid, 2), np.percentile(valid, 98)
-    else:
-        vmin, vmax = None, None
+    vmin, vmax = np.percentile(lightcone[np.isfinite(lightcone)], [2, 98])
 
-    if geometry == "spherical":
-        plt.figure(figsize=(4 * nbins, 3.5))
-        for idx, kappa in enumerate(ordered, start=1):
-            stats = (
-                np.nanmin(kappa),
-                np.nanmax(kappa),
-                np.nanmean(kappa),
-                np.nanstd(kappa),
-            )
+    if spherical:
+        fig = plt.figure(figsize=(4 * n_planes, 3.5))
+        for i in range(n_planes):
             hp.mollview(
-                kappa.ravel(),
-                sub=(1, nbins, idx),
+                lightcone[i].ravel(),
+                sub=(1, n_planes, i + 1),
                 cmap="viridis",
+                title=titles[i],
                 min=vmin,
                 max=vmax,
-                bgcolor=(0, 0, 0, 0),
-                title=(
-                    f"{title_prefix}Kappa {idx}\n"
-                    f"min={stats[0]:.2e} max={stats[1]:.2e}\n"
-                    f"mean={stats[2]:.2e} std={stats[3]:.2e}"
-                ),
                 cbar=True,
             )
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.savefig(outdir / "lightcone.png", dpi=150, bbox_inches="tight")
         plt.close()
     else:
-        plt.figure(figsize=(5 * nbins, 4))
-        for idx, kappa in enumerate(ordered, start=1):
-            ax = plt.subplot(1, nbins, idx)
-            im = ax.imshow(kappa, origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
-            stats = (
-                np.nanmin(kappa),
-                np.nanmax(kappa),
-                np.nanmean(kappa),
-                np.nanstd(kappa),
-            )
-            ax.set_title(
-                f"{title_prefix}Kappa {idx}\n"
-                f"min={stats[0]:.2e} max={stats[1]:.2e}\n"
-                f"mean={stats[2]:.2e} std={stats[3]:.2e}"
-            )
-            plt.colorbar(im, ax=ax)
+        rows = (n_planes + 2) // 3
+        cols = min(n_planes, 3)
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
+        axes = np.atleast_1d(axes).ravel()
+        for i in range(n_planes):
+            im = axes[i].imshow(lightcone[i], origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+            axes[i].set_title(titles[i])
+            plt.colorbar(im, ax=axes[i])
+        for j in range(n_planes, len(axes)):
+            axes[j].axis("off")
         plt.tight_layout()
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.savefig(outdir / "lightcone.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
-def plot_ic_summary(
-    true_ic: np.ndarray,
-    ic_samples: np.ndarray,
-    save_path: Path | str,
-    slice_axis: int = -1,
-    slice_index: int | None = None,
-) -> None:
-    """Plot true IC vs posterior mean/std (single slice)."""
+def plot_ic(true_ic, samples_ic, outdir, titles=("True", "Mean", "Std")):
+    """Plot initial conditions: true, posterior mean, and posterior std.
 
-    save_path = Path(save_path)
-    true_ic_np = _to_numpy(true_ic)
-    ic_samples_np = _to_numpy(ic_samples)
+    Parameters
+    ----------
+    true_ic : array_like
+        Shape (X, Y, Z), the true initial conditions.
+    samples_ic : array_like
+        Shape (n_samples, X, Y, Z), sampled initial conditions.
+    outdir : str or Path
+        Output directory for saved plots.
+    titles : tuple of str, optional
+        Titles for the three panels. Default is ("True", "Mean", "Std").
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    if ic_samples_np.ndim == true_ic_np.ndim:
-        # Assume leading axis is samples
-        sample_axis = 0
-    else:
-        raise ValueError("ic_samples must have a leading sample axis")
+    true_ic = np.asarray(true_ic)
+    samples_ic = np.asarray(samples_ic)
 
-    mean_ic = np.mean(ic_samples_np, axis=sample_axis)
-    std_ic = np.std(ic_samples_np, axis=sample_axis)
+    mean_ic = samples_ic.mean(axis=0)
+    std_ic = samples_ic.std(axis=0)
 
-    axis = slice_axis if slice_axis >= 0 else true_ic_np.ndim + slice_axis
-    if slice_index is None:
-        slice_index = true_ic_np.shape[axis] // 2
+    slice_idx = true_ic.shape[-1] // 2
 
-    slicer = [slice(None)] * true_ic_np.ndim
-    slicer[axis] = slice_index
-    slicer = tuple(slicer)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
 
-    true_slice = np.asarray(true_ic_np[slicer])
-    mean_slice = np.asarray(mean_ic[slicer])
-    std_slice = np.asarray(std_ic[slicer])
-    residual_slice = mean_slice - true_slice
+    data = [true_ic[..., slice_idx], mean_ic[..., slice_idx], std_ic[..., slice_idx]]
 
-    titles = [
-        f"True IC (slice {slice_index})",
-        "Posterior mean",
-        "Posterior std",
-        "Residual (mean - true)",
-    ]
-    slices = [true_slice, mean_slice, std_slice, residual_slice]
-
-    plt.figure(figsize=(16, 4))
-    for idx, (title, data) in enumerate(zip(titles, slices), start=1):
-        ax = plt.subplot(1, 4, idx)
-        im = ax.imshow(data, origin="lower", cmap="viridis")
+    for ax, d, title in zip(axes, data, titles):
+        im = ax.imshow(d, origin="lower", cmap="viridis")
         ax.set_title(title)
         plt.colorbar(im, ax=ax)
+
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(outdir / "ic_comparison.png", dpi=150, bbox_inches="tight")
     plt.close()
 
 
-def plot_posterior_pair(
-    omega_c_samples,
-    sigma8_samples,
-    save_path: Path | str,
-    true_values: dict[str, float] | None = None,
-) -> None:
-    """Create an ArviZ pair plot for (Omega_c, sigma8)."""
+def prepare_arviz_data(samples, params=None):
+    """Prepare ArviZ InferenceData from sample dictionary.
 
-    omega = np.asarray(omega_c_samples)
-    sigma = np.asarray(sigma8_samples)
+    Parameters
+    ----------
+    samples : dict
+        Dictionary mapping parameter names to arrays. Arrays can be 1D (n_samples,)
+        or 2D (n_chains, n_samples). Higher-dimensional arrays are filtered out.
+    params : tuple of str, optional
+        Parameter names to include. If None, includes all 1D parameters.
 
-    if omega.ndim == 1:
-        omega = omega[np.newaxis, :]
-    if sigma.ndim == 1:
-        sigma = sigma[np.newaxis, :]
+    Returns
+    -------
+    az.InferenceData
+        ArviZ InferenceData object ready for plotting.
+    """
+    scalar_keys = [k for k in samples.keys() if np.asarray(samples[k]).ndim == 1]
 
-    az_data = az.from_dict(posterior={"Omega_c": omega, "sigma8": sigma})
+    if params is not None:
+        scalar_keys = [k for k in scalar_keys if k in params]
 
-    plt.figure(figsize=(6, 6))
-    az.plot_pair(
-        az_data,
-        var_names=["Omega_c", "sigma8"],
+    posterior_dict = {}
+    for k in scalar_keys:
+        arr = np.asarray(samples[k])
+        if arr.ndim == 1:
+            posterior_dict[k] = arr[None, :]
+        else:
+            posterior_dict[k] = arr
+
+    return az.from_dict(posterior=posterior_dict)
+
+
+def plot_posterior(param_samples, outdir, params=("Omega_c", "sigma8"), true_values=None):
+    """Plot posterior distributions using ArviZ.
+
+    Parameters
+    ----------
+    param_samples : dict
+        Dictionary mapping parameter names to arrays of shape (n_samples,).
+    outdir : str or Path
+        Output directory for saved plots.
+    params : tuple of str, optional
+        Parameter names to plot. Default is ("Omega_c", "sigma8").
+    true_values : dict, optional
+        Dictionary mapping parameter names to true values. If provided,
+        true values will be plotted as red stars on the pair plot.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    posterior_dict = {k: np.asarray(v)[None, :] for k, v in param_samples.items() if k in params}
+
+    idata = az.from_dict(posterior=posterior_dict)
+
+    fig, axes = plt.subplots(len(params), 2, figsize=(12, 4 * len(params)))
+    if len(params) == 1:
+        axes = axes[None, :]
+
+    az.plot_trace(idata, var_names=list(params), axes=axes)
+
+    if true_values is not None:
+        for i, param in enumerate(params):
+            if param in true_values:
+                axes[i, 0].axvline(true_values[param], color="red", linestyle="--", linewidth=2, label="True value")
+                axes[i, 0].legend()
+
+    plt.tight_layout()
+    plt.savefig(outdir / "posterior_trace.png", dpi=150, bbox_inches="tight")
+    plt.close()
+
+    plt.figure(figsize=(12, 4))
+    axis = az.plot_pair(
+        idata,
+        var_names=list(params),
         kind="kde",
         marginals=True,
-        reference_values=true_values,
         divergences=False,
+        reference_values=true_values,
     )
+   
+
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.savefig(outdir / "posterior_pair.png", dpi=150, bbox_inches="tight")
     plt.close()

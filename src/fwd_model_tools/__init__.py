@@ -18,6 +18,8 @@ For development:
 from fwd_model_tools.config import Configurations
 from fwd_model_tools.lensing_model import (E, Planck18, full_field_probmodel,
                                            linear_field, make_full_field_model)
+from fwd_model_tools.plotting import (plot_ic, plot_kappa, plot_lightcone,
+                                      plot_posterior, prepare_arviz_data)
 
 __version__ = "0.1.0"
 
@@ -28,4 +30,9 @@ __all__ = [
     "linear_field",
     "make_full_field_model",
     "full_field_probmodel",
+    "plot_lightcone",
+    "plot_kappa",
+    "plot_ic",
+    "plot_posterior",
+    "prepare_arviz_data",
 ]
