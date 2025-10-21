@@ -30,7 +30,7 @@ dependencies = [
     "equinox",
     "blackjax",
     "numpyro",
-    "jaxtyping0",
+    "jaxtyping",
     "jaxpm",
     "jax-cosmo",
     "diffrax",
