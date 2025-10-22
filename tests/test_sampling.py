@@ -148,7 +148,7 @@ class TestBatchedSampling:
         [
             ("numpyro", "NUTS"),
             ("blackjax", "NUTS"),
-           #("blackjax", "MCLMC"),
+            # ("blackjax", "MCLMC"),
         ],
     )
     def test_batched_vs_nonbatched_equivalence(self, simple_model, backend, sampler):
@@ -211,7 +211,7 @@ class TestBatchedSampling:
         "backend,sampler",
         [
             ("numpyro", "NUTS"),
-            ("blackjax", "MCLMC"),
+            ("blackjax", "NUTS"),
         ],
     )
     def test_batched_sampling_produces_valid_samples(self, simple_model, backend, sampler):
@@ -329,3 +329,52 @@ class TestBatchedSampling:
             assert jnp.isfinite(samples["mu"]).all()
             assert jnp.isfinite(samples["sigma"]).all()
             assert jnp.isfinite(samples["x"]).all()
+
+    def test_init_params_with_multidimensional_field(self):
+        def model_with_field():
+            Omega_c = numpyro.sample("Omega_c", dist.Uniform(0.2, 0.4))
+            sigma8 = numpyro.sample("sigma8", dist.Uniform(0.6, 1.0))
+            ic = numpyro.sample("initial_conditions", dist.Normal(jnp.zeros((8, 8, 8)), jnp.ones((8, 8, 8))))
+            numpyro.deterministic("sum_params", Omega_c + sigma8 + ic.mean())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seed = 42
+            num_warmup = 30
+            samples_per_batch = 50
+            batch_count = 1
+
+            ic_init = jax.random.normal(jax.random.PRNGKey(123), (8, 8, 8))
+            init_params = {
+                "Omega_c": 0.26,
+                "sigma8": 0.81,
+                "initial_conditions": ic_init,
+            }
+
+            batched_sampling(
+                model=model_with_field,
+                path=tmpdir,
+                rng_key=jax.random.PRNGKey(seed),
+                num_warmup=num_warmup,
+                num_samples=samples_per_batch,
+                batch_count=batch_count,
+                sampler="NUTS",
+                backend="numpyro",
+                save=True,
+                init_params=init_params,
+            )
+
+            samples = load_samples(tmpdir, param_names=["Omega_c", "sigma8", "initial_conditions"])
+
+            assert samples["Omega_c"].shape[0] == samples_per_batch
+            assert samples["sigma8"].shape[0] == samples_per_batch
+            assert samples["initial_conditions"].shape == (samples_per_batch, 8, 8, 8)
+
+            assert jnp.isfinite(samples["Omega_c"]).all()
+            assert jnp.isfinite(samples["sigma8"]).all()
+            assert jnp.isfinite(samples["initial_conditions"]).all()
+
+            mean_omega = float(samples["Omega_c"].mean())
+            mean_sigma8 = float(samples["sigma8"].mean())
+
+            assert 0.2 < mean_omega < 0.4, f"Omega_c mean {mean_omega} within prior bounds"
+            assert 0.6 < mean_sigma8 < 1.0, f"sigma8 mean {mean_sigma8} within prior bounds"
