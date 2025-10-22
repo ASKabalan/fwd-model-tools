@@ -1,5 +1,3 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
@@ -7,17 +5,15 @@ import numpyro
 import numpyro.distributions as dist
 from diffrax import ODETerm, RecursiveCheckpointAdjoint, SaveAt, diffeqsolve
 from jax_cosmo.scipy.integrate import simps
-from jaxpm.distributed import fft3d, ifft3d
-from jaxpm.lensing import (convergence_Born, density_plane_fn,
-                           spherical_density_fn)
+from jaxpm.lensing import convergence_Born, density_plane_fn, spherical_density_fn
 from jaxpm.ode import symplectic_ode
 from jaxpm.pm import lpt
+from jaxpm.spherical import spherical_visibility_mask
 
 from fwd_model_tools.fields import DistributedNormal, linear_field
-from fwd_model_tools.solvers.integrate import \
-    integrate as reverse_adjoint_integrate
+from fwd_model_tools.solvers.integrate import integrate as reverse_adjoint_integrate
 from fwd_model_tools.solvers.semi_implicit_euler import SemiImplicitEuler
-
+import numpy as np
 
 def E(cosmo, a):
     """
@@ -81,6 +77,106 @@ def Planck18(**kwargs):
     return jc.Cosmology(**defaults)
 
 
+def compute_box_size_from_redshift(cosmo, max_redshift, observer_position):
+    """
+    Compute simulation box size from maximum redshift and observer position.
+
+    The box size is determined by the comoving distance to max_redshift and
+    scaled by the observer position to ensure the observable volume is fully
+    contained within the simulation box. For observers not at the box center,
+    the box must be larger to accommodate the maximum line-of-sight distance.
+
+    Parameters
+    ----------
+    cosmo : jax_cosmo.Cosmology
+        Cosmology object.
+    max_redshift : float
+        Maximum redshift for the lightcone.
+    observer_position : tuple or array_like
+        Observer position as fraction of box size (x, y, z) with values in [0, 1].
+        Example: (0.5, 0.5, 0.5) for box center, (0.5, 0.5, 0.0) for edge.
+
+    Returns
+    -------
+    tuple
+        Box size (Lx, Ly, Lz) in Mpc/h for each dimension.
+
+    Notes
+    -----
+    The scaling factor for each dimension is computed as:
+        factor = 1.0 + 2.0 * min(position, 1.0 - position)
+
+    This ensures:
+    - Centered observer (0.5): factor = 2.0 → box size = 2 * r_comoving
+    - Edge observer (0.0 or 1.0): factor = 2.0 → box size = 2 * r_comoving
+    - Off-center: factor > 2.0 → larger box to contain full light cone
+
+    Examples
+    --------
+    >>> cosmo = Planck18()
+    >>> box_size = compute_box_size_from_redshift(cosmo, 1.0, (0.5, 0.5, 0.5))
+    >>> # Returns symmetric box sized to contain lightcone to z=1.0
+    """
+    r_comoving = jc.background.radial_comoving_distance(cosmo, jc.utils.z2a(max_redshift)).squeeze()
+    print(f"Comoving distance to z={max_redshift}: {r_comoving} Mpc/h")
+
+    observer_position = jnp.asarray(observer_position)
+    factors = jnp.clip(observer_position, 0.0, 1.0)
+    factors = 1.0 + 2.0 * jnp.minimum(factors, 1.0 - factors)
+
+    box_size = tuple(map(float, factors * r_comoving))
+
+    return box_size
+
+def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
+    """
+    Compute maximum redshift from simulation box size and observer position.
+
+    The maximum redshift is determined by the comoving distance that can be
+    accommodated within the simulation box, given the observer's position.
+    For observers not at the box center, the effective line-of-sight distance
+    is reduced, leading to a lower maximum redshift.
+
+    Parameters
+    ----------
+    cosmo : jax_cosmo.Cosmology
+        Cosmology object.
+    box_size : tuple or array_like
+        Simulation box size (Lx, Ly, Lz) in Mpc/h for each dimension.
+    observer_position : tuple or array_like
+        Observer position as fraction of box size (x, y, z) with values in [0, 1].
+        Example: (0.5, 0.5, 0.5) for box center, (0.5, 0.5, 0.0) for edge.
+
+    Returns
+    -------
+    float
+        Maximum redshift that can be accommodated within the box.
+
+    Notes
+    -----
+    The effective comoving distance is computed as:
+        r_effective = min(Li / factor_i)
+    where factor_i = 1.0 + 2.0 * min(position_i, 1.0 - position_i) for each dimension i.
+
+    Examples
+    --------
+    >>> cosmo = Planck18()
+    >>> max_redshift = compute_max_redshift_from_box_size(cosmo, (500.0, 500.0, 500.0), (0.5, 0.5, 0.5))
+    >>> # Returns maximum redshift accommodated by the box size
+    """
+    box_size = jnp.asarray(box_size)
+    observer_position = jnp.asarray(observer_position)
+
+    factors = jnp.clip(observer_position, 0.0, 1.0)
+    factors = 1.0 + 2.0 * jnp.minimum(factors, 1.0 - factors)
+
+    r_effective = jnp.min(box_size / factors)
+
+    max_redshift = jc.utils.a2z(jc.background.a_of_chi(cosmo, r_effective)).squeeze()
+
+    return float(max_redshift)
+
+
 def integrate(terms, solver, t0, t1, dt0, y0, args, saveat, adjoint):
     """
     Run ODE integration with diffrax or reverse-mode adjoint integrator.
@@ -112,19 +208,10 @@ def integrate(terms, solver, t0, t1, dt0, y0, args, saveat, adjoint):
         (solution, times) where solution contains the ODE solution at saveat times.
     """
     if isinstance(adjoint, RecursiveCheckpointAdjoint):
-        solution = diffeqsolve(terms,
-                               solver,
-                               t0,
-                               t1,
-                               dt0,
-                               y0,
-                               args,
-                               saveat=saveat,
-                               adjoint=adjoint)
+        solution = diffeqsolve(terms, solver, t0, t1, dt0, y0, args, saveat=saveat, adjoint=adjoint)
         return solution.ys, saveat.subs.ts
     else:
-        solution = reverse_adjoint_integrate(terms, solver, t0, t1, dt0, y0,
-                                             args, saveat)
+        solution = reverse_adjoint_integrate(terms, solver, t0, t1, dt0, y0, args, saveat)
         return solution, saveat.subs.ts
 
 
@@ -215,20 +302,20 @@ def make_full_field_model(
     - Uses relative position painting (paint_absolute_pos=False) for better accuracy
     - Lightcone is constructed by saving density planes at specific scale factors
     """
-    assert geometry in [
-        "spherical", "flat"
-    ], f"geometry must be 'spherical' or 'flat', got {geometry}"
+    assert geometry in ["spherical", "flat"], f"geometry must be 'spherical' or 'flat', got {geometry}"
     assert density_plane_width is not None
     assert density_plane_npix is not None
 
     if observer_position is None:
         observer_position = (0.5, 0.5, 0.5)
 
-    observer_position_mpc = jnp.array([
-        observer_position[0] * box_size[0],
-        observer_position[1] * box_size[1],
-        observer_position[2] * box_size[2],
-    ])
+    observer_position_mpc = jnp.array(
+        [
+            observer_position[0] * box_size[0],
+            observer_position[1] * box_size[1],
+            observer_position[2] * box_size[2],
+        ]
+    )
 
     def forward_model(cosmo, nz_shear, initial_conditions):
         k = jnp.logspace(-4, 1, 128)
@@ -236,11 +323,9 @@ def make_full_field_model(
         cosmo._workspace = {}
 
         def pk_fn(x):
-            return jc.scipy.interpolate.interp(x.reshape([-1]), k,
-                                               pk).reshape(x.shape)
+            return jc.scipy.interpolate.interp(x.reshape([-1]), k, pk).reshape(x.shape)
 
-        lin_field = linear_field(box_shape, box_size, pk_fn,
-                                 initial_conditions)
+        lin_field = linear_field(box_shape, box_size, pk_fn, initial_conditions)
         cosmo._workspace = {}
         dx, p, f = lpt(
             cosmo,
@@ -253,18 +338,15 @@ def make_full_field_model(
         )
         cosmo._workspace = {}
 
-        drift, kick = symplectic_ode(box_shape,
-                                     paint_absolute_pos=False,
-                                     halo_size=halo_size,
-                                     sharding=sharding)
+        drift, kick = symplectic_ode(box_shape, paint_absolute_pos=False, halo_size=halo_size, sharding=sharding)
         ode_fn = ODETerm(kick), ODETerm(drift)
 
-        a_init = t0
-        max_radius = float(min(box_size) / 2.0)
+        factors = np.clip(observer_position, 0.0, 1.0)
+        factors = 1.0 + 2.0 * np.minimum(factors, 1.0 - factors)
+        max_radius = box_size[2] / factors[2]
+        print(f"max radius for ray tracing: {max_radius} Mpc/h")
         n_lens = int(max_radius // float(density_plane_width))
-        r_edges = jnp.linspace(0.0,
-                               float(n_lens) * float(density_plane_width),
-                               n_lens + 1)
+        r_edges = jnp.linspace(0.0, float(n_lens) * float(density_plane_width), n_lens + 1)
         r_center = 0.5 * (r_edges[1:] + r_edges[:-1])
         a_center = jc.background.a_of_chi(cosmo, r_center)
         cosmo._workspace = {}
@@ -275,22 +357,15 @@ def make_full_field_model(
             saveat = SaveAt(
                 ts=a_center[::-1],
                 fn=lambda t, y, args: spherical_density_fn(
-                    box_shape,
-                    box_size,
-                    nside,
-                    observer_position_mpc,
-                    density_plane_width,
-                    sharding=sharding)(t, y[1], args),
+                    box_shape, box_size, nside, observer_position_mpc, density_plane_width, sharding=sharding
+                )(t, y[1], args),
             )
         else:
             saveat = SaveAt(
                 ts=a_center[::-1],
-                fn=lambda t, y, args: density_plane_fn(box_shape,
-                                                       box_size,
-                                                       density_plane_width,
-                                                       density_plane_npix,
-                                                       sharding=sharding)
-                (t, y[1], args),
+                fn=lambda t, y, args: density_plane_fn(
+                    box_shape, box_size, density_plane_width, density_plane_npix, sharding=sharding
+                )(t, y[1], args),
             )
         y0 = (p, dx)
         args = cosmo
@@ -312,48 +387,46 @@ def make_full_field_model(
         if geometry == "spherical":
             convergence_maps = [
                 simps(
-                    lambda z: nz(z).reshape([-1, 1]) * convergence_Born(
-                        cosmo, lightcone, r_center, a_center, z,
-                        density_plane_width),
+                    lambda z: nz(z).reshape([-1, 1])
+                    * convergence_Born(cosmo, lightcone, r_center, a_center, z, density_plane_width),
                     min_redshift,
                     max_redshift,
                     N=32,
-                ) for nz in nz_shear
+                )
+                for nz in nz_shear
             ]
         else:
             dx = box_size[0] / density_plane_npix
             xgrid, ygrid = jnp.meshgrid(
-                jnp.linspace(0, field_size, density_plane_npix,
-                             endpoint=False),
-                jnp.linspace(0, field_size, density_plane_npix,
-                             endpoint=False),
+                jnp.linspace(0, field_size, density_plane_npix, endpoint=False),
+                jnp.linspace(0, field_size, density_plane_npix, endpoint=False),
             )
-            coords = jnp.array(
-                (jnp.stack([xgrid, ygrid], axis=0)) * (jnp.pi / 180))
+            coords = jnp.array((jnp.stack([xgrid, ygrid], axis=0)) * (jnp.pi / 180))
             convergence_maps = [
                 simps(
-                    lambda z: nz(z).reshape([-1, 1, 1]) * convergence_Born(
-                        cosmo,
-                        lightcone,
-                        r_center,
-                        a_center,
-                        z,
-                        density_plane_width,
-                        dx=dx,
-                        coords=coords),
+                    lambda z: nz(z).reshape([-1, 1, 1])
+                    * convergence_Born(
+                        cosmo, lightcone, r_center, a_center, z, density_plane_width, dx=dx, coords=coords
+                    ),
                     min_redshift,
                     max_redshift,
                     N=32,
-                ) for nz in nz_shear
+                )
+                for nz in nz_shear
             ]
 
             convergence_maps = [
-                kmap.reshape([
-                    field_npix,
-                    density_plane_npix // field_npix,
-                    field_npix,
-                    density_plane_npix // field_npix,
-                ]).mean(axis=1).mean(axis=-1) for kmap in convergence_maps
+                kmap.reshape(
+                    [
+                        field_npix,
+                        density_plane_npix // field_npix,
+                        field_npix,
+                        density_plane_npix // field_npix,
+                    ]
+                )
+                .mean(axis=1)
+                .mean(axis=-1)
+                for kmap in convergence_maps
             ]
 
         return convergence_maps, lightcone, lin_field
@@ -410,36 +483,40 @@ def full_field_probmodel(config):
             observer_position=config.observer_position,
         )
 
-        cosmo = config.fiducial_cosmology(**{
-            k: numpyro.sample(k, v)
-            for k, v in config.priors.items()
-        })
+        cosmo = config.fiducial_cosmology(**{k: numpyro.sample(k, v) for k, v in config.priors.items()})
 
         initial_conditions = numpyro.sample(
             "initial_conditions",
-            DistributedNormal(jnp.zeros(config.box_shape),
-                              jnp.ones(config.box_shape), config.sharding),
+            DistributedNormal(jnp.zeros(config.box_shape), jnp.ones(config.box_shape), config.sharding),
         )
 
-        convergence_maps, lc, lin_field = forward_model(
-            cosmo, config.nz_shear, initial_conditions)
+        convergence_maps, lc, lin_field = forward_model(cosmo, config.nz_shear, initial_conditions)
 
         if config.log_lightcone:
             numpyro.deterministic("lightcone", lc)
         if config.log_ic:
             numpyro.deterministic("ic", lin_field)
 
+        if config.geometry == "spherical":
+            visibility_mask = spherical_visibility_mask(config.nside, config.observer_position)
+            sigma_e = config.sigma_e * visibility_mask
+            convergence_maps = [k * visibility_mask for k in convergence_maps]
+        else:
+            sigma_e = config.sigma_e
+
         observed_maps = [
             numpyro.sample(
                 f"kappa_{i}",
                 dist.Normal(
                     k,
-                    config.sigma_e /
-                    jnp.sqrt(config.nz_shear[i].gals_per_arcmin2 *
-                             (config.field_size * 60 / config.field_npix)**2),
+                    sigma_e
+                    / jnp.sqrt(config.nz_shear[i].gals_per_arcmin2 * (config.field_size * 60 / config.field_npix) ** 2),
                 ),
-            ) for i, k in enumerate(convergence_maps)
+            )
+            for i, k in enumerate(convergence_maps)
         ]
+
+
 
         return observed_maps
 
