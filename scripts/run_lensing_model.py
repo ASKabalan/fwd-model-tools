@@ -12,17 +12,17 @@ Complete workflow:
 
 import os
 
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.95'
-os.environ['EQX_ON_ERROR'] = 'nan'
-#os.environ['JAX_PLATFORM_NAME'] = 'cpu'
-#os.environ['JAX_PLATFORMS'] = 'cpu'
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+os.environ["EQX_ON_ERROR"] = "nan"
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+os.environ["JAX_PLATFORMS"] = "cpu"
 
 import jax
 
-jax.config.update('jax_enable_x64', False)
+jax.config.update("jax_enable_x64", False)
 
-print(f'JAX devices: {jax.device_count()}')
-print(f'JAX backend: {jax.default_backend()}')
+print(f"JAX devices: {jax.device_count()}")
+print(f"JAX backend: {jax.default_backend()}")
 
 import argparse
 import time
@@ -32,8 +32,7 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import matplotlib
 
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+matplotlib.use("Agg")
 import numpy as np
 import numpyro.distributions as dist
 from diffrax import RecursiveCheckpointAdjoint
@@ -42,15 +41,16 @@ from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
 from fwd_model_tools import Configurations, Planck18, full_field_probmodel
+from fwd_model_tools.lensing_model import compute_box_size_from_redshift,compute_max_redshift_from_box_size
 from fwd_model_tools.plotting import plot_ic, plot_kappa, plot_lightcone, plot_posterior
 from fwd_model_tools.sampling import batched_sampling, load_samples
 
 
 def setup_output_dir(output_dir):
     output_dir = Path(output_dir)
-    plots_dir = output_dir / 'plots'
-    samples_dir = output_dir / 'samples'
-    data_dir = output_dir / 'data'
+    plots_dir = output_dir / "plots"
+    samples_dir = output_dir / "samples"
+    data_dir = output_dir / "data"
 
     plots_dir.mkdir(parents=True, exist_ok=True)
     samples_dir.mkdir(parents=True, exist_ok=True)
@@ -64,41 +64,42 @@ def setup_sharding(pdims=(4, 2)):
         from jax.sharding import NamedSharding
         from jax.sharding import PartitionSpec as P
 
-        mesh = jax.make_mesh(pdims, ('x', 'y'))
-        sharding = NamedSharding(mesh, P('x', 'y'))
-        print(f'Using sharding with mesh: {pdims}')
+        mesh = jax.make_mesh(pdims, ("x", "y"))
+        sharding = NamedSharding(mesh, P("x", "y"))
+        print(f"Using sharding with mesh: {pdims}")
     else:
         sharding = None
-        print('Single device mode - no sharding')
+        print("Single device mode - no sharding")
 
     return sharding
 
 
 def create_redshift_distribution(
-        cosmo,
-        box_size,
-        observer_position=(0.5, 0.5, 0.5),
-        geometry="spherical",
-        los_axis=2,
+    cosmo,
+    box_size=None,
+    observer_position=(0.5, 0.5, 0.5),
+    geometry="spherical",
+    max_redshift=None,
 ):
-    print('\n' + '=' * 60)
-    print('Creating redshift distribution')
-    print('=' * 60)
+    print("\n" + "=" * 60)
+    print("Creating redshift distribution")
+    print("=" * 60)
 
-    bs = np.asarray(box_size, dtype=float)
-    op = np.asarray(observer_position, dtype=float)
+    if box_size is None and max_redshift is None:
+        raise ValueError("Either box_size or max_redshift must be provided")
 
-    p = float(np.clip(op[int(los_axis)], 0.0, 1.0))
-    factor = 2.0 - abs(2.0 * p - 1.0)
-    factor = float(np.clip(factor, 1.0, 2.0))
-    max_comoving_distance = float(bs[int(los_axis)] / factor)
+    if box_size is None:
+        box_size = compute_box_size_from_redshift(cosmo, max_redshift, observer_position)
+        print(f"Auto-computed box size: {box_size} Mpc/h for max redshift {max_redshift}")
+    elif max_redshift is None:
+        max_redshift =  compute_max_redshift_from_box_size(cosmo, box_size, observer_position)
+        print(f"Auto-computed max redshift: {max_redshift} for box size {box_size} Mpc/h")
 
-    max_redshift = (1 / jc.background.a_of_chi(cosmo, max_comoving_distance) -
-                    1).squeeze()
     z = jnp.linspace(0, max_redshift, 1000)
-    z_centers = jnp.linspace(0.2, max_redshift - 0.1, 4)
-    z_centers = jnp.round(z_centers, 2)
-    print(f'z_centers = {z_centers}')
+    z_centers = jnp.linspace(0.2, max_redshift - 0.01, 4)
+    print(f"z_centers = {z_centers}")
+    z_centers = jnp.round(z_centers, 3)
+    print(f"z_centers = {z_centers}")
 
     nz_shear = [
         jc.redshift.kde_nz(
@@ -107,18 +108,18 @@ def create_redshift_distribution(
             bw=0.01,
             zmax=max_redshift,
             gals_per_arcmin2=g,
-        ) for z_center, g in zip(z_centers, [7, 8.5, 7.5, 7])
+        )
+        for z_center, g in zip(z_centers, [7, 8.5, 7.5, 7])
     ]
     nbins = len(nz_shear)
 
-    return nz_shear, nbins, max_redshift
+    return nz_shear, nbins, max_redshift, box_size
 
 
-def generate_synthetic_observations(config, fiducial_cosmology,
-                                    initial_conditions, data_dir, plots_dir):
-    print('\n' + '=' * 60)
-    print('Step 1: Generating synthetic observations')
-    print('=' * 60)
+def generate_synthetic_observations(config, fiducial_cosmology, initial_conditions, data_dir, plots_dir):
+    print("\n" + "=" * 60)
+    print("Step 1: Generating synthetic observations")
+    print("=" * 60)
 
     config_with_logging = config._replace(log_lightcone=True, log_ic=True)
     full_field_basemodel = full_field_probmodel(config_with_logging)
@@ -128,23 +129,23 @@ def generate_synthetic_observations(config, fiducial_cosmology,
         {
             "Omega_c": fiducial_cosmology.Omega_c,
             "sigma8": fiducial_cosmology.sigma8,
-            "initial_conditions": initial_conditions
+            "initial_conditions": initial_conditions,
         },
     )
 
-    print('Tracing fiducial model to generate observables...')
+    print("Tracing fiducial model to generate observables...")
     start_time = time.time()
     model_trace = trace(seed(fiducial_model, 0)).get_trace()
     elapsed = time.time() - start_time
-    print(f'✓ Fiducial model traced in {elapsed:.2f}s')
+    print(f"✓ Fiducial model traced in {elapsed:.2f}s")
 
     nbins = len(config.nz_shear)
     kappa_keys = [f"kappa_{i}" for i in range(nbins)]
     true_kappas = {key: model_trace[key]["value"] for key in kappa_keys}
 
-    print('\n' + '=' * 60)
-    print('Step 2: Saving true data and plotting')
-    print('=' * 60)
+    print("\n" + "=" * 60)
+    print("Step 2: Saving true data and plotting")
+    print("=" * 60)
 
     np.savez(
         data_dir / "true_kappas.npz",
@@ -152,30 +153,30 @@ def generate_synthetic_observations(config, fiducial_cosmology,
         Omega_c=fiducial_cosmology.Omega_c,
         sigma8=fiducial_cosmology.sigma8,
     )
-    print(f'✓ Saved true kappas to {data_dir / "true_kappas.npz"}')
+    print(f"✓ Saved true kappas to {data_dir / 'true_kappas.npz'}")
 
     true_ic = np.asarray(model_trace["ic"]["value"])
     np.save(data_dir / "true_ic.npy", true_ic)
-    print(f'✓ Saved true IC to {data_dir / "true_ic.npy"}')
+    print(f"✓ Saved true IC to {data_dir / 'true_ic.npy'}")
 
     true_lightcone = np.asarray(model_trace["lightcone"]["value"])
     np.save(data_dir / "true_lightcone.npy", true_lightcone)
-    print(f'✓ Saved true lightcone to {data_dir / "true_lightcone.npy"}')
+    print(f"✓ Saved true lightcone to {data_dir / 'true_lightcone.npy'}")
 
     plot_lightcone(true_lightcone, plots_dir, spherical=(config.geometry == "spherical"))
-    print(f'✓ Plotted lightcone to {plots_dir / "lightcone.png"}')
+    print(f"✓ Plotted lightcone to {plots_dir / 'lightcone.png'}")
 
     kappa_array = np.stack([true_kappas[k] for k in kappa_keys])
     plot_kappa(kappa_array, plots_dir, spherical=(config.geometry == "spherical"))
-    print(f'✓ Plotted kappa maps to {plots_dir / "kappa_maps.png"}')
+    print(f"✓ Plotted kappa maps to {plots_dir / 'kappa_maps.png'}")
 
     return true_kappas
 
 
 def run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=None):
-    print('\n' + '=' * 60)
-    print('Step 3: Running MCMC inference')
-    print('=' * 60)
+    print("\n" + "=" * 60)
+    print("Step 3: Running MCMC inference")
+    print("=" * 60)
 
     config_inference = config._replace(log_lightcone=False, log_ic=True)
     full_field_basemodel = full_field_probmodel(config_inference)
@@ -186,8 +187,8 @@ def run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=None)
         {f"kappa_{i}": true_kappas[f"kappa_{i}"] for i in range(nbins)},
     )
 
-    print(f'Sampling with {args.sampler} using {args.backend} backend')
-    print(f'Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}')
+    print(f"Sampling with {args.sampler} using {args.backend} backend")
+    print(f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}")
 
     batched_sampling(
         model=observed_model,
@@ -199,144 +200,145 @@ def run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=None)
         sampler=args.sampler,
         backend=args.backend,
         save=True,
+        init_params=init_params,
     )
 
-    print('✓ MCMC sampling completed')
+    print("✓ MCMC sampling completed")
 
 
 def analyze_results(samples_dir, data_dir, plots_dir):
-    print('\n' + '=' * 60)
-    print('Step 5: Loading samples and plotting results')
-    print('=' * 60)
+    print("\n" + "=" * 60)
+    print("Step 5: Loading samples and plotting results")
+    print("=" * 60)
 
     samples = load_samples(str(samples_dir))
-    print(f'Loaded parameters: {list(samples.keys())}')
+    print(f"Loaded parameters: {list(samples.keys())}")
 
     true_data = np.load(data_dir / "true_kappas.npz")
-    true_Omega_c = float(true_data['Omega_c'])
-    true_sigma8 = float(true_data['sigma8'])
+    true_Omega_c = float(true_data["Omega_c"])
+    true_sigma8 = float(true_data["sigma8"])
 
-    print('\nPosterior Statistics:')
-    print(f'True Omega_c: {true_Omega_c:.4f}')
-    print(f'Inferred Omega_c: {samples["Omega_c"].mean():.4f} ± {samples["Omega_c"].std():.4f}')
-    print(f'True sigma8: {true_sigma8:.4f}')
-    print(f'Inferred sigma8: {samples["sigma8"].mean():.4f} ± {samples["sigma8"].std():.4f}')
+    print("\nPosterior Statistics:")
+    print(f"True Omega_c: {true_Omega_c:.4f}")
+    print(f"Inferred Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}")
+    print(f"True sigma8: {true_sigma8:.4f}")
+    print(f"Inferred sigma8: {samples['sigma8'].mean():.4f} ± {samples['sigma8'].std():.4f}")
 
-    if 'ic' in samples:
+    if "ic" in samples:
         true_ic = np.load(data_dir / "true_ic.npy")
-        plot_ic(true_ic, samples['ic'], plots_dir)
-        print(f'✓ Plotted IC comparison to {plots_dir / "ic_comparison.png"}')
+        plot_ic(true_ic, samples["ic"], plots_dir)
+        print(f"✓ Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
 
-    param_samples = {
-        "Omega_c": samples["Omega_c"],
-        "sigma8": samples["sigma8"]
-    }
+    param_samples = {"Omega_c": samples["Omega_c"], "sigma8": samples["sigma8"]}
     plot_posterior(param_samples, plots_dir, params=("Omega_c", "sigma8"))
-    print(f'✓ Plotted posteriors to {plots_dir / "posterior_trace.png"} and {plots_dir / "posterior_pair.png"}')
+    print(f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Run lensing Bayesian inference workflow')
+    parser = argparse.ArgumentParser(description="Run lensing Bayesian inference workflow")
     parser.add_argument(
-        '--output-dir',
+        "--output-dir",
         type=str,
-        default='output',
-        help='Output directory for plots and samples',
+        default="output",
+        help="Output directory for plots and samples",
     )
     parser.add_argument(
-        '--box-shape',
+        "--box-shape",
         type=int,
         nargs=3,
         default=[256, 256, 256],
-        help='Simulation box shape (nx ny nz)',
+        help="Simulation box shape (nx ny nz)",
     )
     parser.add_argument(
-        '--box-size',
+        "--box-size",
         type=float,
         nargs=3,
-        default=[2000.0, 2000.0, 2000.0],
-        help='Simulation box size in Mpc/h (Lx Ly Lz)',
+        default=None,
+        help="Simulation box size in Mpc/h (Lx Ly Lz). If not provided, computed automatically from max redshift and observer position.",
     )
     parser.add_argument(
-        '--geometry',
+        "--max-redshift",
+        type=float,
+        default=None,
+        help="Maximum redshift for the simulation",
+    )
+    parser.add_argument(
+        "--geometry",
         type=str,
-        choices=['flat', 'spherical'],
-        default='spherical',
+        choices=["flat", "spherical"],
+        default="spherical",
         help="Geometry type: 'flat' for Cartesian, 'spherical' for HEALPix",
     )
     parser.add_argument(
-        '--observer-position',
+        "--observer-position",
         type=float,
         nargs=3,
         default=[0.5, 0.5, 0.0],
-        help='Observer position in box coordinates (x y z) between 0 and 1',
+        help="Observer position in box coordinates (x y z) between 0 and 1",
     )
     parser.add_argument(
-        '--num-warmup',
+        "--num-warmup",
         type=int,
         default=50,
-        help='Number of warmup steps for MCMC',
+        help="Number of warmup steps for MCMC",
     )
     parser.add_argument(
-        '--num-samples',
+        "--num-samples",
         type=int,
         default=50,
-        help='Number of samples per batch',
+        help="Number of samples per batch",
     )
     parser.add_argument(
-        '--batch-count',
+        "--batch-count",
         type=int,
         default=2,
-        help='Number of batches to run',
+        help="Number of batches to run",
     )
     parser.add_argument(
-        '--sampler',
+        "--sampler",
         type=str,
-        choices=['NUTS', 'HMC', 'MCLMC'],
-        default='MCLMC',
-        help='MCMC sampler to use',
+        choices=["NUTS", "HMC", "MCLMC"],
+        default="MCLMC",
+        help="MCMC sampler to use",
     )
     parser.add_argument(
-        '--backend',
+        "--backend",
         type=str,
-        choices=['numpyro', 'blackjax'],
-        default='blackjax',
-        help='Sampling backend',
+        choices=["numpyro", "blackjax"],
+        default="blackjax",
+        help="Sampling backend",
     )
     parser.add_argument(
-        '--sigma-e',
+        "--sigma-e",
         type=float,
         default=0.3,
-        help='Intrinsic ellipticity dispersion',
+        help="Intrinsic ellipticity dispersion",
     )
     parser.add_argument(
-        '--seed',
+        "--seed",
         type=int,
         default=42,
-        help='Random seed',
+        help="Random seed",
     )
     parser.add_argument(
-        '--plot-only',
-        action='store_true',
-        help='Only generate plots from existing samples (skip observation generation and MCMC)',
+        "--plot-only",
+        action="store_true",
+        help="Only generate plots from existing samples (skip observation generation and MCMC)",
     )
 
     args = parser.parse_args()
 
-    print('=' * 60)
-    print('LENSING BAYESIAN INFERENCE WORKFLOW')
-    print('=' * 60)
+    print("=" * 60)
+    print("LENSING BAYESIAN INFERENCE WORKFLOW")
+    print("=" * 60)
 
-    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(
-        args.output_dir)
+    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(args.output_dir)
 
     if args.plot_only:
-        print('\nPlot-only mode: Loading existing samples and generating plots...')
-        if not samples_dir.exists() or not any(samples_dir.glob('samples_*.npz')):
+        print("\nPlot-only mode: Loading existing samples and generating plots...")
+        if not samples_dir.exists() or not any(samples_dir.glob("samples_*.npz")):
             raise FileNotFoundError(
-                f'No sample files found in {samples_dir}. '
-                'Run without --plot-only first to generate samples.'
+                f"No sample files found in {samples_dir}. Run without --plot-only first to generate samples."
             )
         analyze_results(samples_dir, data_dir, plots_dir)
     else:
@@ -344,20 +346,20 @@ def main():
 
         fiducial_cosmology = Planck18()
 
-        nz_shear, nbins, max_redshift = create_redshift_distribution(
+        nz_shear, nbins, max_redshift, box_size = create_redshift_distribution(
             fiducial_cosmology,
             args.box_size,
             observer_position=tuple(args.observer_position),
             geometry=args.geometry,
-            los_axis=2,
+            max_redshift=args.max_redshift,
         )
 
         config = Configurations(
             field_size=9.6,
-            field_npix=args.box_shape[0] if args.geometry == 'flat' else 64,
+            field_npix=args.box_shape[0] if args.geometry == "flat" else 64,
             box_shape=tuple(args.box_shape),
-            box_size=args.box_size,
-            density_plane_width=100.0,
+            box_size=box_size,
+            density_plane_width=200.0,
             density_plane_npix=args.box_shape[0],
             nside=args.box_shape[0],
             density_plane_smoothing=0.1,
@@ -382,28 +384,29 @@ def main():
             log_ic=False,
         )
 
-        print('\nGenerating initial conditions...')
-        initial_conditions = normal_field(jax.random.key(args.seed),
-                                          config.box_shape,
-                                          sharding=sharding)
+        print("\nGenerating initial conditions...")
+        initial_conditions = normal_field(jax.random.key(args.seed), config.box_shape, sharding=sharding)
 
         true_kappas = generate_synthetic_observations(
-            config, fiducial_cosmology, initial_conditions, data_dir, plots_dir)
+            config, fiducial_cosmology, initial_conditions, data_dir, plots_dir
+        )
 
         init_params = {
-           "Omega_c": fiducial_cosmology.Omega_c,
+            "Omega_c": fiducial_cosmology.Omega_c,
             "sigma8": fiducial_cosmology.sigma8,
-            "initial_conditions": initial_conditions
+            "initial_conditions": initial_conditions,
         }
+        if args.num_warmup == 0:
+            return
         run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=init_params)
 
         analyze_results(samples_dir, data_dir, plots_dir)
 
-    print('\n' + '=' * 60)
-    print('Workflow completed successfully!')
-    print(f'Results saved to: {output_dir}')
-    print('=' * 60)
+    print("\n" + "=" * 60)
+    print("Workflow completed successfully!")
+    print(f"Results saved to: {output_dir}")
+    print("=" * 60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
