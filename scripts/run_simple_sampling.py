@@ -71,13 +71,16 @@ def forward_model_components(ic, alpha, beta):
 
 
 def field_model(log_ic=False):
-    ic_raw = numpyro.sample("initial_conditions", dist.Normal(jnp.zeros(FIELD_SHAPE), jnp.ones(FIELD_SHAPE)))
+    ic_raw = numpyro.sample(
+        "initial_conditions",
+        dist.Normal(jnp.zeros(FIELD_SHAPE), jnp.ones(FIELD_SHAPE)))
     ic, ic_scale = normalize_field(ic_raw)
 
     alpha = numpyro.sample("alpha", dist.Uniform(0.5, 3.5))
     beta = numpyro.sample("beta", dist.Uniform(-1.0, 1.5))
 
-    linear_term, quadratic_term, combined_term = forward_model_components(ic, alpha, beta)
+    linear_term, quadratic_term, combined_term = forward_model_components(
+        ic, alpha, beta)
 
     if log_ic:
         numpyro.deterministic("ic", ic)
@@ -100,11 +103,19 @@ def plot_field_comparison(true_field, samples_field, plots_dir):
 
     vmin_ic, vmax_ic = np.percentile(true_field, [2, 98])
 
-    im0 = axes[0].imshow(true_field, origin="lower", cmap="viridis", vmin=vmin_ic, vmax=vmax_ic)
+    im0 = axes[0].imshow(true_field,
+                         origin="lower",
+                         cmap="viridis",
+                         vmin=vmin_ic,
+                         vmax=vmax_ic)
     axes[0].set_title("True IC")
     plt.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].imshow(mean_field, origin="lower", cmap="viridis", vmin=vmin_ic, vmax=vmax_ic)
+    im1 = axes[1].imshow(mean_field,
+                         origin="lower",
+                         cmap="viridis",
+                         vmin=vmin_ic,
+                         vmax=vmax_ic)
     axes[1].set_title("Posterior Mean IC")
     plt.colorbar(im1, ax=axes[1])
 
@@ -138,9 +149,11 @@ def generate_synthetic_observations(data_dir, plots_dir, magic_seed=42):
     def model_with_logging():
         return field_model(log_ic=True)
 
-    conditioned_model = condition(
-        model_with_logging, {"initial_conditions": true_ic_raw, "alpha": TRUE_ALPHA, "beta": TRUE_BETA}
-    )
+    conditioned_model = condition(model_with_logging, {
+        "initial_conditions": true_ic_raw,
+        "alpha": TRUE_ALPHA,
+        "beta": TRUE_BETA
+    })
 
     print("Tracing model to generate synthetic observable...")
     start_time = time.time()
@@ -164,18 +177,24 @@ def generate_synthetic_observations(data_dir, plots_dir, magic_seed=42):
         obs_combined=np.asarray(true_obs_combined),
     )
     print(f"✓ Saved true data to {data_dir / 'true_data.npz'}")
-    print(f"  True IC scale (std before normalization): {float(true_ic_scale):.4f}")
+    print(
+        f"  True IC scale (std before normalization): {float(true_ic_scale):.4f}"
+    )
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     im0 = axes[0].imshow(np.asarray(true_ic), origin="lower", cmap="viridis")
     axes[0].set_title("True IC (unit std)")
     plt.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].imshow(np.asarray(true_obs_linear), origin="lower", cmap="magma")
+    im1 = axes[1].imshow(np.asarray(true_obs_linear),
+                         origin="lower",
+                         cmap="magma")
     axes[1].set_title("Linear observable")
     plt.colorbar(im1, ax=axes[1])
 
-    im2 = axes[2].imshow(np.asarray(true_obs_quadratic), origin="lower", cmap="magma")
+    im2 = axes[2].imshow(np.asarray(true_obs_quadratic),
+                         origin="lower",
+                         cmap="magma")
     axes[2].set_title("Quadratic observable")
     plt.colorbar(im2, ax=axes[2])
 
@@ -219,7 +238,9 @@ def run_mcmc_inference(true_obs, samples_dir, args):
     )
 
     print(f"Sampling with {args.sampler} using {args.backend} backend")
-    print(f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}")
+    print(
+        f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}"
+    )
 
     start_time = time.time()
     batched_sampling(
@@ -252,9 +273,13 @@ def analyze_results(samples_dir, data_dir, plots_dir):
 
     print("\nPosterior Statistics:")
     print(f"True alpha: {true_alpha:.4f}")
-    print(f"Inferred alpha: {samples['alpha'].mean():.4f} ± {samples['alpha'].std():.4f}")
+    print(
+        f"Inferred alpha: {samples['alpha'].mean():.4f} ± {samples['alpha'].std():.4f}"
+    )
     print(f"True beta: {true_beta:.4f}")
-    print(f"Inferred beta: {samples['beta'].mean():.4f} ± {samples['beta'].std():.4f}")
+    print(
+        f"Inferred beta: {samples['beta'].mean():.4f} ± {samples['beta'].std():.4f}"
+    )
 
     if "ic" in samples:
         print("\nPlotting IC comparison...")
@@ -263,12 +288,18 @@ def analyze_results(samples_dir, data_dir, plots_dir):
 
     param_samples = {"alpha": samples["alpha"], "beta": samples["beta"]}
     true_param_values = {"alpha": true_alpha, "beta": true_beta}
-    plot_posterior(param_samples, plots_dir, params=("alpha", "beta"), true_values=true_param_values)
-    print(f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}")
+    plot_posterior(param_samples,
+                   plots_dir,
+                   params=("alpha", "beta"),
+                   true_values=true_param_values)
+    print(
+        f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}"
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run simple field-based Bayesian inference workflow")
+    parser = argparse.ArgumentParser(
+        description="Run simple field-based Bayesian inference workflow")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -316,12 +347,14 @@ def main():
     parser.add_argument(
         "--plot-only",
         action="store_true",
-        help="Only analyze existing samples (skip data generation and sampling)",
+        help=
+        "Only analyze existing samples (skip data generation and sampling)",
     )
 
     args = parser.parse_args()
 
-    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(args.output_dir)
+    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(
+        args.output_dir)
 
     print("=" * 60)
     print("Simple Field-Based Bayesian Inference Workflow")
@@ -336,7 +369,9 @@ def main():
         print("\n⚠ Plot-only mode: skipping data generation and sampling")
         analyze_results(samples_dir, data_dir, plots_dir)
     else:
-        true_obs = generate_synthetic_observations(data_dir, plots_dir, magic_seed=args.seed)
+        true_obs = generate_synthetic_observations(data_dir,
+                                                   plots_dir,
+                                                   magic_seed=args.seed)
         run_mcmc_inference(true_obs, samples_dir, args)
         analyze_results(samples_dir, data_dir, plots_dir)
 

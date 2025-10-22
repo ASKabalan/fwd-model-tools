@@ -12,6 +12,7 @@ from jax.experimental.multihost_utils import process_allgather
 from jaxtyping import Key, PyTree
 from numpyro.infer import HMC, MCMC, NUTS
 from numpyro.infer.util import initialize_model
+from tqdm import tqdm
 
 all_gather = partial(process_allgather, tiled=True)
 
@@ -35,18 +36,24 @@ def batched_sampling(
     samples_prefix = f"{path}/samples"
     nb_samples = 0
 
-    assert backend in {"numpyro", "blackjax"}, "Backend must be 'numpyro' or 'blackjax'"
+    assert backend in {"numpyro",
+                       "blackjax"}, "Backend must be 'numpyro' or 'blackjax'"
     if backend == "numpyro":
-        assert sampler in {"NUTS", "HMC"}, "Only NUTS and HMC supported by numpyro"
+        assert sampler in {"NUTS",
+                           "HMC"}, "Only NUTS and HMC supported by numpyro"
     if sampler == "MCLMC":
         assert backend == "blackjax", "MCLMC is only supported by blackjax"
 
     rng_key, init_key, warmup_key, run_key = jax.random.split(rng_key, 4)
     if backend == "blackjax":
         init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(
-            init_key, model, model_args=model_args, model_kwargs=model_kwargs, dynamic_args=True
-        )
-        logdensity_fn = lambda position: -potential_fn(*model_args, **model_kwargs)(position)
+            init_key,
+            model,
+            model_args=model_args,
+            model_kwargs=model_kwargs,
+            dynamic_args=True)
+        logdensity_fn = lambda position: -potential_fn(*model_args, **
+                                                       model_kwargs)(position)
         initial_position = init_params if init_params is not None else init_params_obj.z
     else:
         logdensity_fn = None
@@ -59,10 +66,13 @@ def batched_sampling(
             assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
             assert initial_position is not None, "initial_position must be defined for blackjax backend"
             if sampler == "NUTS":
-                adapt = blackjax.window_adaptation(
-                    blackjax.nuts, logdensity_fn, progress_bar=True, target_acceptance_rate=0.8
-                )
-                (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
+                adapt = blackjax.window_adaptation(blackjax.nuts,
+                                                   logdensity_fn,
+                                                   progress_bar=True,
+                                                   target_acceptance_rate=0.8)
+                (last_state,
+                 parameters), _ = adapt.run(warmup_key, initial_position,
+                                            num_warmup)
                 sampler_fn = blackjax.nuts(logdensity_fn, **parameters)
 
             elif sampler == "HMC":
@@ -73,37 +83,50 @@ def batched_sampling(
                     target_acceptance_rate=0.8,
                     num_integration_steps=10,
                 )
-                (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
+                (last_state,
+                 parameters), _ = adapt.run(warmup_key, initial_position,
+                                            num_warmup)
                 sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
 
             elif sampler == "MCLMC":
                 initial_state = blackjax.mcmc.mclmc.init(
-                    position=initial_position, logdensity_fn=logdensity_fn, rng_key=init_key
-                )
+                    position=initial_position,
+                    logdensity_fn=logdensity_fn,
+                    rng_key=init_key)
                 kernel_builder = lambda imm: blackjax.mcmc.mclmc.build_kernel(
                     logdensity_fn=logdensity_fn,
                     integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
                     inverse_mass_matrix=imm,
                 )
-                tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
-                    mclmc_kernel=kernel_builder,
-                    num_steps=num_warmup,
-                    state=initial_state,
-                    rng_key=warmup_key,
-                    diagonal_preconditioning=False,
-                    desired_energy_var=1e-3,
-                )
-                parameters = {"L": tuned_params.L, "step_size": tuned_params.step_size}
+                print("🔧 Tuning MCLMC parameters (L and step_size)...")
+                with tqdm(total=100,
+                          desc="MCLMC Warmup",
+                          bar_format="{desc}: {elapsed}") as pbar:
+                    tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
+                        mclmc_kernel=kernel_builder,
+                        num_steps=num_warmup,
+                        state=initial_state,
+                        rng_key=warmup_key,
+                        diagonal_preconditioning=False,
+                        desired_energy_var=1e-3,
+                    )
+                    pbar.update(100)
+                parameters = {
+                    "L": tuned_params.L,
+                    "step_size": tuned_params.step_size
+                }
                 sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
                 last_state = tuned_state
 
         elif backend == "numpyro":
             kwargs = {}
             if init_params is not None:
-                kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
+                kwargs["init_strategy"] = partial(numpyro.infer.init_to_value,
+                                                  values=init_params)
 
             mcmc = MCMC(
-                NUTS(model, **kwargs) if sampler == "NUTS" else HMC(model, **kwargs),
+                NUTS(model, **kwargs) if sampler == "NUTS" else HMC(
+                    model, **kwargs),
                 num_warmup=num_warmup,
                 num_samples=num_samples,
                 progress_bar=True,
@@ -119,7 +142,9 @@ def batched_sampling(
             with open(state_path, "wb") as f:
                 pickle.dump((0, last_state, parameters), f)
     else:
-        print(f"▶️ Resuming from saved warmup state for {sampler} using {backend}...")
+        print(
+            f"▶️ Resuming from saved warmup state for {sampler} using {backend}..."
+        )
         with open(state_path, "rb") as f:
             saved_state = pickle.load(f)
         nb_samples, last_state, parameters = saved_state[:3]
@@ -142,7 +167,9 @@ def batched_sampling(
         return
 
     for i in range(start_batch, batch_count):
-        print(f"📦 Sampling batch {i + 1}/{batch_count} using {sampler} with {backend}...\n")
+        print(
+            f"📦 Sampling batch {i + 1}/{batch_count} using {sampler} with {backend}...\n"
+        )
         print(f"at sample batch {i + 1}, total samples: {nb_samples}")
 
         run_key, batch_key = jax.random.split(run_key)
@@ -157,7 +184,8 @@ def batched_sampling(
                 progress_bar=True,
             )
             if postprocess_fn is not None:
-                samples = jax.vmap(postprocess_fn(*model_args, **model_kwargs))(raw_samples)
+                samples = jax.vmap(postprocess_fn(*model_args,
+                                                  **model_kwargs))(raw_samples)
             else:
                 samples = raw_samples
             nb_evals = 0  # Don't know how to get the number of evaluations in blackjax
@@ -170,7 +198,10 @@ def batched_sampling(
                 progress_bar=True,
             )
             mcmc.post_warmup_state = last_state
-            mcmc.run(batch_key, *model_args, **model_kwargs, extra_fields=("num_steps",))
+            mcmc.run(batch_key,
+                     *model_args,
+                     **model_kwargs,
+                     extra_fields=("num_steps", ))
             samples = mcmc.get_samples()
             nb_evals = mcmc.get_extra_fields()["num_steps"]
             last_state = mcmc.last_state

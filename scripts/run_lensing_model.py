@@ -41,8 +41,10 @@ from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
 from fwd_model_tools import Configurations, Planck18, full_field_probmodel
-from fwd_model_tools.lensing_model import compute_box_size_from_redshift,compute_max_redshift_from_box_size
-from fwd_model_tools.plotting import plot_ic, plot_kappa, plot_lightcone, plot_posterior
+from fwd_model_tools.lensing_model import (compute_box_size_from_redshift,
+                                           compute_max_redshift_from_box_size)
+from fwd_model_tools.plotting import (plot_ic, plot_kappa, plot_lightcone,
+                                      plot_posterior)
 from fwd_model_tools.sampling import batched_sampling, load_samples
 
 
@@ -89,11 +91,17 @@ def create_redshift_distribution(
         raise ValueError("Either box_size or max_redshift must be provided")
 
     if box_size is None:
-        box_size = compute_box_size_from_redshift(cosmo, max_redshift, observer_position)
-        print(f"Auto-computed box size: {box_size} Mpc/h for max redshift {max_redshift}")
+        box_size = compute_box_size_from_redshift(cosmo, max_redshift,
+                                                  observer_position)
+        print(
+            f"Auto-computed box size: {box_size} Mpc/h for max redshift {max_redshift}"
+        )
     elif max_redshift is None:
-        max_redshift =  compute_max_redshift_from_box_size(cosmo, box_size, observer_position)
-        print(f"Auto-computed max redshift: {max_redshift} for box size {box_size} Mpc/h")
+        max_redshift = compute_max_redshift_from_box_size(
+            cosmo, box_size, observer_position)
+        print(
+            f"Auto-computed max redshift: {max_redshift} for box size {box_size} Mpc/h"
+        )
 
     z = jnp.linspace(0, max_redshift, 1000)
     z_centers = jnp.linspace(0.2, max_redshift - 0.01, 4)
@@ -108,15 +116,15 @@ def create_redshift_distribution(
             bw=0.01,
             zmax=max_redshift,
             gals_per_arcmin2=g,
-        )
-        for z_center, g in zip(z_centers, [7, 8.5, 7.5, 7])
+        ) for z_center, g in zip(z_centers, [7, 8.5, 7.5, 7])
     ]
     nbins = len(nz_shear)
 
     return nz_shear, nbins, max_redshift, box_size
 
 
-def generate_synthetic_observations(config, fiducial_cosmology, initial_conditions, data_dir, plots_dir):
+def generate_synthetic_observations(config, fiducial_cosmology,
+                                    initial_conditions, data_dir, plots_dir):
     print("\n" + "=" * 60)
     print("Step 1: Generating synthetic observations")
     print("=" * 60)
@@ -163,17 +171,25 @@ def generate_synthetic_observations(config, fiducial_cosmology, initial_conditio
     np.save(data_dir / "true_lightcone.npy", true_lightcone)
     print(f"✓ Saved true lightcone to {data_dir / 'true_lightcone.npy'}")
 
-    plot_lightcone(true_lightcone, plots_dir, spherical=(config.geometry == "spherical"))
+    plot_lightcone(true_lightcone,
+                   plots_dir,
+                   spherical=(config.geometry == "spherical"))
     print(f"✓ Plotted lightcone to {plots_dir / 'lightcone.png'}")
 
     kappa_array = np.stack([true_kappas[k] for k in kappa_keys])
-    plot_kappa(kappa_array, plots_dir, spherical=(config.geometry == "spherical"))
+    plot_kappa(kappa_array,
+               plots_dir,
+               spherical=(config.geometry == "spherical"))
     print(f"✓ Plotted kappa maps to {plots_dir / 'kappa_maps.png'}")
 
     return true_kappas
 
 
-def run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=None):
+def run_mcmc_inference(config,
+                       true_kappas,
+                       samples_dir,
+                       args,
+                       init_params=None):
     print("\n" + "=" * 60)
     print("Step 3: Running MCMC inference")
     print("=" * 60)
@@ -184,11 +200,14 @@ def run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=None)
     nbins = len(config.nz_shear)
     observed_model = condition(
         full_field_basemodel,
-        {f"kappa_{i}": true_kappas[f"kappa_{i}"] for i in range(nbins)},
+        {f"kappa_{i}": true_kappas[f"kappa_{i}"]
+         for i in range(nbins)},
     )
 
     print(f"Sampling with {args.sampler} using {args.backend} backend")
-    print(f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}")
+    print(
+        f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}"
+    )
 
     batched_sampling(
         model=observed_model,
@@ -212,6 +231,9 @@ def analyze_results(samples_dir, data_dir, plots_dir):
     print("=" * 60)
 
     samples = load_samples(str(samples_dir))
+    samples = jax.tree.map(
+        lambda x: x[-10:],
+        samples)  # Limit to first 10 samples for quick plotting
     print(f"Loaded parameters: {list(samples.keys())}")
 
     true_data = np.load(data_dir / "true_kappas.npz")
@@ -220,22 +242,32 @@ def analyze_results(samples_dir, data_dir, plots_dir):
 
     print("\nPosterior Statistics:")
     print(f"True Omega_c: {true_Omega_c:.4f}")
-    print(f"Inferred Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}")
+    print(
+        f"Inferred Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}"
+    )
     print(f"True sigma8: {true_sigma8:.4f}")
-    print(f"Inferred sigma8: {samples['sigma8'].mean():.4f} ± {samples['sigma8'].std():.4f}")
+    print(
+        f"Inferred sigma8: {samples['sigma8'].mean():.4f} ± {samples['sigma8'].std():.4f}"
+    )
 
     if "ic" in samples:
         true_ic = np.load(data_dir / "true_ic.npy")
         plot_ic(true_ic, samples["ic"], plots_dir)
         print(f"✓ Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
 
-    param_samples = {"Omega_c": samples["Omega_c"], "sigma8": samples["sigma8"]}
+    param_samples = {
+        "Omega_c": samples["Omega_c"],
+        "sigma8": samples["sigma8"]
+    }
     plot_posterior(param_samples, plots_dir, params=("Omega_c", "sigma8"))
-    print(f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}")
+    print(
+        f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}"
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run lensing Bayesian inference workflow")
+    parser = argparse.ArgumentParser(
+        description="Run lensing Bayesian inference workflow")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -254,7 +286,8 @@ def main():
         type=float,
         nargs=3,
         default=None,
-        help="Simulation box size in Mpc/h (Lx Ly Lz). If not provided, computed automatically from max redshift and observer position.",
+        help=
+        "Simulation box size in Mpc/h (Lx Ly Lz). If not provided, computed automatically from max redshift and observer position.",
     )
     parser.add_argument(
         "--max-redshift",
@@ -323,7 +356,8 @@ def main():
     parser.add_argument(
         "--plot-only",
         action="store_true",
-        help="Only generate plots from existing samples (skip observation generation and MCMC)",
+        help=
+        "Only generate plots from existing samples (skip observation generation and MCMC)",
     )
 
     args = parser.parse_args()
@@ -332,11 +366,15 @@ def main():
     print("LENSING BAYESIAN INFERENCE WORKFLOW")
     print("=" * 60)
 
-    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(args.output_dir)
+    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(
+        args.output_dir)
 
     if args.plot_only:
-        print("\nPlot-only mode: Loading existing samples and generating plots...")
-        if not samples_dir.exists() or not any(samples_dir.glob("samples_*.npz")):
+        print(
+            "\nPlot-only mode: Loading existing samples and generating plots..."
+        )
+        if not samples_dir.exists() or not any(
+                samples_dir.glob("samples_*.npz")):
             raise FileNotFoundError(
                 f"No sample files found in {samples_dir}. Run without --plot-only first to generate samples."
             )
@@ -385,11 +423,14 @@ def main():
         )
 
         print("\nGenerating initial conditions...")
-        initial_conditions = normal_field(jax.random.key(args.seed), config.box_shape, sharding=sharding)
+        initial_conditions = normal_field(jax.random.key(args.seed),
+                                          config.box_shape,
+                                          sharding=sharding)
 
-        true_kappas = generate_synthetic_observations(
-            config, fiducial_cosmology, initial_conditions, data_dir, plots_dir
-        )
+        true_kappas = generate_synthetic_observations(config,
+                                                      fiducial_cosmology,
+                                                      initial_conditions,
+                                                      data_dir, plots_dir)
 
         init_params = {
             "Omega_c": fiducial_cosmology.Omega_c,
@@ -398,7 +439,11 @@ def main():
         }
         if args.num_warmup == 0:
             return
-        run_mcmc_inference(config, true_kappas, samples_dir, args, init_params=init_params)
+        run_mcmc_inference(config,
+                           true_kappas,
+                           samples_dir,
+                           args,
+                           init_params=init_params)
 
         analyze_results(samples_dir, data_dir, plots_dir)
 
