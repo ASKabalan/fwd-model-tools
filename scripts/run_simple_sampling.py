@@ -97,8 +97,10 @@ def field_model(log_ic=False, sharding=None):
                           sharding=sharding))
 
     ic, ic_scale = normalize_field(ic_raw)
-    jax.debug.inspect_array_sharding(ic_raw, callback=lambda x: print(f"Sharding of raw IC: {x}"))
-    jax.debug.inspect_array_sharding(ic, callback=lambda x: print(f"Sharding of normalized IC: {x}"))
+    jax.debug.inspect_array_sharding(
+        ic_raw, callback=lambda x: print(f"Sharding of raw IC: {x}"))
+    jax.debug.inspect_array_sharding(
+        ic, callback=lambda x: print(f"Sharding of normalized IC: {x}"))
 
     alpha = numpyro.sample("alpha", dist.Uniform(0.5, 3.5))
     beta = numpyro.sample("beta", dist.Uniform(-1.0, 1.5))
