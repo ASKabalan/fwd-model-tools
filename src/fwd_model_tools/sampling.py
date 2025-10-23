@@ -46,15 +46,21 @@ def batched_sampling(
 
     rng_key, init_key, warmup_key, run_key = jax.random.split(rng_key, 4)
     if backend == "blackjax":
+        kwargs = {}
+        if init_params is not None:
+            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value,
+                                              values=init_params)
+
         init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(
             init_key,
             model,
             model_args=model_args,
             model_kwargs=model_kwargs,
-            dynamic_args=True)
+            dynamic_args=True,
+            **kwargs)
         logdensity_fn = lambda position: -potential_fn(*model_args, **
                                                        model_kwargs)(position)
-        initial_position = init_params if init_params is not None else init_params_obj.z
+        initial_position = init_params_obj.z
     else:
         logdensity_fn = None
         initial_position = None
@@ -212,7 +218,14 @@ def batched_sampling(
         nb_samples += num_samples
 
         if save:
+            print(f"💾 Saving batch {i + 1} samples and state...")
+            jax.tree.map_with_path(
+                lambda path, x: print(
+                    f"Before gather Key : {path[0].key} has sharding {x.sharding}"), samples)
             host_samples = all_gather(samples)
+            jax.tree.map_with_path(
+                lambda path, x: print(f"After gather Key : {path[0].key} has type {type(x)}"
+                                      ), host_samples)
             host_samples["num_steps"] = nb_evals
             np.savez(f"{samples_prefix}_{i}.npz", **host_samples)
             del host_samples

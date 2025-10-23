@@ -31,8 +31,8 @@ def linear_field(mesh_shape, box_size, pk, field):
     kvec = fftk(field)
     kmesh = sum((kk / box_size[i] * mesh_shape[i])**2
                 for i, kk in enumerate(kvec))**0.5
-    pkmesh = (pk(kmesh) * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2]) /
-              (box_size[0] * box_size[1] * box_size[2]))
+    pkmesh = pk(kmesh) * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2]) / (
+        box_size[0] * box_size[1] * box_size[2])
     field = field * (pkmesh)**0.5
     return ifft3d(field)
 
@@ -78,8 +78,8 @@ def lognormal_field(mesh_shape, box_size, pk, field, shift=1.0):
     kvec = fftk(field_fft)
     kmesh = sum((kk / box_size[i] * mesh_shape[i])**2
                 for i, kk in enumerate(kvec))**0.5
-    pkmesh = (pk(kmesh) * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2]) /
-              (box_size[0] * box_size[1] * box_size[2]))
+    pkmesh = pk(kmesh) * (mesh_shape[0] * mesh_shape[1] * mesh_shape[2]) / (
+        box_size[0] * box_size[1] * box_size[2])
 
     gaussian_field = ifft3d(field_fft * (pkmesh)**0.5)
 

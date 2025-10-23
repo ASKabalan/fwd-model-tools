@@ -16,6 +16,21 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 os.environ["EQX_ON_ERROR"] = "nan"
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_PLATFORMS"] = "cpu"
+os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
+# =============================================================================
+# 1. If running on a distributed system, initialize JAX distributed
+# =============================================================================
+if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(
+        os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1:
+    os.environ["VSCODE_PROXY_URI"] = ""
+    os.environ["no_proxy"] = ""
+    os.environ["NO_PROXY"] = ""
+    del os.environ["VSCODE_PROXY_URI"]
+    del os.environ["no_proxy"]
+    del os.environ["NO_PROXY"]
+    import jax
+    jax.distributed.initialize()
+# =============================================================================
 
 import jax
 
@@ -225,15 +240,17 @@ def run_mcmc_inference(config,
     print("✓ MCMC sampling completed")
 
 
-def analyze_results(samples_dir, data_dir, plots_dir):
+def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=10):
     print("\n" + "=" * 60)
     print("Step 5: Loading samples and plotting results")
     print("=" * 60)
 
     samples = load_samples(str(samples_dir))
-    samples = jax.tree.map(
-        lambda x: x[-10:],
-        samples)  # Limit to first 10 samples for quick plotting
+    if n_samples_plot > 0:
+        samples = jax.tree.map(lambda x: x[-n_samples_plot:], samples)
+        print(f"Using last {n_samples_plot} samples for plotting")
+    else:
+        print("Using all samples for plotting")
     print(f"Loaded parameters: {list(samples.keys())}")
 
     true_data = np.load(data_dir / "true_kappas.npz")
@@ -359,6 +376,13 @@ def main():
         help=
         "Only generate plots from existing samples (skip observation generation and MCMC)",
     )
+    parser.add_argument(
+        "--n-samples-plot",
+        type=int,
+        default=10,
+        help=
+        "Number of last samples to use for plotting (default: 10, use -1 for all samples)",
+    )
 
     args = parser.parse_args()
 
@@ -378,7 +402,10 @@ def main():
             raise FileNotFoundError(
                 f"No sample files found in {samples_dir}. Run without --plot-only first to generate samples."
             )
-        analyze_results(samples_dir, data_dir, plots_dir)
+        analyze_results(samples_dir,
+                        data_dir,
+                        plots_dir,
+                        n_samples_plot=args.n_samples_plot)
     else:
         sharding = setup_sharding()
 
@@ -397,7 +424,7 @@ def main():
             field_npix=args.box_shape[0] if args.geometry == "flat" else 64,
             box_shape=tuple(args.box_shape),
             box_size=box_size,
-            density_plane_width=200.0,
+            density_plane_width=100.0,
             density_plane_npix=args.box_shape[0],
             nside=args.box_shape[0],
             density_plane_smoothing=0.1,
@@ -405,8 +432,8 @@ def main():
             fiducial_cosmology=Planck18,
             sigma_e=args.sigma_e,
             priors={
-                "Omega_c": dist.Uniform(0.2, 0.4),
-                "sigma8": dist.Uniform(0.6, 1.0),
+                "Omega_c": dist.Uniform(0.24, 0.28),
+                "sigma8": dist.Uniform(0.78, 0.82),
             },
             t0=0.1,
             dt0=0.1,
@@ -426,11 +453,14 @@ def main():
         initial_conditions = normal_field(jax.random.key(args.seed),
                                           config.box_shape,
                                           sharding=sharding)
+        print("✓ Initial conditions generated with sharding\n")
+        jax.debug.visualize_array_sharding(initial_conditions[:, :, 0])
 
         true_kappas = generate_synthetic_observations(config,
                                                       fiducial_cosmology,
                                                       initial_conditions,
                                                       data_dir, plots_dir)
+        print("\n")
 
         init_params = {
             "Omega_c": fiducial_cosmology.Omega_c,
@@ -445,7 +475,10 @@ def main():
                            args,
                            init_params=init_params)
 
-        analyze_results(samples_dir, data_dir, plots_dir)
+        analyze_results(samples_dir,
+                        data_dir,
+                        plots_dir,
+                        n_samples_plot=args.n_samples_plot)
 
     print("\n" + "=" * 60)
     print("Workflow completed successfully!")

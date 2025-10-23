@@ -21,6 +21,7 @@ from pathlib import Path
 
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_PLATFORMS"] = "cpu"
+os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 
 import jax
 import jax.numpy as jnp
@@ -31,8 +32,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 
+from fwd_model_tools.fields import DistributedNormal
 from fwd_model_tools.plotting import plot_posterior
 from fwd_model_tools.sampling import batched_sampling, load_samples
 
@@ -40,6 +43,21 @@ FIELD_SHAPE = (4, 4)
 TRUE_ALPHA = 2.0
 TRUE_BETA = 0.5
 NOISE_STD = 0.1
+
+
+def setup_sharding(pdims=(4, 2)):
+    if jax.device_count() > 1:
+        from jax.sharding import NamedSharding
+        from jax.sharding import PartitionSpec as P
+
+        mesh = jax.make_mesh(pdims, ("x", "y"))
+        sharding = NamedSharding(mesh, P("x", "y"))
+        print(f"Using sharding with mesh: {pdims}")
+    else:
+        sharding = None
+        print("Single device mode - no sharding")
+
+    return sharding
 
 
 def setup_output_dir(output_dir):
@@ -55,6 +73,7 @@ def setup_output_dir(output_dir):
     return output_dir, plots_dir, samples_dir, data_dir
 
 
+@jax.jit
 def normalize_field(field, eps=1e-6):
     """Center and rescale a field to unit standard deviation to remove scale degeneracy."""
     centered = field - jnp.mean(field)
@@ -70,11 +89,16 @@ def forward_model_components(ic, alpha, beta):
     return linear_term, quadratic_term, linear_term + quadratic_term
 
 
-def field_model(log_ic=False):
+def field_model(log_ic=False, sharding=None):
     ic_raw = numpyro.sample(
         "initial_conditions",
-        dist.Normal(jnp.zeros(FIELD_SHAPE), jnp.ones(FIELD_SHAPE)))
+        DistributedNormal(jnp.zeros(FIELD_SHAPE),
+                          jnp.ones(FIELD_SHAPE),
+                          sharding=sharding))
+
     ic, ic_scale = normalize_field(ic_raw)
+    jax.debug.inspect_array_sharding(ic_raw, callback=lambda x: print(f"Sharding of raw IC: {x}"))
+    jax.debug.inspect_array_sharding(ic, callback=lambda x: print(f"Sharding of normalized IC: {x}"))
 
     alpha = numpyro.sample("alpha", dist.Uniform(0.5, 3.5))
     beta = numpyro.sample("beta", dist.Uniform(-1.0, 1.5))
@@ -137,17 +161,22 @@ def plot_field_comparison(true_field, samples_field, plots_dir):
     print(f"  Mean std: {std_field.mean():.4f}")
 
 
-def generate_synthetic_observations(data_dir, plots_dir, magic_seed=42):
+def generate_synthetic_observations(data_dir,
+                                    plots_dir,
+                                    sharding=None,
+                                    magic_seed=42):
     print("\n" + "=" * 60)
     print("Step 1: Generating synthetic observations")
     print("=" * 60)
 
     key = jax.random.PRNGKey(magic_seed)
-    true_ic_raw = jax.random.normal(key, FIELD_SHAPE)
+    true_ic_raw = normal_field(key, FIELD_SHAPE, sharding=sharding)
+    print("✓ Generated initial conditions with sharding : \n")
+    jax.debug.visualize_array_sharding(true_ic_raw)
     true_ic, true_ic_scale = normalize_field(true_ic_raw)
 
     def model_with_logging():
-        return field_model(log_ic=True)
+        return field_model(log_ic=True, sharding=sharding)
 
     conditioned_model = condition(model_with_logging, {
         "initial_conditions": true_ic_raw,
@@ -213,20 +242,32 @@ def generate_synthetic_observations(data_dir, plots_dir, magic_seed=42):
     plt.close()
     print(f"✓ Plotted true data to {plots_dir / 'true_data.png'}")
 
-    return {
-        "obs_linear": true_obs_linear,
-        "obs_quadratic": true_obs_quadratic,
-        "obs_combined": true_obs_combined,
-    }
+    return (
+        {
+            "obs_linear": true_obs_linear,
+            "obs_quadratic": true_obs_quadratic,
+            "obs_combined": true_obs_combined,
+        },
+        {
+            "initial_conditions": true_ic_raw,
+            "alpha": TRUE_ALPHA,
+            "beta": TRUE_BETA
+        },
+    )
 
 
-def run_mcmc_inference(true_obs, samples_dir, args):
+def run_mcmc_inference(true_obs,
+                       samples_dir,
+                       args,
+                       sharding=None,
+                       init_params=None):
     print("\n" + "=" * 60)
     print("Step 2: Running MCMC inference")
     print("=" * 60)
+    print(f"running with sharding: {sharding}")
 
     def model_for_inference():
-        return field_model(log_ic=True)
+        return field_model(log_ic=True, sharding=sharding)
 
     observed_model = condition(
         model_for_inference,
@@ -253,17 +294,23 @@ def run_mcmc_inference(true_obs, samples_dir, args):
         sampler=args.sampler,
         backend=args.backend,
         save=True,
+        init_params=init_params,
     )
     elapsed = time.time() - start_time
     print(f"✓ MCMC sampling completed in {elapsed:.2f}s")
 
 
-def analyze_results(samples_dir, data_dir, plots_dir):
+def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
     print("\n" + "=" * 60)
     print("Step 3: Loading samples and plotting results")
     print("=" * 60)
 
     samples = load_samples(str(samples_dir))
+    if n_samples_plot > 0:
+        samples = jax.tree.map(lambda x: x[-n_samples_plot:], samples)
+        print(f"Using last {n_samples_plot} samples for plotting")
+    else:
+        print("Using all samples for plotting")
     print(f"Loaded parameters: {list(samples.keys())}")
 
     true_data = np.load(data_dir / "true_data.npz")
@@ -309,19 +356,19 @@ def main():
     parser.add_argument(
         "--num-warmup",
         type=int,
-        default=500,
+        default=50,
         help="Number of warmup steps for MCMC",
     )
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=1000,
+        default=10,
         help="Number of samples per batch",
     )
     parser.add_argument(
         "--batch-count",
         type=int,
-        default=2,
+        default=3,
         help="Number of batches to run",
     )
     parser.add_argument(
@@ -350,6 +397,13 @@ def main():
         help=
         "Only analyze existing samples (skip data generation and sampling)",
     )
+    parser.add_argument(
+        "--n-samples-plot",
+        type=int,
+        default=-1,
+        help=
+        "Number of last samples to use for plotting (default: -1 for all samples)",
+    )
 
     args = parser.parse_args()
 
@@ -367,13 +421,26 @@ def main():
 
     if args.plot_only:
         print("\n⚠ Plot-only mode: skipping data generation and sampling")
-        analyze_results(samples_dir, data_dir, plots_dir)
+        analyze_results(samples_dir,
+                        data_dir,
+                        plots_dir,
+                        n_samples_plot=args.n_samples_plot)
     else:
-        true_obs = generate_synthetic_observations(data_dir,
-                                                   plots_dir,
-                                                   magic_seed=args.seed)
-        run_mcmc_inference(true_obs, samples_dir, args)
-        analyze_results(samples_dir, data_dir, plots_dir)
+        sharding = setup_sharding()
+        print("")
+
+        true_obs, init_params = generate_synthetic_observations(
+            data_dir, plots_dir, sharding=sharding, magic_seed=args.seed)
+
+        run_mcmc_inference(true_obs,
+                           samples_dir,
+                           args,
+                           sharding=sharding,
+                           init_params=init_params)
+        analyze_results(samples_dir,
+                        data_dir,
+                        plots_dir,
+                        n_samples_plot=args.n_samples_plot)
 
     print("\n" + "=" * 60)
     print("✓ Workflow completed successfully!")
