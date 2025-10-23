@@ -29,6 +29,7 @@ if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(
     del os.environ["no_proxy"]
     del os.environ["NO_PROXY"]
     import jax
+
     jax.distributed.initialize()
 # =============================================================================
 
