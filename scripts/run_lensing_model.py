@@ -53,12 +53,14 @@ import numpy as np
 import numpyro.distributions as dist
 from diffrax import RecursiveCheckpointAdjoint
 from jaxpm.distributed import normal_field
+from jaxpm.spherical import spherical_visibility_mask
 from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
 from fwd_model_tools import Configurations, Planck18, full_field_probmodel
 from fwd_model_tools.lensing_model import (compute_box_size_from_redshift,
-                                           compute_max_redshift_from_box_size)
+                                           compute_max_redshift_from_box_size,
+                                           reconstruct_full_kappa)
 from fwd_model_tools.plotting import (plot_ic, plot_kappa, plot_lightcone,
                                       plot_posterior)
 from fwd_model_tools.sampling import batched_sampling, load_samples
@@ -164,7 +166,15 @@ def generate_synthetic_observations(config, fiducial_cosmology,
 
     nbins = len(config.nz_shear)
     kappa_keys = [f"kappa_{i}" for i in range(nbins)]
-    true_kappas = {key: model_trace[key]["value"] for key in kappa_keys}
+    # Keep visible-pixel kappas for inference
+    true_kappas_visible = {key: model_trace[key]["value"] for key in kappa_keys}
+    # Prepare full maps only for plotting (spherical)
+    if config.geometry == "spherical":
+        true_kappas_full = reconstruct_full_kappa(true_kappas_visible,
+                                                  config.nside,
+                                                  config.observer_position)
+    else:
+        true_kappas_full = true_kappas_visible
 
     print("\n" + "=" * 60)
     print("Step 2: Saving true data and plotting")
@@ -172,7 +182,7 @@ def generate_synthetic_observations(config, fiducial_cosmology,
 
     np.savez(
         data_dir / "true_kappas.npz",
-        **true_kappas,
+        **true_kappas_visible,
         Omega_c=fiducial_cosmology.Omega_c,
         sigma8=fiducial_cosmology.sigma8,
     )
@@ -191,13 +201,13 @@ def generate_synthetic_observations(config, fiducial_cosmology,
                    spherical=(config.geometry == "spherical"))
     print(f"✓ Plotted lightcone to {plots_dir / 'lightcone.png'}")
 
-    kappa_array = np.stack([true_kappas[k] for k in kappa_keys])
+    kappa_array = np.stack([true_kappas_full[k] for k in kappa_keys])
     plot_kappa(kappa_array,
                plots_dir,
                spherical=(config.geometry == "spherical"))
     print(f"✓ Plotted kappa maps to {plots_dir / 'kappa_maps.png'}")
 
-    return true_kappas
+    return true_kappas_visible
 
 
 def run_mcmc_inference(config,
@@ -250,7 +260,9 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=10):
         samples = jax.tree.map(lambda x: x[-n_samples_plot:], samples)
         print(f"Using last {n_samples_plot} samples for plotting")
     else:
-        print("Using all samples for plotting")
+        print(
+            f"Using all samples for plotting there is {len(samples['Omega_c'])} samples"
+        )
     print(f"Loaded parameters: {list(samples.keys())}")
 
     true_data = np.load(data_dir / "true_kappas.npz")
@@ -383,7 +395,7 @@ def main():
     parser.add_argument(
         "--n-samples-plot",
         type=int,
-        default=10,
+        default=-1,
         help=
         "Number of last samples to use for plotting (default: 10, use -1 for all samples)",
     )

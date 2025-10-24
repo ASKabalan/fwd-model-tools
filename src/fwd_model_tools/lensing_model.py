@@ -182,6 +182,41 @@ def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
     return float(max_redshift)
 
 
+def reconstruct_full_kappa(visible_kappa, nside, observer_position):
+    """
+    Reconstruct full HEALPix kappa map from visible pixels only.
+
+    Parameters
+    ----------
+    visible_kappa : jax.Array
+        Convergence values for visible pixels only. Shape: (n_visible,).
+    visible_indices : jax.Array
+        Indices of visible pixels in the full HEALPix map. Shape: (n_visible,).
+    npix : int
+        Total number of pixels in the full HEALPix map (12 * nside**2).
+
+    Returns
+    -------
+    jax.Array
+        Full HEALPix map with visible pixels filled and zeros elsewhere. Shape: (npix,).
+
+    Examples
+    --------
+    >>> visible_kappa = jnp.array([0.1, 0.2, 0.3])
+    >>> visible_indices = jnp.array([0, 5, 10])
+    >>> full_kappa = reconstruct_full_kappa(visible_kappa, visible_indices, 12)
+    >>> # Returns array of shape (12,) with values at indices [0, 5, 10]
+    """
+    npix = 12 * nside**2
+    full_kappa = jax.tree.map(lambda x: jnp.zeros(npix, dtype=x.dtype),
+                              visible_kappa)
+    visible_mask = spherical_visibility_mask(nside, observer_position)
+    visible_indices, = jnp.where(visible_mask > 0)
+    full_kappa = jax.tree.map(lambda fk, vk: fk.at[visible_indices].set(vk),
+                              full_kappa, visible_kappa)
+    return full_kappa
+
+
 def integrate(terms, solver, t0, t1, dt0, y0, args, saveat, adjoint):
     """
     Run ODE integration with diffrax or reverse-mode adjoint integrator.
@@ -490,6 +525,18 @@ def full_field_probmodel(config):
     - Records lightcone and initial conditions as deterministic variables
     """
 
+    # Precompute spherical visibility info outside the model to avoid
+    # dynamic shape issues under JIT (e.g., jnp.nonzero inside compiled code).
+    visibility_mask_const = None
+    visible_indices_const = None
+    if config.geometry == "spherical":
+        _mask = spherical_visibility_mask(config.nside,
+                                          config.observer_position)
+        # Host constants captured by the model closure
+        _mask_host = np.array(_mask)
+        visibility_mask_const = jnp.array(_mask_host)
+        visible_indices_const = np.where(_mask_host > 0)[0]
+
     def model():
         forward_model = make_full_field_model(
             config.field_size,
@@ -532,25 +579,34 @@ def full_field_probmodel(config):
             numpyro.deterministic("ic", lin_field)
 
         if config.geometry == "spherical":
-            visibility_mask = spherical_visibility_mask(
-                config.nside, config.observer_position)
-            sigma_e = jnp.where(visibility_mask > 0,
-                                config.sigma_e * visibility_mask, 1e-6)
-            convergence_maps = [k * visibility_mask for k in convergence_maps]
-        else:
-            sigma_e = config.sigma_e
+            assert visibility_mask_const is not None and visible_indices_const is not None
 
-        observed_maps = [
-            numpyro.sample(
-                f"kappa_{i}",
-                dist.Normal(
-                    k,
-                    sigma_e /
-                    jnp.sqrt(config.nz_shear[i].gals_per_arcmin2 *
-                             (config.field_size * 60 / config.field_npix)**2),
-                ),
-            ) for i, k in enumerate(convergence_maps)
-        ]
+            # Apply mask in a JIT-friendly way and slice using precomputed indices
+            convergence_maps = [k * visibility_mask_const
+                                for k in convergence_maps]
+
+            arcmin_per_rad = (180.0 / jnp.pi) * 60.0
+            pixel_area_sr = 4.0 * jnp.pi / (12.0 * (config.nside**2))
+            pixel_area_arcmin2 = pixel_area_sr * (arcmin_per_rad**2)
+
+            observed_maps = []
+            for i, k in enumerate(convergence_maps):
+                k_visible = k[visible_indices_const]
+                base_sigma = config.sigma_e / jnp.sqrt(
+                    config.nz_shear[i].gals_per_arcmin2 * pixel_area_arcmin2)
+                observed_maps.append(
+                    numpyro.sample(f"kappa_{i}",
+                                   dist.Normal(k_visible, base_sigma)))
+        else:
+            pixel_area_arcmin2 = jnp.array(
+                (config.field_size * 60 / config.field_npix)**2)
+
+            observed_maps = []
+            for i, k in enumerate(convergence_maps):
+                base_sigma = config.sigma_e / jnp.sqrt(
+                    config.nz_shear[i].gals_per_arcmin2 * pixel_area_arcmin2)
+                observed_maps.append(
+                    numpyro.sample(f"kappa_{i}", dist.Normal(k, base_sigma)))
 
         return observed_maps
 
