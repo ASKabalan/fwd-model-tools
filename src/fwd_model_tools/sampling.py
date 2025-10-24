@@ -243,16 +243,18 @@ def batched_sampling(
         nb_samples += num_samples
 
         if save:
+            # TODO I must find a way to print sharding here and check that load samples gives sharded samples
+
             print(f"💾 Saving batch {i + 1} samples and state...")
-            jax.tree.map_with_path(
-                lambda path, x: print(
-                    f"Before gather Key : {path[0].key} has sharding {x.sharding}"
-                ), samples)
+            #jax.tree.map_with_path(
+            #    lambda path, x: print(
+            #        f"Before gather Key : {path[0].key} has sharding {x.sharding}"
+            #    ), samples)
             host_samples = all_gather(samples)
-            jax.tree.map_with_path(
-                lambda path, x: print(
-                    f"After gather Key : {path[0].key} has type {type(x)}"),
-                host_samples)
+            #jax.tree.map_with_path(
+            #    lambda path, x: print(
+            #        f"After gather Key : {path[0].key} has type {type(x)}"),
+            #    host_samples)
             host_samples["num_steps"] = nb_evals
             np.savez(f"{samples_prefix}_{i}.npz", **host_samples)
             del host_samples

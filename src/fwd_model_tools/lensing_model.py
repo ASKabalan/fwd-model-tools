@@ -122,7 +122,6 @@ def compute_box_size_from_redshift(cosmo, max_redshift, observer_position):
     """
     r_comoving = jc.background.radial_comoving_distance(
         cosmo, jc.utils.z2a(max_redshift)).squeeze()
-    print(f"Comoving distance to z={max_redshift}: {r_comoving} Mpc/h")
 
     observer_position = jnp.asarray(observer_position)
     factors = jnp.clip(observer_position, 0.0, 1.0)
