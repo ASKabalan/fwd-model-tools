@@ -8,13 +8,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_kappa(kappa, outdir, spherical=False, titles=None):
+def plot_kappa(kappa,
+               outdir,
+               spherical=False,
+               titles=None):
     """Plot convergence maps.
 
     Parameters
     ----------
     kappa : array_like
-        Shape (n_kappa, H, W) for flat geometry or (n_kappa, npix) for spherical.
+        Shape (n_kappa, H, W) for flat geometry, (n_kappa, npix) for full spherical maps,
+        requires full maps for HEALPix be sure to reconstruct full map before plotting.
     outdir : str or Path
         Output directory for saved plots.
     spherical : bool, optional
@@ -199,10 +203,13 @@ def prepare_arviz_data(samples, params=None):
     return az.from_dict(posterior=posterior_dict)
 
 
-def plot_posterior(param_samples,
-                   outdir,
-                   params=("Omega_c", "sigma8"),
-                   true_values=None):
+def plot_posterior(
+    param_samples,
+    outdir,
+    params=("Omega_c", "sigma8"),
+    true_values=None,
+    pair_kind: str = "auto",
+):
     """Plot posterior distributions using ArviZ.
 
     Parameters
@@ -247,15 +254,24 @@ def plot_posterior(param_samples,
     plt.savefig(outdir / "posterior_trace.png", dpi=150, bbox_inches="tight")
     plt.close()
 
+    # Choose pair-plot style. Scatter works better for few samples.
+    try:
+        n_samples = min(
+            int(np.asarray(param_samples[k]).shape[0]) for k in param_samples
+            if k in params)
+    except Exception:
+        n_samples = None
+
+    if pair_kind == "auto":
+        kind = "scatter" if (n_samples is not None and n_samples < 200) else "kde"
+    else:
+        kind = pair_kind
+
     plt.figure(figsize=(12, 4))
-    axis = az.plot_pair(
-        idata,
-        var_names=list(params),
-        kind="kde",
-        marginals=True,
-        divergences=False,
-        reference_values=true_values,
-    )
+    kwargs = {"marginals": True, "divergences": False, "reference_values": true_values}
+    if kind == "scatter":
+        kwargs["scatter_kwargs"] = {"alpha": 0.65, "s": 10}
+    az.plot_pair(idata, var_names=list(params), kind=kind, **kwargs)
 
     plt.tight_layout()
     plt.savefig(outdir / "posterior_pair.png", dpi=150, bbox_inches="tight")
