@@ -17,6 +17,25 @@ from tqdm import tqdm
 all_gather = partial(process_allgather, tiled=True)
 
 
+def reshard_numpyro_state(state, sharding):
+
+    def reshard_dict(d, sharding):
+        result = {}
+        for key, value in d.items():
+            if value.ndim > 0:
+                result[key] = jax.lax.with_sharding_constraint(value, sharding)
+            else:
+                result[key] = value
+        return result
+
+    resharded_z = jax.jit(reshard_dict, static_argnums=(1, ))(state.z,
+                                                              sharding)
+    resharded_z_grad = jax.jit(reshard_dict,
+                               static_argnums=(1, ))(state.z_grad, sharding)
+
+    return state._replace(z=resharded_z, z_grad=resharded_z_grad)
+
+
 def batched_sampling(
     model,
     path: str,
@@ -28,6 +47,7 @@ def batched_sampling(
     sampler: str = "NUTS",  # NUTS, HMC, MCLMC
     backend: str = "numpyro",  # numpyro or blackjax
     init_params: PyTree | None = None,
+    sharding=None,
     *model_args,
     **model_kwargs,
 ):
@@ -158,6 +178,9 @@ def batched_sampling(
             # Legacy state files might contain a stored postprocess function; ignore it.
             pass
 
+        if backend == "numpyro" and sharding is not None:
+            last_state = reshard_numpyro_state(last_state, sharding)
+
         if backend == "blackjax":
             assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
             if sampler == "NUTS":
@@ -203,6 +226,8 @@ def batched_sampling(
                 num_samples=num_samples,
                 progress_bar=True,
             )
+            if sharding is not None:
+                last_state = reshard_numpyro_state(last_state, sharding)
             mcmc.post_warmup_state = last_state
             mcmc.run(batch_key,
                      *model_args,

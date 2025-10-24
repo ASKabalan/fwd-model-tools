@@ -14,9 +14,9 @@ import os
 
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 os.environ["EQX_ON_ERROR"] = "nan"
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
-os.environ["JAX_PLATFORMS"] = "cpu"
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
+#os.environ["JAX_PLATFORM_NAME"] = "cpu"
+#os.environ["JAX_PLATFORMS"] = "cpu"
+#os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
 # =============================================================================
