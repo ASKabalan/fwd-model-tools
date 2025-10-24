@@ -14,9 +14,9 @@ import os
 
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 os.environ["EQX_ON_ERROR"] = "nan"
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
-os.environ["JAX_PLATFORMS"] = "cpu"
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
+#os.environ["JAX_PLATFORM_NAME"] = "cpu"
+#os.environ["JAX_PLATFORMS"] = "cpu"
+#os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 # =============================================================================
 # 1. If running on a distributed system, initialize JAX distributed
 # =============================================================================
@@ -121,7 +121,6 @@ def create_redshift_distribution(
 
     z = jnp.linspace(0, max_redshift, 1000)
     z_centers = jnp.linspace(0.2, max_redshift - 0.01, 4)
-    print(f"z_centers = {z_centers}")
     z_centers = jnp.round(z_centers, 3)
     print(f"z_centers = {z_centers}")
 
@@ -277,7 +276,11 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=10):
         "Omega_c": samples["Omega_c"],
         "sigma8": samples["sigma8"]
     }
-    plot_posterior(param_samples, plots_dir, params=("Omega_c", "sigma8"))
+    true_param_values = {"Omega_c": true_Omega_c, "sigma8": true_sigma8}
+    plot_posterior(param_samples,
+                   plots_dir,
+                   params=("Omega_c", "sigma8"),
+                   true_values=true_param_values)
     print(
         f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}"
     )
