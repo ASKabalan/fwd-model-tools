@@ -8,10 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_kappa(kappa,
-               outdir,
-               spherical=False,
-               titles=None):
+def plot_kappa(kappa, outdir, spherical=False, titles=None):
     """Plot convergence maps.
 
     Parameters
@@ -204,11 +201,11 @@ def prepare_arviz_data(samples, params=None):
 
 
 def plot_posterior(
-    param_samples,
-    outdir,
-    params=("Omega_c", "sigma8"),
-    true_values=None,
-    pair_kind: str = "auto",
+        param_samples,
+        outdir,
+        params=("Omega_c", "sigma8"),
+        true_values=None,
+        pair_kind: str = "auto",
 ):
     """Plot posterior distributions using ArviZ.
 
@@ -263,12 +260,17 @@ def plot_posterior(
         n_samples = None
 
     if pair_kind == "auto":
-        kind = "scatter" if (n_samples is not None and n_samples < 200) else "kde"
+        kind = "scatter" if (n_samples is not None
+                             and n_samples < 200) else "kde"
     else:
         kind = pair_kind
 
     plt.figure(figsize=(12, 4))
-    kwargs = {"marginals": True, "divergences": False, "reference_values": true_values}
+    kwargs = {
+        "marginals": True,
+        "divergences": False,
+        "reference_values": true_values
+    }
     if kind == "scatter":
         kwargs["scatter_kwargs"] = {"alpha": 0.65, "s": 10}
     az.plot_pair(idata, var_names=list(params), kind=kind, **kwargs)

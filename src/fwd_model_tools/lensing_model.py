@@ -582,8 +582,9 @@ def full_field_probmodel(config):
             assert visibility_mask_const is not None and visible_indices_const is not None
 
             # Apply mask in a JIT-friendly way and slice using precomputed indices
-            convergence_maps = [k * visibility_mask_const
-                                for k in convergence_maps]
+            convergence_maps = [
+                k * visibility_mask_const for k in convergence_maps
+            ]
 
             arcmin_per_rad = (180.0 / jnp.pi) * 60.0
             pixel_area_sr = 4.0 * jnp.pi / (12.0 * (config.nside**2))

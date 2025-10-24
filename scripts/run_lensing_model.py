@@ -167,7 +167,10 @@ def generate_synthetic_observations(config, fiducial_cosmology,
     nbins = len(config.nz_shear)
     kappa_keys = [f"kappa_{i}" for i in range(nbins)]
     # Keep visible-pixel kappas for inference
-    true_kappas_visible = {key: model_trace[key]["value"] for key in kappa_keys}
+    true_kappas_visible = {
+        key: model_trace[key]["value"]
+        for key in kappa_keys
+    }
     # Prepare full maps only for plotting (spherical)
     if config.geometry == "spherical":
         true_kappas_full = reconstruct_full_kappa(true_kappas_visible,
