@@ -35,6 +35,7 @@ dependencies = [
     "jax-cosmo",
     "diffrax",
     "arviz",
+    "getdist",
 ]
 
 [project.optional-dependencies]
