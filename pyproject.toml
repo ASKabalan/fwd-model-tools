@@ -36,6 +36,8 @@ dependencies = [
     "diffrax",
     "arviz",
     "getdist",
+    "rich",
+    "orbax-checkpoint",
 ]
 
 [project.optional-dependencies]
