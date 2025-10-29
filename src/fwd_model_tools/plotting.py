@@ -118,16 +118,19 @@ def plot_lightcone(lightcone,
     vmin, vmax = np.percentile(lightcone[np.isfinite(lightcone)], [2, 98])
 
     if spherical:
-        fig = plt.figure(figsize=(4 * n_planes, 3.5))
+        rows = (n_planes + 2) // 3
+        cols = min(n_planes, 3)
+        fig = plt.figure(figsize=(4 * cols, 3.5 * rows))
         for i in range(n_planes):
+            plt.subplot(rows, cols, i + 1)
             hp.mollview(
                 lightcone[i].ravel(),
-                sub=(1, n_planes, i + 1),
                 cmap="viridis",
                 title=titles[i],
                 min=vmin,
                 max=vmax,
                 cbar=True,
+                hold=True,
             )
         if output_format == "show":
             plt.show()
