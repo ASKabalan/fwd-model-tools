@@ -298,7 +298,6 @@ def run_mcmc_inference(true_obs,
         backend=args.backend,
         save=True,
         init_params=init_params,
-        sharding=sharding,
     )
     elapsed = time.time() - start_time
     print(f"✓ MCMC sampling completed in {elapsed:.2f}s")
@@ -372,7 +371,7 @@ def main():
     parser.add_argument(
         "--batch-count",
         type=int,
-        default=3,
+        default=10,
         help="Number of batches to run",
     )
     parser.add_argument(

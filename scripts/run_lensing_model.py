@@ -354,13 +354,13 @@ def main():
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=50,
+        default=0,
         help="Number of samples per batch",
     )
     parser.add_argument(
         "--batch-count",
         type=int,
-        default=2,
+        default=0,
         help="Number of batches to run",
     )
     parser.add_argument(
