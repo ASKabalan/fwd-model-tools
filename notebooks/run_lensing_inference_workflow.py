@@ -19,7 +19,6 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-import matplotlib.pyplot as plt
 import numpy as np
 import numpyro.distributions as dist
 from diffrax import RecursiveCheckpointAdjoint
@@ -33,7 +32,8 @@ from fwd_model_tools import (Configurations, Planck18, full_field_probmodel,
 from fwd_model_tools.lensing_model import (compute_box_size_from_redshift,
                                            compute_max_redshift_from_box_size,
                                            make_full_field_model)
-from fwd_model_tools.plotting import (plot_ic, plot_kappa, plot_lightcone,
+from fwd_model_tools.plotting import (plot_gradient_analysis, plot_ic,
+                                      plot_kappa, plot_lightcone,
                                       plot_posterior)
 from fwd_model_tools.sampling import batched_sampling, load_samples
 
@@ -205,6 +205,24 @@ def compute_mse_loss(
     return mse / len(kappas_visible)
 
 
+def compute_loss_and_gradient(
+    param_val,
+    param_name,
+    cosmo,
+    nz_shear,
+    ic,
+    kappa_obs,
+    forward_model,
+    visible_indices,
+):
+    loss_fn = lambda pval: compute_mse_loss(
+        pval, param_name, cosmo, nz_shear, ic, kappa_obs, forward_model, visible_indices
+    )
+    loss_value = float(loss_fn(param_val))
+    grad_value = float(jax.grad(loss_fn)(param_val))
+    return loss_value, grad_value
+
+
 def compute_gradients(
     config,
     fiducial_cosmology,
@@ -269,70 +287,37 @@ def compute_gradients(
             [-2 * offset, -offset, 0.0, offset, 2 * offset])
         values = fiducial_val + offsets
 
+        losses = []
         gradients = []
         for i, (off, val) in enumerate(zip(offsets, values)):
             print(
                 f"  [{i+1}/5] {param_name} = {val:.4f} (offset = {off:+.4f})"
             )
 
-            grad_fn = jax.grad(compute_mse_loss)
-            grad_val = float(
-                grad_fn(val, param_name, fiducial_cosmology, nz_shear,
-                        initial_conditions, true_kappas_visible, forward_model,
-                        visible_indices))
+            loss_val, grad_val = compute_loss_and_gradient(
+                val, param_name, fiducial_cosmology, nz_shear,
+                initial_conditions, true_kappas_visible, forward_model,
+                visible_indices
+            )
+            losses.append(loss_val)
             gradients.append(grad_val)
 
+            print(f"        MSE Loss = {loss_val:.6e}")
             print(f"        d(MSE)/d({param_name}) = {grad_val:.6e}")
 
         results[param_name] = {
             "offsets": offsets,
+            "losses": np.array(losses),
             "gradients": np.array(gradients)
         }
 
     print("\n" + "=" * 60)
     print("Gradient computation completed")
     print("=" * 60)
-    print("Expected: Linear gradient (passing through 0 at fiducial)")
-    print("This confirms MSE loss is quadratic (parabola shape)")
+    print("Expected: Quadratic loss (parabola) and linear gradient (through 0)")
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    for idx, (param_name, ax) in enumerate(
-            zip(["Omega_c", "sigma8"], axes)):
-        offsets = results[param_name]["offsets"]
-        gradients = results[param_name]["gradients"]
-        fiducial = params_to_test[param_name]["fiducial"]
-
-        ax.plot(offsets,
-                gradients,
-                "o-",
-                linewidth=2,
-                markersize=8,
-                label=f"d(MSE)/d({param_name})",
-                color=["tab:blue", "tab:orange"][idx])
-        ax.axvline(0,
-                   color="red",
-                   linestyle="--",
-                   alpha=0.5,
-                   label="Fiducial value")
-        ax.axhline(0, color="gray", linestyle=":", alpha=0.5)
-        ax.set_xlabel(f"{param_name} offset", fontsize=12)
-        ax.set_ylabel(f"Gradient d(MSE)/d({param_name})", fontsize=12)
-        ax.set_title(
-            f"Parameter Gradient: {param_name} (fiducial = {fiducial:.4f})",
-            fontsize=13)
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-
-    plt.tight_layout()
-    plt.savefig(plots_dir / "gradient_sensitivity.png",
-                dpi=600,
-                bbox_inches="tight")
-    plt.close()
-
-    print(
-        f"\nParameter gradient plots saved to {plots_dir / 'gradient_sensitivity.png'}"
-    )
+    plot_gradient_analysis(results, params_to_test, plots_dir, output_format="png", dpi=600)
+    print(f"\nGradient analysis plots saved to {plots_dir / 'gradient_analysis.png'}")
 
 
 def run_mcmc_sampling(
@@ -684,7 +669,7 @@ def main():
     print("=" * 60)
     print(f"Output directory: {output_dir_path}")
     print(
-        f"  - plots/gradient_sensitivity.png: Gradient analysis with MSE loss")
+        f"  - plots/gradient_analysis.png: Loss and gradient analysis")
     print(f"  - plots/kappa_maps.png: Convergence maps")
     print(f"  - plots/lightcone.png: Density planes")
     print(f"  - plots/ic_comparison.png: Initial conditions comparison")
