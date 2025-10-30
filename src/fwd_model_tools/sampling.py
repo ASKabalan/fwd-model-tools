@@ -87,7 +87,6 @@ def batched_sampling(
     state_exists = os.path.exists(state_path)
     if state_exists:
         num_warmup = 1  # No warmup when resuming
-    nb_samples = 0
 
     print(
         f"{'▶️ Resuming' if state_exists else '🔁 Starting fresh with warmup'} for {sampler} using {backend}..."
@@ -124,25 +123,34 @@ def batched_sampling(
                 position=initial_position,
                 logdensity_fn=logdensity_fn,
                 rng_key=init_key)
-            kernel_builder = lambda imm: blackjax.mcmc.mclmc.build_kernel(
-                logdensity_fn=logdensity_fn,
-                integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
-                inverse_mass_matrix=imm,
-            )
-            print("🔧 Tuning MCLMC parameters (L and step_size)...")
+            if state_exists:
+                parameters = {
+                    "L": jax.ShapeDtypeStruct((),
+                                              jnp.asarray(0.0).dtype),
+                    "step_size": jax.ShapeDtypeStruct((),
+                                                      jnp.asarray(0.0).dtype)
+                }
+                tuned_state = initial_state
+            else:
+                kernel_builder = lambda imm: blackjax.mcmc.mclmc.build_kernel(
+                    logdensity_fn=logdensity_fn,
+                    integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
+                    inverse_mass_matrix=imm,
+                )
+                print("🔧 Tuning MCLMC parameters (L and step_size)...")
 
-            tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
-                mclmc_kernel=kernel_builder,
-                num_steps=num_warmup,
-                state=initial_state,
-                rng_key=warmup_key,
-                diagonal_preconditioning=False,
-                desired_energy_var=1e-3,
-            )
-            parameters = {
-                "L": tuned_params.L,
-                "step_size": tuned_params.step_size
-            }
+                tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
+                    mclmc_kernel=kernel_builder,
+                    num_steps=num_warmup,
+                    state=initial_state,
+                    rng_key=warmup_key,
+                    diagonal_preconditioning=False,
+                    desired_energy_var=1e-3,
+                )
+                parameters = {
+                    "L": tuned_params.L,
+                    "step_size": tuned_params.step_size
+                }
             sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
             last_state = tuned_state
 
