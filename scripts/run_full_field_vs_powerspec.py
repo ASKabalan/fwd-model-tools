@@ -43,7 +43,8 @@ from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
-from fwd_model_tools import Configurations, Planck18, full_field_probmodel, reconstruct_full_kappa
+from fwd_model_tools import (Configurations, Planck18, full_field_probmodel,
+                             reconstruct_full_kappa)
 from fwd_model_tools.lensing_model import compute_box_size_from_redshift
 from fwd_model_tools.plotting import plot_kappa, plot_lightcone
 from fwd_model_tools.powerspec_model import powerspec_probmodel
@@ -124,11 +125,14 @@ def generate_synthetic_observations(config, fiducial_cosmology,
 
     nbins = len(config.nz_shear)
     kappa_keys = [f"kappa_{i}" for i in range(nbins)]
-    true_kappas_visible = {key: model_trace[key]["value"] for key in kappa_keys}
+    true_kappas_visible = {
+        key: model_trace[key]["value"]
+        for key in kappa_keys
+    }
 
-    true_kappas_full = reconstruct_full_kappa(
-        true_kappas_visible, config.nside, config.observer_position
-    )
+    true_kappas_full = reconstruct_full_kappa(true_kappas_visible,
+                                              config.nside,
+                                              config.observer_position)
 
     np.savez(
         data_dir / "true_kappas.npz",
@@ -152,7 +156,8 @@ def generate_synthetic_observations(config, fiducial_cosmology,
     return true_kappas_visible, true_kappas_full, kappa_keys
 
 
-def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir, plots_dir):
+def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir,
+                          plots_dir):
     print("\nComputing power spectra with healpy.anafast")
 
     observed_cls = {}
@@ -175,7 +180,10 @@ def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir, 
 
     np.savez(
         data_dir / "observed_cls.npz",
-        **{f"cl_{i}_{j}": observed_cls[(i, j)] for i, j in observed_cls.keys()},
+        **{
+            f"cl_{i}_{j}": observed_cls[(i, j)]
+            for i, j in observed_cls.keys()
+        },
         ell=ell,
     )
 
@@ -200,7 +208,8 @@ def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir, 
     return observed_cls, ell
 
 
-def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args, init_params):
+def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
+                             init_params):
     print("\nSetting up full-field MCMC inference")
 
     config_inference = config._replace(log_lightcone=False, log_ic=False)
@@ -209,7 +218,10 @@ def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args, 
     nbins = len(config.nz_shear)
     observed_model = condition(
         full_field_basemodel,
-        {f"kappa_{i}": true_kappas_visible[f"kappa_{i}"] for i in range(nbins)},
+        {
+            f"kappa_{i}": true_kappas_visible[f"kappa_{i}"]
+            for i in range(nbins)
+        },
     )
 
     print(f"Sampling with {args.sampler} using {args.backend} backend")
@@ -231,7 +243,8 @@ def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args, 
     print("Full-field MCMC sampling completed")
 
 
-def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args, fiducial_cosmology):
+def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
+                            fiducial_cosmology):
     print("\nSetting up power spectrum MCMC inference")
 
     ell_jax = jnp.array(ell)
@@ -264,7 +277,8 @@ def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args, fid
     print("Power spectrum MCMC sampling completed")
 
 
-def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_dir):
+def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
+                                plots_dir):
     print("\nLoading and comparing samples")
 
     samples_ff = load_samples(str(samples_dir_ff))
@@ -278,21 +292,35 @@ def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_
     true_sigma8 = float(true_data["sigma8"])
 
     print("\nFull-Field Posterior Statistics:")
-    print(f"Omega_c: {samples_ff['Omega_c'].mean():.4f} ± {samples_ff['Omega_c'].std():.4f}")
-    print(f"sigma8: {samples_ff['sigma8'].mean():.4f} ± {samples_ff['sigma8'].std():.4f}")
+    print(
+        f"Omega_c: {samples_ff['Omega_c'].mean():.4f} ± {samples_ff['Omega_c'].std():.4f}"
+    )
+    print(
+        f"sigma8: {samples_ff['sigma8'].mean():.4f} ± {samples_ff['sigma8'].std():.4f}"
+    )
 
     print("\nPower Spectrum Posterior Statistics:")
-    print(f"Omega_c: {samples_ps['Omega_c'].mean():.4f} ± {samples_ps['Omega_c'].std():.4f}")
-    print(f"sigma8: {samples_ps['sigma8'].mean():.4f} ± {samples_ps['sigma8'].std():.4f}")
+    print(
+        f"Omega_c: {samples_ps['Omega_c'].mean():.4f} ± {samples_ps['Omega_c'].std():.4f}"
+    )
+    print(
+        f"sigma8: {samples_ps['sigma8'].mean():.4f} ± {samples_ps['sigma8'].std():.4f}"
+    )
 
     params = ("Omega_c", "sigma8")
     labels = [r"\Omega_c", r"\sigma_8"]
 
     samples_ff_array = np.column_stack([samples_ff[p] for p in params])
-    mc_samples_ff = MCSamples(samples=samples_ff_array, names=params, labels=labels, label="Full-Field")
+    mc_samples_ff = MCSamples(samples=samples_ff_array,
+                              names=params,
+                              labels=labels,
+                              label="Full-Field")
 
     samples_ps_array = np.column_stack([samples_ps[p] for p in params])
-    mc_samples_ps = MCSamples(samples=samples_ps_array, names=params, labels=labels, label="Power Spectrum")
+    mc_samples_ps = MCSamples(samples=samples_ps_array,
+                              names=params,
+                              labels=labels,
+                              label="Power Spectrum")
 
     markers_dict = {"Omega_c": true_Omega_c, "sigma8": true_sigma8}
 
@@ -307,15 +335,16 @@ def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_
         legend_labels=["Full-Field", "Power Spectrum"],
     )
 
-    plt.savefig(plots_dir / "comparison_posterior.png", dpi=600, bbox_inches="tight")
+    plt.savefig(plots_dir / "comparison_posterior.png",
+                dpi=600,
+                bbox_inches="tight")
     plt.close()
     print("Plotted comparison posteriors")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Full-Field Sampling vs Power Spectrum Inference"
-    )
+        description="Full-Field Sampling vs Power Spectrum Inference")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -415,26 +444,29 @@ def main():
     args = parser.parse_args()
 
     if args.geometry != "spherical":
-        raise ValueError("Geometry must be 'spherical' for power spectrum computation")
+        raise ValueError(
+            "Geometry must be 'spherical' for power spectrum computation")
 
     print(f"JAX devices: {jax.device_count()}")
     print(f"JAX backend: {jax.default_backend()}")
 
     output_dir, plots_dir, samples_dir_ff, samples_dir_ps, data_dir = setup_output_dir(
-        args.output_dir
-    )
+        args.output_dir)
 
     if args.plot_only:
-        print("\nPlot-only mode: Loading existing samples and generating plots...")
-        analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_dir)
+        print(
+            "\nPlot-only mode: Loading existing samples and generating plots..."
+        )
+        analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
+                                    plots_dir)
         return
 
     sharding = setup_sharding(tuple(args.pdims))
 
     fiducial_cosmology = Planck18()
-    box_size = compute_box_size_from_redshift(
-        fiducial_cosmology, args.max_redshift, tuple(args.observer_position)
-    )
+    box_size = compute_box_size_from_redshift(fiducial_cosmology,
+                                              args.max_redshift,
+                                              tuple(args.observer_position))
 
     print(f"Box size: {box_size} Mpc/h")
     print(f"Max redshift: {args.max_redshift}")
@@ -474,18 +506,17 @@ def main():
 
     print("Configuration created")
 
-    initial_conditions = normal_field(
-        jax.random.key(args.seed), config.box_shape, sharding=sharding
-    )
+    initial_conditions = normal_field(jax.random.key(args.seed),
+                                      config.box_shape,
+                                      sharding=sharding)
     print("Initial conditions generated")
 
     true_kappas_visible, true_kappas_full, kappa_keys = generate_synthetic_observations(
-        config, fiducial_cosmology, initial_conditions, data_dir, plots_dir
-    )
+        config, fiducial_cosmology, initial_conditions, data_dir, plots_dir)
 
-    observed_cls, ell = compute_power_spectra(
-        true_kappas_full, kappa_keys, nbins, config.nside, data_dir, plots_dir
-    )
+    observed_cls, ell = compute_power_spectra(true_kappas_full, kappa_keys,
+                                              nbins, config.nside, data_dir,
+                                              plots_dir)
 
     init_params = {
         "Omega_c": fiducial_cosmology.Omega_c,
@@ -494,11 +525,14 @@ def main():
     }
     init_params = jax.tree.map(jnp.asarray, init_params)
 
-    run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args, init_params)
+    run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
+                             init_params)
 
-    run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args, fiducial_cosmology)
+    run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
+                            fiducial_cosmology)
 
-    analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_dir)
+    analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
+                                plots_dir)
 
     print("\nWorkflow completed successfully!")
     print(f"Results saved to: {output_dir}")

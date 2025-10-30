@@ -46,7 +46,9 @@ def make_2pt_model(pixel_scale, ell, sigma_e=0.3):
 
     def forward_model(cosmo, nz_shear):
         tracer = jc.probes.WeakLensing(nz_shear, sigma_e=sigma_e)
-        cell_theory = jc.angular_cl.angular_cl(cosmo, ell, [tracer], nonlinear_fn=jc.power.linear)
+        cell_theory = jc.angular_cl.angular_cl(cosmo,
+                                               ell, [tracer],
+                                               nonlinear_fn=jc.power.linear)
         cell_theory = cell_theory * pixel_window_function(ell, pixel_scale)
         cell_noise = jc.angular_cl.noise_cl(ell, [tracer])
         return cell_theory, cell_noise
@@ -91,14 +93,19 @@ def powerspec_probmodel(config, ell, kappa_obs_spectra):
     nbins = len(config.nz_shear)
     pixel_scale = config.field_size * 60.0 / config.field_npix
 
-    tracers = [jc.probes.WeakLensing([nz], sigma_e=config.sigma_e) for nz in config.nz_shear]
+    tracers = [
+        jc.probes.WeakLensing([nz], sigma_e=config.sigma_e)
+        for nz in config.nz_shear
+    ]
 
     for i in range(nbins):
         for j in range(i, nbins):
             cell_theory = jc.angular_cl.angular_cl(
-                cosmo, ell, [tracers[i], tracers[j]], nonlinear_fn=jc.power.linear
-            )
-            cell_theory = cell_theory[0] * pixel_window_function(ell, pixel_scale)
+                cosmo,
+                ell, [tracers[i], tracers[j]],
+                nonlinear_fn=jc.power.linear)
+            cell_theory = cell_theory[0] * pixel_window_function(
+                ell, pixel_scale)
 
             cell_noise_i = jc.angular_cl.noise_cl(ell, [tracers[i]])[0]
             cell_noise_j = jc.angular_cl.noise_cl(ell, [tracers[j]])[0]

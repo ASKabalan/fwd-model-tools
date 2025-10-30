@@ -262,7 +262,11 @@ def plot_gradient_analysis(
 
         ax_loss = axes[i, 0]
         ax_loss.plot(offsets, losses, "o-", linewidth=2, markersize=8)
-        ax_loss.axvline(0, color="red", linestyle="--", alpha=0.5, label="Fiducial")
+        ax_loss.axvline(0,
+                        color="red",
+                        linestyle="--",
+                        alpha=0.5,
+                        label="Fiducial")
         ax_loss.set_xlabel(f"{param_name} offset")
         ax_loss.set_ylabel("MSE Loss")
         ax_loss.set_title(f"Loss vs {param_name} offset")
@@ -270,9 +274,18 @@ def plot_gradient_analysis(
         ax_loss.legend()
 
         ax_grad = axes[i, 1]
-        ax_grad.plot(offsets, gradients, "s-", linewidth=2, markersize=8, color="orange")
+        ax_grad.plot(offsets,
+                     gradients,
+                     "s-",
+                     linewidth=2,
+                     markersize=8,
+                     color="orange")
         ax_grad.axhline(0, color="black", linestyle="-", alpha=0.3)
-        ax_grad.axvline(0, color="red", linestyle="--", alpha=0.5, label="Fiducial")
+        ax_grad.axvline(0,
+                        color="red",
+                        linestyle="--",
+                        alpha=0.5,
+                        label="Fiducial")
         ax_grad.set_xlabel(f"{param_name} offset")
         ax_grad.set_ylabel("d(MSE)/d(" + param_name + ")")
         ax_grad.set_title(f"Gradient vs {param_name} offset")

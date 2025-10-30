@@ -217,7 +217,8 @@ def batched_sampling(
         run_key, batch_key = jax.random.split(run_key)
 
         if backend == "blackjax":
-            transform = lambda x, _: x.position if postprocess_fn is None else postprocess_fn(*model_args, **model_kwargs)(x.position)
+            transform = lambda x, _: x.position if postprocess_fn is None else postprocess_fn(
+                *model_args, **model_kwargs)(x.position)
             last_state, samples = blackjax.util.run_inference_algorithm(
                 rng_key=batch_key,
                 initial_state=last_state,

@@ -215,9 +215,9 @@ def compute_loss_and_gradient(
     forward_model,
     visible_indices,
 ):
-    loss_fn = lambda pval: compute_mse_loss(
-        pval, param_name, cosmo, nz_shear, ic, kappa_obs, forward_model, visible_indices
-    )
+    loss_fn = lambda pval: compute_mse_loss(pval, param_name, cosmo, nz_shear,
+                                            ic, kappa_obs, forward_model,
+                                            visible_indices)
     loss_value = float(loss_fn(param_val))
     grad_value = float(jax.grad(loss_fn)(param_val))
     return loss_value, grad_value
@@ -283,22 +283,19 @@ def compute_gradients(
         fiducial_val = param_info["fiducial"]
         offset = param_info["offset"]
 
-        offsets = np.array(
-            [-2 * offset, -offset, 0.0, offset, 2 * offset])
+        offsets = np.array([-2 * offset, -offset, 0.0, offset, 2 * offset])
         values = fiducial_val + offsets
 
         losses = []
         gradients = []
         for i, (off, val) in enumerate(zip(offsets, values)):
             print(
-                f"  [{i+1}/5] {param_name} = {val:.4f} (offset = {off:+.4f})"
-            )
+                f"  [{i+1}/5] {param_name} = {val:.4f} (offset = {off:+.4f})")
 
             loss_val, grad_val = compute_loss_and_gradient(
                 val, param_name, fiducial_cosmology, nz_shear,
                 initial_conditions, true_kappas_visible, forward_model,
-                visible_indices
-            )
+                visible_indices)
             losses.append(loss_val)
             gradients.append(grad_val)
 
@@ -314,10 +311,17 @@ def compute_gradients(
     print("\n" + "=" * 60)
     print("Gradient computation completed")
     print("=" * 60)
-    print("Expected: Quadratic loss (parabola) and linear gradient (through 0)")
+    print(
+        "Expected: Quadratic loss (parabola) and linear gradient (through 0)")
 
-    plot_gradient_analysis(results, params_to_test, plots_dir, output_format="png", dpi=600)
-    print(f"\nGradient analysis plots saved to {plots_dir / 'gradient_analysis.png'}")
+    plot_gradient_analysis(results,
+                           params_to_test,
+                           plots_dir,
+                           output_format="png",
+                           dpi=600)
+    print(
+        f"\nGradient analysis plots saved to {plots_dir / 'gradient_analysis.png'}"
+    )
 
 
 def run_mcmc_sampling(
@@ -668,8 +672,7 @@ def main():
     print("Workflow completed!")
     print("=" * 60)
     print(f"Output directory: {output_dir_path}")
-    print(
-        f"  - plots/gradient_analysis.png: Loss and gradient analysis")
+    print(f"  - plots/gradient_analysis.png: Loss and gradient analysis")
     print(f"  - plots/kappa_maps.png: Convergence maps")
     print(f"  - plots/lightcone.png: Density planes")
     print(f"  - plots/ic_comparison.png: Initial conditions comparison")
