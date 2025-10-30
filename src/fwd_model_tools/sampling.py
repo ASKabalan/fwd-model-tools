@@ -85,7 +85,8 @@ def batched_sampling(
         postprocess_fn = None
 
     state_exists = os.path.exists(state_path)
-
+    if state_exists:
+        num_warmup = 1  # No warmup when resuming
     nb_samples = 0
 
     print(
