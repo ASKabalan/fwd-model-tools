@@ -403,7 +403,6 @@ def make_full_field_model(
         r_edges = jnp.linspace(0.0,
                                float(n_lens) * float(density_plane_width),
                                n_lens + 1)
-        print(f"len of r_edges: {len(r_edges)}")
         r_center = 0.5 * (r_edges[1:] + r_edges[:-1])
         a_center = jc.background.a_of_chi(cosmo, r_center)
         cosmo._workspace = {}
