@@ -216,19 +216,15 @@ def batched_sampling(
         run_key, batch_key = jax.random.split(run_key)
 
         if backend == "blackjax":
-            last_state, raw_samples = blackjax.util.run_inference_algorithm(
+            transform = lambda x, _: x.position if postprocess_fn is None else postprocess_fn(*model_args, **model_kwargs)(x.position)
+            last_state, samples = blackjax.util.run_inference_algorithm(
                 rng_key=batch_key,
                 initial_state=last_state,
                 inference_algorithm=sampler_fn,
                 num_steps=num_samples,
-                transform=lambda x, _: x.position,
+                transform=transform,
                 progress_bar=progress_bar,
             )
-            if postprocess_fn is not None:
-                samples = jax.vmap(postprocess_fn(*model_args,
-                                                  **model_kwargs))(raw_samples)
-            else:
-                samples = raw_samples
             nb_evals = 0  # Don't know how to get the number of evaluations in blackjax
 
         elif backend == "numpyro":
