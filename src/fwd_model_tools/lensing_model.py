@@ -360,8 +360,6 @@ def make_full_field_model(
     if observer_position is None:
         observer_position = (0.5, 0.5, 0.5)
 
-    density_plane_width = box_size[2] / number_of_shells
-
     observer_position_mpc = jnp.array([
         observer_position[0] * box_size[0],
         observer_position[1] * box_size[1],
@@ -400,10 +398,12 @@ def make_full_field_model(
         factors = np.clip(observer_position, 0.0, 1.0)
         factors = 1.0 + 2.0 * np.minimum(factors, 1.0 - factors)
         max_radius = box_size[2] / factors[2]
+        density_plane_width = max_radius / number_of_shells
         n_lens = int(max_radius // float(density_plane_width))
         r_edges = jnp.linspace(0.0,
                                float(n_lens) * float(density_plane_width),
                                n_lens + 1)
+        print(f"len of r_edges: {len(r_edges)}")
         r_center = 0.5 * (r_edges[1:] + r_edges[:-1])
         a_center = jc.background.a_of_chi(cosmo, r_center)
         cosmo._workspace = {}
