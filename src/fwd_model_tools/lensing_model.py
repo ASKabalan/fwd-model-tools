@@ -269,7 +269,7 @@ def make_full_field_model(
     field_npix,
     box_shape,
     box_size,
-    density_plane_width=None,
+    number_of_shells=None,
     density_plane_npix=None,
     density_plane_smoothing=0.1,
     nside=None,
@@ -302,8 +302,8 @@ def make_full_field_model(
         Shape of the simulation box (nx, ny, nz).
     box_size : tuple or list
         Physical size of the box in each dimension (Mpc/h).
-    density_plane_width : int
-        Width of density planes for ray tracing (Mpc/h).
+    number_of_shells : int
+        Number of shells for lensing ray tracing. density_plane_width is computed as box_size[2] / number_of_shells.
     density_plane_npix : int
         Number of pixels per density plane side.
     density_plane_smoothing : float, default=0.1
@@ -354,11 +354,13 @@ def make_full_field_model(
     assert geometry in [
         "spherical", "flat"
     ], f"geometry must be 'spherical' or 'flat', got {geometry}"
-    assert density_plane_width is not None
+    assert number_of_shells is not None
     assert density_plane_npix is not None
 
     if observer_position is None:
         observer_position = (0.5, 0.5, 0.5)
+
+    density_plane_width = box_size[2] / number_of_shells
 
     observer_position_mpc = jnp.array([
         observer_position[0] * box_size[0],
@@ -543,7 +545,7 @@ def full_field_probmodel(config):
             config.field_npix,
             config.box_shape,
             config.box_size,
-            config.density_plane_width,
+            config.number_of_shells,
             config.density_plane_npix,
             config.density_plane_smoothing,
             config.nside,

@@ -21,8 +21,8 @@ class Configurations(NamedTuple):
         Shape of the simulation box (nx, ny, nz).
     box_size : list
         Physical size of the box in each dimension (Mpc/h).
-    density_plane_width : int
-        Width of density planes for lensing ray tracing (Mpc/h).
+    number_of_shells : int
+        Number of shells for lensing ray tracing. density_plane_width is computed as box_size[2] / number_of_shells.
     density_plane_npix : int
         Number of pixels per density plane side.
     nside : int
@@ -73,7 +73,7 @@ class Configurations(NamedTuple):
     field_npix: int
     box_shape: tuple
     box_size: list
-    density_plane_width: int
+    number_of_shells: int
     density_plane_npix: int
     nside: int
     density_plane_smoothing: float

@@ -218,6 +218,76 @@ def plot_ic(true_ic,
     plt.close()
 
 
+def plot_gradient_analysis(
+    results,
+    params_info,
+    outdir,
+    output_format="png",
+    dpi=600,
+):
+    """Plot gradient analysis results in a 2x2 grid.
+
+    Parameters
+    ----------
+    results : dict
+        Dictionary with parameter names as keys, each containing:
+        - 'offsets': array of parameter offsets
+        - 'losses': array of MSE loss values
+        - 'gradients': array of gradient values
+    params_info : dict
+        Dictionary with parameter names as keys, each containing:
+        - 'fiducial': fiducial parameter value
+        - 'offset': offset magnitude
+    outdir : str or Path
+        Output directory for saved plots.
+    output_format : str, optional
+        Output format: "png", "pdf", or "show". Default is "png".
+    dpi : int, optional
+        DPI for saved figures. Default is 600.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    param_names = list(results.keys())
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    for i, param_name in enumerate(param_names):
+        data = results[param_name]
+        fiducial_val = params_info[param_name]["fiducial"]
+
+        offsets = np.asarray(data["offsets"])
+        losses = np.asarray(data["losses"])
+        gradients = np.asarray(data["gradients"])
+        param_values = fiducial_val + offsets
+
+        ax_loss = axes[i, 0]
+        ax_loss.plot(offsets, losses, "o-", linewidth=2, markersize=8)
+        ax_loss.axvline(0, color="red", linestyle="--", alpha=0.5, label="Fiducial")
+        ax_loss.set_xlabel(f"{param_name} offset")
+        ax_loss.set_ylabel("MSE Loss")
+        ax_loss.set_title(f"Loss vs {param_name} offset")
+        ax_loss.grid(True, alpha=0.3)
+        ax_loss.legend()
+
+        ax_grad = axes[i, 1]
+        ax_grad.plot(offsets, gradients, "s-", linewidth=2, markersize=8, color="orange")
+        ax_grad.axhline(0, color="black", linestyle="-", alpha=0.3)
+        ax_grad.axvline(0, color="red", linestyle="--", alpha=0.5, label="Fiducial")
+        ax_grad.set_xlabel(f"{param_name} offset")
+        ax_grad.set_ylabel("d(MSE)/d(" + param_name + ")")
+        ax_grad.set_title(f"Gradient vs {param_name} offset")
+        ax_grad.grid(True, alpha=0.3)
+        ax_grad.legend()
+
+    plt.tight_layout()
+    if output_format == "show":
+        plt.show()
+    else:
+        filename = f"gradient_analysis.{output_format}"
+        plt.savefig(outdir / filename, dpi=dpi, bbox_inches="tight")
+    plt.close()
+
+
 def plot_posterior(
     param_samples,
     outdir,

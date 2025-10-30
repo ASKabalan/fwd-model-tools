@@ -19,8 +19,12 @@ from fwd_model_tools.config import Configurations
 from fwd_model_tools.lensing_model import (E, Planck18, full_field_probmodel,
                                            linear_field, make_full_field_model,
                                            reconstruct_full_kappa)
-from fwd_model_tools.plotting import (plot_ic, plot_kappa, plot_lightcone,
+from fwd_model_tools.plotting import (plot_gradient_analysis, plot_ic,
+                                      plot_kappa, plot_lightcone,
                                       plot_posterior)
+from fwd_model_tools.powerspec_model import (make_2pt_model,
+                                             pixel_window_function,
+                                             powerspec_probmodel)
 
 __version__ = "0.1.0"
 
@@ -36,4 +40,8 @@ __all__ = [
     "plot_kappa",
     "plot_ic",
     "plot_posterior",
+    "plot_gradient_analysis",
+    "make_2pt_model",
+    "pixel_window_function",
+    "powerspec_probmodel",
 ]
