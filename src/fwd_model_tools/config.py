@@ -1,6 +1,8 @@
 from typing import Any, NamedTuple
 
+import jax.numpy as jnp
 from diffrax import RecursiveCheckpointAdjoint
+from jaxtyping import Array
 
 
 class Configurations(NamedTuple):
@@ -93,3 +95,4 @@ class Configurations(NamedTuple):
     observer_position: tuple | list = (0.5, 0.5, 0.5)
     log_lightcone: bool = False
     log_ic: bool = False
+    ells: Array = jnp.arange(2, 2048)

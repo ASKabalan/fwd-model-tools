@@ -1,7 +1,31 @@
+from itertools import combinations_with_replacement
+from operator import itemgetter
+
+import healpy as hp
 import jax.numpy as jnp
 import jax_cosmo as jc
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
+
+
+def compute_cl_from_convergence_map(kappas, lmax):
+
+    nb_bins = len(kappas)
+    pair_order = sorted(combinations_with_replacement(range(nb_bins), 2))
+    observed_cls = {}
+
+    for i, j in pair_order:
+        kappa_i = np.asarray(kappas[f"kappa_{i}"])
+        kappa_j = np.asarray(kappas[f"kappa_{j}"])
+
+        cl_full = hp.anafast(kappa_i, kappa_j, lmax=lmax)
+        cl_obs = cl_full[2:]
+
+        entry_name = f"C_ell_auto_{i}" if i == j else f"C_ell_cross_{i}_{j}"
+        observed_cls[entry_name] = jnp.array(cl_obs)
+
+    return observed_cls
 
 
 def pixel_window_function(l, pixel_size_arcmin):
@@ -25,7 +49,10 @@ def pixel_window_function(l, pixel_size_arcmin):
     return W_l
 
 
-def make_2pt_model(pixel_scale, ell, sigma_e=0.3):
+def make_2pt_model(pixel_scale,
+                   ell,
+                   sigma_e=0.3,
+                   nonlinear_fn=jc.power.halofit):
     """
     Create a function that computes the theoretical 2-point correlation function for a given cosmology and redshift distribution.
 
@@ -48,7 +75,7 @@ def make_2pt_model(pixel_scale, ell, sigma_e=0.3):
         tracer = jc.probes.WeakLensing(nz_shear, sigma_e=sigma_e)
         cell_theory = jc.angular_cl.angular_cl(cosmo,
                                                ell, [tracer],
-                                               nonlinear_fn=jc.power.linear)
+                                               nonlinear_fn=nonlinear_fn)
         cell_theory = cell_theory * pixel_window_function(ell, pixel_scale)
         cell_noise = jc.angular_cl.noise_cl(ell, [tracer])
         return cell_theory, cell_noise
@@ -56,69 +83,68 @@ def make_2pt_model(pixel_scale, ell, sigma_e=0.3):
     return forward_model
 
 
-def powerspec_probmodel(config, ell, kappa_obs_spectra):
+def powerspec_probmodel(config):
     """
-    NumPyro probabilistic model for power spectrum inference.
+    Create NumPyro probabilistic model for power spectrum inference.
 
     Parameters
     ----------
     config : Configurations
         Configuration object containing priors, nz_shear, sigma_e, etc.
-    ell : array_like
-        Angular wave numbers for power spectrum.
-    kappa_obs_spectra : dict
-        Dictionary mapping (i, j) tuples to observed power spectra arrays.
-        Keys are (i, j) where i <= j are redshift bin indices.
 
     Returns
     -------
-    None
-        NumPyro model that samples cosmological parameters and conditions on observed power spectra.
+    callable
+        NumPyro model function with signature: model(ell, kappa_obs_spectra) -> observed_spectra
+        where kappa_obs_spectra is a list of observed auto-spectra (one per redshift bin).
     """
-    Omega_c = numpyro.sample("Omega_c", config.priors["Omega_c"])
-    sigma8 = numpyro.sample("sigma8", config.priors["sigma8"])
+    nb_bins = len(config.nz_shear)
+    pair_order = sorted(combinations_with_replacement(range(nb_bins), 2))
 
-    cosmo = jc.Cosmology(
-        Omega_c=Omega_c,
-        Omega_b=config.fiducial_cosmology().Omega_b,
-        h=config.fiducial_cosmology().h,
-        n_s=config.fiducial_cosmology().n_s,
-        sigma8=sigma8,
-        Omega_k=0.0,
-        w0=-1.0,
-        wa=0.0,
-    )
-    cosmo._workspace = {}
+    def model():
+        Omega_c = numpyro.sample("Omega_c", config.priors["Omega_c"])
+        sigma8 = numpyro.sample("sigma8", config.priors["sigma8"])
 
-    nbins = len(config.nz_shear)
-    pixel_scale = config.field_size * 60.0 / config.field_npix
+        cosmo = jc.Cosmology(
+            Omega_c=Omega_c,
+            Omega_b=config.fiducial_cosmology().Omega_b,
+            h=config.fiducial_cosmology().h,
+            n_s=config.fiducial_cosmology().n_s,
+            sigma8=sigma8,
+            Omega_k=0.0,
+            w0=-1.0,
+            wa=0.0,
+        )
+        cosmo._workspace = {}
 
-    tracers = [
-        jc.probes.WeakLensing([nz], sigma_e=config.sigma_e)
-        for nz in config.nz_shear
-    ]
+        if config.geometry == "flat":
+            pixel_scale = config.field_size * 60.0 / config.field_npix
+        else:
+            pixel_scale = jnp.sqrt(
+                4 * jnp.pi / (12 * config.nside**2)) * (180.0 * 60.0 / jnp.pi)
 
-    for i in range(nbins):
-        for j in range(i, nbins):
-            cell_theory = jc.angular_cl.angular_cl(
-                cosmo,
-                ell, [tracers[i], tracers[j]],
-                nonlinear_fn=jc.power.linear)
-            cell_theory = cell_theory[0] * pixel_window_function(
-                ell, pixel_scale)
+        forward_model = make_2pt_model(pixel_scale,
+                                       config.ells,
+                                       sigma_e=config.sigma_e)
 
-            cell_noise_i = jc.angular_cl.noise_cl(ell, [tracers[i]])[0]
-            cell_noise_j = jc.angular_cl.noise_cl(ell, [tracers[j]])[0]
+        cell_theory, cell_noise = forward_model(cosmo, config.nz_shear)
 
+        observed_spectra = []
+        for idx, (i, j) in enumerate(pair_order):
             if i == j:
-                cell_total = cell_theory + cell_noise_i
-            else:
-                cell_total = cell_theory
+                kappa_obs_spectra = numpyro.sample(
+                    f"C_ell_auto_{i}",
+                    dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
 
-            sigma_cl = jnp.sqrt(2.0 / (2.0 * ell + 1.0)) * cell_total
+                observed_spectra.append(kappa_obs_spectra)
+            # Deactivate cross-spectra for now
+            # Because the noise is equal to 0 And I don't know what to sample
+            elif False:
+                kappa_obs_spectra = numpyro.sample(
+                    f"C_ell_cross_{i}_{j}",
+                    dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
+                observed_spectra.append(kappa_obs_spectra)
 
-            numpyro.sample(
-                f"C_ell_{i}_{j}",
-                dist.Normal(cell_theory, sigma_cl),
-                obs=kappa_obs_spectra[(i, j)],
-            )
+        return observed_spectra
+
+    return model

@@ -47,7 +47,8 @@ from fwd_model_tools import (Configurations, Planck18, full_field_probmodel,
                              reconstruct_full_kappa)
 from fwd_model_tools.lensing_model import compute_box_size_from_redshift
 from fwd_model_tools.plotting import plot_kappa, plot_lightcone
-from fwd_model_tools.powerspec_model import powerspec_probmodel
+from fwd_model_tools.powerspec_model import (compute_cl_from_convergence_map,
+                                             powerspec_probmodel)
 from fwd_model_tools.sampling import batched_sampling, load_samples
 
 
@@ -160,43 +161,30 @@ def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir,
                           plots_dir):
     print("\nComputing power spectra with healpy.anafast")
 
-    observed_cls = {}
     ell_max = 3 * nside - 1
     ell = np.arange(2, ell_max + 1)
 
-    for i in range(nbins):
-        for j in range(i, nbins):
-            kappa_i = np.asarray(true_kappas_full[f"kappa_{i}"])
-            kappa_j = np.asarray(true_kappas_full[f"kappa_{j}"])
-
-            cl_full = hp.anafast(kappa_i, kappa_j, lmax=ell_max)
-            cl_obs = cl_full[2:]
-
-            observed_cls[(i, j)] = jnp.array(cl_obs)
-            print(f"  C_ell^{{{i},{j}}}: {len(cl_obs)} multipoles")
+    observed_cls = compute_cl_from_convergence_map(true_kappas_full, ell_max)
 
     print(f"\nTotal power spectra computed: {len(observed_cls)}")
     print(f"Expected: 4 auto + 6 cross = 10 spectra")
 
     np.savez(
         data_dir / "observed_cls.npz",
-        **{
-            f"cl_{i}_{j}": observed_cls[(i, j)]
-            for i, j in observed_cls.keys()
-        },
+        **observed_cls,
         ell=ell,
     )
 
     fig, axes = plt.subplots(2, 5, figsize=(25, 8))
     axes = axes.ravel()
 
-    for idx, (i, j) in enumerate(observed_cls.keys()):
+    for idx, name in enumerate(observed_cls.keys()):
         ax = axes[idx]
-        cl = observed_cls[(i, j)]
-        ax.loglog(ell, np.abs(cl), label=f"C_ell^{{{i},{j}}}")
+        cl = observed_cls[name]
+        ax.loglog(ell, np.abs(cl), label=f"C_ell^{{{name}}}")
         ax.set_xlabel("ell")
         ax.set_ylabel("C_ell")
-        ax.set_title(f"Power Spectrum {i},{j}")
+        ax.set_title(f"Power Spectrum {name}")
         ax.grid(True, alpha=0.3)
         ax.legend()
 
@@ -247,10 +235,7 @@ def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
                             fiducial_cosmology):
     print("\nSetting up power spectrum MCMC inference")
 
-    ell_jax = jnp.array(ell)
-
-    def powerspec_model():
-        powerspec_probmodel(config, ell_jax, observed_cls)
+    model = powerspec_probmodel(config)
 
     init_params_ps = {
         "Omega_c": fiducial_cosmology.Omega_c,
@@ -261,7 +246,7 @@ def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
     print(f"Sampling with {args.sampler} using {args.backend} backend")
 
     batched_sampling(
-        model=powerspec_model,
+        model=model,
         path=str(samples_dir_ps),
         rng_key=jax.random.PRNGKey(args.seed + 1),
         num_warmup=args.num_warmup,
@@ -489,8 +474,8 @@ def main():
         fiducial_cosmology=Planck18,
         sigma_e=args.sigma_e,
         priors={
-            "Omega_c": dist.Uniform(0.24, 0.28),
-            "sigma8": dist.Uniform(0.78, 0.82),
+            "Omega_c": dist.Uniform(0.20, 0.3),
+            "sigma8": dist.Uniform(0.6, 1.0),
         },
         t0=0.1,
         dt0=0.1,
@@ -527,14 +512,14 @@ def main():
     }
     init_params = jax.tree.map(jnp.asarray, init_params)
 
-    run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
-                             init_params)
+    #run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
+    #                         init_params)
 
     run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
                             fiducial_cosmology)
 
-    analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
-                                plots_dir)
+    #analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
+    #                            plots_dir)
 
     print("\nWorkflow completed successfully!")
     print(f"Results saved to: {output_dir}")
