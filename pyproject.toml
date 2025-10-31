@@ -32,6 +32,7 @@ dependencies = [
     "numpyro",
     "jaxtyping",
     "jaxpm",
+    "healpy",
     "jax-cosmo",
     "diffrax",
     "arviz",
