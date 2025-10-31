@@ -163,7 +163,8 @@ def plot_lightcone(lightcone,
 
 
 def plot_ic(true_ic,
-            samples_ic,
+            mean_ic,
+            std_ic,
             outdir,
             titles=("True", "Mean", "Std", "Diff"),
             output_format="png",
@@ -174,12 +175,14 @@ def plot_ic(true_ic,
     ----------
     true_ic : array_like
         Shape (X, Y, Z), the true initial conditions.
-    samples_ic : array_like
-        Shape (n_samples, X, Y, Z), sampled initial conditions.
+    mean_ic : array_like
+        Shape (X, Y, Z), posterior mean of initial conditions.
+    std_ic : array_like
+        Shape (X, Y, Z), posterior standard deviation of initial conditions.
     outdir : str or Path
         Output directory for saved plots.
     titles : tuple of str, optional
-        Titles for the three panels. Default is ("True", "Mean", "Std").
+        Titles for the four panels. Default is ("True", "Mean", "Std", "Diff").
     output_format : str, optional
         Output format: "png", "pdf", or "show". Default is "png".
     dpi : int, optional
@@ -189,10 +192,9 @@ def plot_ic(true_ic,
     outdir.mkdir(parents=True, exist_ok=True)
 
     true_ic = np.asarray(true_ic)
-    samples_ic = np.asarray(samples_ic)
+    mean_ic = np.asarray(mean_ic)
+    std_ic = np.asarray(std_ic)
 
-    mean_ic = samples_ic.mean(axis=0)
-    std_ic = samples_ic.std(axis=0)
     diff_ic = mean_ic - true_ic
 
     slice_idx = 3 * true_ic.shape[-1] // 4

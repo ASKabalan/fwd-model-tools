@@ -199,9 +199,10 @@ def run_mcmc_inference(config, true_kappas_visible, samples_dir, args,
 def analyze_results(samples_dir, data_dir, plots_dir):
     print("\nLoading samples and analyzing results")
 
-    samples = load_samples(str(samples_dir))
-    print(f"Loaded {len(samples['Omega_c'])} samples")
-    print(f"Parameters: {list(samples.keys())}")
+    scalar_samples = load_samples(str(samples_dir),
+                                  param_names=["Omega_c", "sigma8"])
+    print(f"Loaded {len(scalar_samples['Omega_c'])} samples")
+    print(f"Parameters: {list(scalar_samples.keys())}")
 
     true_data = np.load(data_dir / "true_kappas.npz")
     true_Omega_c = float(true_data["Omega_c"])
@@ -210,26 +211,31 @@ def analyze_results(samples_dir, data_dir, plots_dir):
     print("\nPosterior Statistics:")
     print(f"True Omega_c: {true_Omega_c:.4f}")
     print(
-        f"Inferred Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}"
+        f"Inferred Omega_c: {scalar_samples['Omega_c'].mean():.4f} ± {scalar_samples['Omega_c'].std():.4f}"
     )
     print(f"True sigma8: {true_sigma8:.4f}")
     print(
-        f"Inferred sigma8: {samples['sigma8'].mean():.4f} ± {samples['sigma8'].std():.4f}"
+        f"Inferred sigma8: {scalar_samples['sigma8'].mean():.4f} ± {scalar_samples['sigma8'].std():.4f}"
     )
 
-    if "ic" in samples:
+    print("Loading IC field statistics...")
+    ic_mean, ic_std = load_samples(str(samples_dir),
+                                   param_names=["ic"],
+                                   transform=("mean", "std"))
+    if "ic" in ic_mean:
         true_ic = np.load(data_dir / "true_ic.npy")
         plot_ic(
             true_ic,
-            samples["ic"],
+            ic_mean["ic"],
+            ic_std["ic"],
             plots_dir,
             titles=("True", "Mean", "Std", "Diff"),
         )
         print("Plotted IC comparison")
 
     param_samples = {
-        "Omega_c": samples["Omega_c"],
-        "sigma8": samples["sigma8"]
+        "Omega_c": scalar_samples["Omega_c"],
+        "sigma8": scalar_samples["sigma8"]
     }
     true_param_values = {"Omega_c": true_Omega_c, "sigma8": true_sigma8}
 

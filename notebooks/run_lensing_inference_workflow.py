@@ -391,14 +391,17 @@ def analyze_results(data_dir, samples_dir, plots_dir, n_samples_plot=-1):
     print("Loading samples and analyzing results")
     print("=" * 60)
 
-    samples = load_samples(str(samples_dir))
+    scalar_samples = load_samples(str(samples_dir),
+                                  param_names=["Omega_c", "sigma8"])
     if n_samples_plot > 0:
-        samples = jax.tree.map(lambda x: x[-n_samples_plot:], samples)
+        scalar_samples = jax.tree.map(lambda x: x[-n_samples_plot:],
+                                      scalar_samples)
         print(f"Using last {n_samples_plot} samples for plotting")
     else:
-        print(f"Using all {len(samples['Omega_c'])} samples for plotting")
+        print(
+            f"Using all {len(scalar_samples['Omega_c'])} samples for plotting")
 
-    print(f"Loaded parameters: {list(samples.keys())}")
+    print(f"Loaded parameters: {list(scalar_samples.keys())}")
 
     true_data = np.load(data_dir / "true_kappas.npz")
     true_Omega_c = float(true_data["Omega_c"])
@@ -407,25 +410,30 @@ def analyze_results(data_dir, samples_dir, plots_dir, n_samples_plot=-1):
     print("\nPosterior Statistics:")
     print(f"True Omega_c: {true_Omega_c:.4f}")
     print(
-        f"Inferred Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}"
+        f"Inferred Omega_c: {scalar_samples['Omega_c'].mean():.4f} ± {scalar_samples['Omega_c'].std():.4f}"
     )
     print(f"True sigma8: {true_sigma8:.4f}")
     print(
-        f"Inferred sigma8: {samples['sigma8'].mean():.4f} ± {samples['sigma8'].std():.4f}"
+        f"Inferred sigma8: {scalar_samples['sigma8'].mean():.4f} ± {scalar_samples['sigma8'].std():.4f}"
     )
 
-    if "ic" in samples:
+    print("\nLoading IC field statistics...")
+    ic_mean, ic_std = load_samples(str(samples_dir),
+                                   param_names=["ic"],
+                                   transform=("mean", "std"))
+    if "ic" in ic_mean:
         true_ic = np.load(data_dir / "true_ic.npy")
         plot_ic(true_ic,
-                samples["ic"],
+                ic_mean["ic"],
+                ic_std["ic"],
                 plots_dir,
                 output_format="png",
                 dpi=600)
         print(f"✓ Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
 
     param_samples = {
-        "Omega_c": samples["Omega_c"],
-        "sigma8": samples["sigma8"]
+        "Omega_c": scalar_samples["Omega_c"],
+        "sigma8": scalar_samples["sigma8"]
     }
     true_param_values = {"Omega_c": true_Omega_c, "sigma8": true_sigma8}
 

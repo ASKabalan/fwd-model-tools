@@ -281,10 +281,12 @@ def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
                                 plots_dir):
     print("\nLoading and comparing samples")
 
-    samples_ff = load_samples(str(samples_dir_ff))
+    samples_ff = load_samples(str(samples_dir_ff),
+                              param_names=["Omega_c", "sigma8"])
     print(f"Loaded {len(samples_ff['Omega_c'])} full-field samples")
 
-    samples_ps = load_samples(str(samples_dir_ps))
+    samples_ps = load_samples(str(samples_dir_ps),
+                              param_names=["Omega_c", "sigma8"])
     print(f"Loaded {len(samples_ps['Omega_c'])} power spectrum samples")
 
     true_data = np.load(data_dir / "true_kappas.npz")
