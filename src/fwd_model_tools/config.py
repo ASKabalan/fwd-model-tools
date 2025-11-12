@@ -1,6 +1,8 @@
 from typing import Any, NamedTuple
 
+import jax.numpy as jnp
 from diffrax import RecursiveCheckpointAdjoint
+from jaxtyping import Array
 
 
 class Configurations(NamedTuple):
@@ -17,12 +19,12 @@ class Configurations(NamedTuple):
         Angular size of the field in degrees.
     field_npix : int
         Number of pixels along one side of the field.
-    box_shape : tuple
+    box_size : tuple
         Shape of the simulation box (nx, ny, nz).
     box_size : list
         Physical size of the box in each dimension (Mpc/h).
-    density_plane_width : int
-        Width of density planes for lensing ray tracing (Mpc/h).
+    number_of_shells : int
+        Number of shells for lensing ray tracing. density_plane_width is computed as box_size[2] / number_of_shells.
     density_plane_npix : int
         Number of pixels per density plane side.
     nside : int
@@ -71,9 +73,9 @@ class Configurations(NamedTuple):
 
     field_size: float
     field_npix: int
-    box_shape: tuple
+    box_size: tuple
     box_size: list
-    density_plane_width: int
+    number_of_shells: int
     density_plane_npix: int
     nside: int
     density_plane_smoothing: float
@@ -93,3 +95,4 @@ class Configurations(NamedTuple):
     observer_position: tuple | list = (0.5, 0.5, 0.5)
     log_lightcone: bool = False
     log_ic: bool = False
+    ells: Array = jnp.arange(2, 2048)

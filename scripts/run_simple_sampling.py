@@ -21,7 +21,7 @@ from pathlib import Path
 
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ["JAX_PLATFORMS"] = "cpu"
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
+#os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 
 import jax
 import jax.numpy as jnp
@@ -97,10 +97,11 @@ def field_model(log_ic=False, sharding=None):
                           sharding=sharding))
 
     ic, ic_scale = normalize_field(ic_raw)
-    jax.debug.inspect_array_sharding(
-        ic_raw, callback=lambda x: print(f"Sharding of raw IC: {x}"))
-    jax.debug.inspect_array_sharding(
-        ic, callback=lambda x: print(f"Sharding of normalized IC: {x}"))
+    # TODO: Sharding should be checked here in a test using some sort of a hook or debug tool
+    #jax.debug.inspect_array_sharding(
+    #    ic_raw, callback=lambda x: print(f"Sharding of raw IC: {x}"))
+    #jax.debug.inspect_array_sharding(
+    #    ic, callback=lambda x: print(f"Sharding of normalized IC: {x}"))
 
     alpha = numpyro.sample("alpha", dist.Uniform(0.5, 3.5))
     beta = numpyro.sample("beta", dist.Uniform(-1.0, 1.5))
@@ -117,12 +118,11 @@ def field_model(log_ic=False, sharding=None):
     numpyro.sample("obs_combined", dist.Normal(combined_term, NOISE_STD))
 
 
-def plot_field_comparison(true_field, samples_field, plots_dir):
+def plot_field_comparison(true_field, mean_field, std_field, plots_dir):
     true_field = np.asarray(true_field)
-    samples_field = np.asarray(samples_field)
+    mean_field = np.asarray(mean_field)
+    std_field = np.asarray(std_field)
 
-    mean_field = samples_field.mean(axis=0)
-    std_field = samples_field.std(axis=0)
     error_field = np.abs(mean_field - true_field)
 
     fig, axes = plt.subplots(1, 4, figsize=(20, 4))
@@ -307,13 +307,16 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
     print("Step 3: Loading samples and plotting results")
     print("=" * 60)
 
-    samples = load_samples(str(samples_dir))
+    scalar_samples = load_samples(
+        str(samples_dir),
+        param_names=["alpha", "beta"],
+        last_n_batches=None if n_samples_plot <= 0 else None)
     if n_samples_plot > 0:
-        samples = jax.tree.map(lambda x: x[-n_samples_plot:], samples)
-        print(f"Using last {n_samples_plot} samples for plotting")
+        scalar_samples = jax.tree.map(lambda x: x[-n_samples_plot:],
+                                      scalar_samples)
+        print(f"Using last {n_samples_plot} samples for scalar parameters")
     else:
-        print("Using all samples for plotting")
-    print(f"Loaded parameters: {list(samples.keys())}")
+        print("Using all samples for scalar parameters")
 
     true_data = np.load(data_dir / "true_data.npz")
     true_alpha = float(true_data["alpha"])
@@ -323,27 +326,32 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
     print("\nPosterior Statistics:")
     print(f"True alpha: {true_alpha:.4f}")
     print(
-        f"Inferred alpha: {samples['alpha'].mean():.4f} ± {samples['alpha'].std():.4f}"
+        f"Inferred alpha: {scalar_samples['alpha'].mean():.4f} ± {scalar_samples['alpha'].std():.4f}"
     )
     print(f"True beta: {true_beta:.4f}")
     print(
-        f"Inferred beta: {samples['beta'].mean():.4f} ± {samples['beta'].std():.4f}"
+        f"Inferred beta: {scalar_samples['beta'].mean():.4f} ± {scalar_samples['beta'].std():.4f}"
     )
 
-    if "ic" in samples:
+    print("\nLoading IC field statistics...")
+    ic_mean, ic_std = load_samples(str(samples_dir),
+                                   param_names=["ic"],
+                                   transform=("mean", "std"))
+    if "ic" in ic_mean:
         print("\nPlotting IC comparison...")
-        plot_field_comparison(true_ic, samples["ic"], plots_dir)
+        plot_field_comparison(true_ic, ic_mean["ic"], ic_std["ic"], plots_dir)
         print(f"✓ Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
 
-    param_samples = {"alpha": samples["alpha"], "beta": samples["beta"]}
+    param_samples = {
+        "alpha": scalar_samples["alpha"],
+        "beta": scalar_samples["beta"]
+    }
     true_param_values = {"alpha": true_alpha, "beta": true_beta}
     plot_posterior(param_samples,
                    plots_dir,
                    params=("alpha", "beta"),
                    true_values=true_param_values)
-    print(
-        f"✓ Plotted posteriors to {plots_dir / 'posterior_trace.png'} and {plots_dir / 'posterior_pair.png'}"
-    )
+    print(f"✓ Plotted posteriors to {plots_dir / 'posterior.png'}")
 
 
 def main():
@@ -370,7 +378,7 @@ def main():
     parser.add_argument(
         "--batch-count",
         type=int,
-        default=3,
+        default=10,
         help="Number of batches to run",
     )
     parser.add_argument(

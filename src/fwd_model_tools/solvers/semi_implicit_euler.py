@@ -17,11 +17,13 @@ Ya: TypeAlias = PyTree[Float[ArrayLike, "?*y"], " Y"]
 Yb: TypeAlias = PyTree[Float[ArrayLike, "?*y"], " Y"]
 
 
-class SemiImplicitEuler(AbstractSolver):
-    """Semi-implicit Euler's method.
+class ReversibleEfficientFastPM(AbstractSolver):
+    """Reversible Efficient FastPM integrator (semi-implicit Euler).
 
-    Symplectic method. Does not support adaptive step sizing. Uses 1st order local
-    linear interpolation for dense/ts output.
+    Symplectic, reversible method optimized for particle-mesh simulations.
+    Does not support adaptive step sizing. Uses 1st order local linear
+    interpolation for dense/ts output. Supports reverse() for efficient
+    adjoint computation in gradient-based inference.
     """
 
     term_structure: ClassVar = (AbstractTerm, AbstractTerm)

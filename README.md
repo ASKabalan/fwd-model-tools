@@ -10,9 +10,11 @@
 
 - **Pure JAX Implementation**: All functions use explicit PRNGKey, static shapes, and optional sharding
 - **Distributed-Ready**: Supports single-device and multi-GPU/multi-host execution via jaxDecomp
+- **Dual Geometry Support**: Both spherical (HEALPix) and flat (Cartesian) geometries with proper visibility masking
 - **Flexible Field Generation**: Gaussian and lognormal initial conditions with distributed sampling
 - **Memory-Efficient Integration**: Custom reverse-mode adjoint for ODE integration with checkpointing
-- **Sampling Backend Flexibility**: BlackJAX (HMC/NUTS/MCLMC) and NumPyro support with warmup state persistence
+- **Sampling Backend Flexibility**: BlackJAX (HMC/NUTS/MCLMC) and NumPyro (NUTS/HMC) support with warmup state persistence
+- **Batched MCMC**: Resumable sampling with automatic checkpoint management
 - **No Painting Operations**: Focuses on positions, velocities, and displacements (painting is delegated to JAXPM)
 
 ## Installation
@@ -38,7 +40,7 @@ from fwd_model_tools import Planck18
 
 # Setup
 key = jax.random.PRNGKey(42)
-mesh_shape = (128, 128, 128)
+mesh_size = (128, 128, 128)
 box_size = [500.0, 500.0, 500.0]  # Mpc/h
 
 # Define power spectrum
@@ -48,13 +50,13 @@ import jax_cosmo as jc
 pk_fn = lambda x: jc.power.linear_matter_power(cosmo, x)
 
 # Sample Gaussian initial conditions
-ic_dist = DistributedNormal(jnp.zeros(mesh_shape), jnp.ones(mesh_shape))
+ic_dist = DistributedNormal(jnp.zeros(mesh_size), jnp.ones(mesh_size))
 white_noise = ic_dist.sample(key)
 
 # Generate linear field
 from jaxpm.distributed import fft3d, ifft3d
 from jaxpm.kernels import fftk
-lin_field = linear_field(mesh_shape, box_size, pk_fn, white_noise, fft3d, ifft3d, fftk)
+lin_field = linear_field(mesh_size, box_size, pk_fn, white_noise, fft3d, ifft3d, fftk)
 ```
 
 ### 2. Run Forward Model
@@ -67,7 +69,7 @@ import numpyro.distributions as dist
 config = Configurations(
     field_size=5.0,        # degrees
     field_npix=64,
-    box_shape=(128, 128, 128),
+    box_size=(128, 128, 128),
     box_size=[500.0, 500.0, 500.0],
     density_plane_width=50,
     density_plane_npix=256,
@@ -84,7 +86,7 @@ config = Configurations(
 forward_model = make_full_field_model(
     config.field_size,
     config.field_npix,
-    config.box_shape,
+    config.box_size,
     config.box_size,
     config.density_plane_width,
     config.density_plane_npix,
@@ -103,62 +105,32 @@ convergence_maps, lightcone, ic = forward_model(cosmo, config.nz_shear, white_no
 
 ```python
 from fwd_model_tools import full_field_probmodel
-from fwd_model_tools.sampling import batched_sampling
+from fwd_model_tools.sampling import batched_sampling, load_samples
 
 # Create probabilistic model
 model = full_field_probmodel(config)
 
-# Run MCMC sampling
+# Run MCMC sampling (BlackJAX recommended for distributed/sharded workflows)
 batched_sampling(
     model,
     path="output/mcmc_run",
     rng_key=jax.random.PRNGKey(0),
     num_warmup=500,
-    num_samples=1000,
-    batch_count=5,
-    sampler="NUTS",       # or "HMC", "MCLMC"
-    backend="blackjax",   # or "numpyro"
+    num_samples=200,     # samples per batch
+    batch_count=5,        # total: 1000 samples
+    sampler="NUTS",       # "HMC", "MCLMC" (BlackJAX only)
+    backend="blackjax",   # "numpyro" (see Important Notes below)
+    save=True,            # enables checkpoint resumption
 )
 
-# Load samples
-from fwd_model_tools.sampling import load_samples
+# Load and analyze samples
 samples = load_samples("output/mcmc_run")
+print(f"Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}")
+
+# Plot posteriors
+from fwd_model_tools.plotting import plot_posterior
+plot_posterior(samples, "output/plots", params=("Omega_c", "sigma8"))
 ```
-
-## Package Structure
-
-```
-fwd_model_tools/
-├── __init__.py              # Main exports: Configurations, Planck18, make_full_field_model
-├── config.py                # Configuration dataclass
-├── lensing_model.py         # Forward model and probabilistic model
-├── fields/                  # Initial condition generators
-│   ├── gaussian.py          # Gaussian fields + DistributedNormal
-│   └── lognormal.py         # Lognormal fields + DistributedLogNormal
-├── likelihood/              # Likelihood functions
-│   ├── gaussian.py          # Gaussian likelihoods
-│   └── poisson.py           # Poisson likelihoods
-├── sampling/                # MCMC sampling utilities
-│   └── sampling.py          # Batched sampling with BlackJAX/NumPyro
-├── distributed/             # Distributed computing utilities
-│   └── rng.py               # Sharding helpers, array save/load
-└── solvers/                 # ODE integration
-    ├── integrate.py         # Custom reverse-mode adjoint integration
-    └── semi_implicit_euler.py  # Semi-implicit Euler solver
-```
-
-## Dependencies
-
-All dependencies are installed by default:
-- `jax>=0.4.35`
-- `equinox>=0.11.0`
-- `blackjax>=1.0.0`
-- `numpyro>=0.13.0`
-- `jaxtyping>=0.2.0`
-- `jaxpm>=0.1.0`
-- `jax-cosmo>=0.1.0`
-- `diffrax>=0.4.0`
-
 ## Design Principles
 
 ### 1. Pure JAX Functions
@@ -185,13 +157,48 @@ Initial conditions are sampled in whitened space (unit Gaussian):
 - Power spectrum applied in forward model (not in prior)
 - Supports both Gaussian and lognormal transformations
 
-## Examples
+## Example Workflows
 
-See `examples/` directory for:
-- `01-gaussian-ics.py`: Generating Gaussian initial conditions
-- `02-lognormal-ics.py`: Generating lognormal initial conditions
-- `03-forward-model.py`: Running JAXPM forward model
-- `04-hmc-inference.py`: Bayesian inference with HMC/NUTS
+### Command-Line Scripts
+
+**Complete lensing inference workflow:**
+```bash
+python scripts/run_lensing_model.py \
+  --box-shape 128 128 128 \
+  --geometry spherical \
+  --observer-position 0.5 0.5 0.0 \
+  --max-redshift 1.0 \
+  --num-warmup 500 \
+  --num-samples 200 \
+  --batch-count 10 \
+  --sampler NUTS \
+  --backend blackjax \
+  --output-dir output/lensing_run
+```
+
+**Simple field-based inference (pedagogical example):**
+```bash
+python scripts/run_simple_sampling.py \
+  --num-warmup 100 \
+  --num-samples 50 \
+  --batch-count 5 \
+  --sampler NUTS \
+  --backend blackjax \
+  --output-dir output/simple_run
+```
+
+**Plot-only mode (re-plot without re-running inference):**
+```bash
+python scripts/run_lensing_model.py --plot-only --n-samples-plot -1
+```
+
+### Interactive Jupyter Notebook
+
+See `notebooks/lensing_inference_workflow.ipynb` for an interactive workflow including:
+- Gradient analysis (parameter sensitivity)
+- Synthetic observation generation
+- Resumable MCMC sampling
+- Posterior visualization and diagnostics
 
 ## Alignment with JAXPM and JAX-Decomp
 
@@ -235,8 +242,59 @@ Contributions are welcome! Please:
 3. Run tests with `pytest`
 4. Submit a pull request
 
+## Important Notes
+
+### ⚠️ NumPyro Sharding Limitation
+
+**NumPyro does NOT support distributed sharding with checkpoint resumption.** When resuming from a saved state, sharding information is lost, causing all data to collapse to a single device (`SingleDeviceSharding`) or replicated sharding (`GSPMDSharding({replicated})`). This severely impacts performance and memory usage in distributed settings.
+Please avoid using NumPyro backend for distributed/sharded workflows that require checkpoint resumption.
+
+**For distributed/sharded workflows, use BlackJAX backend.** BlackJAX correctly preserves sharding across checkpoint resumption.
+
+Example:
+```python
+# ✓ RECOMMENDED for distributed/sharded runs
+batched_sampling(..., backend="blackjax", sampler="NUTS", sharding=sharding)
+
+# ✗ NOT RECOMMENDED: NumPyro loses sharding on resumption
+batched_sampling(..., backend="numpyro", sampler="NUTS", sharding=sharding)
+```
+
+### Spherical Geometry
+
+When using `geometry="spherical"`:
+- The forward model returns convergence maps for **visible pixels only** (determined by observer position and HEALPix visibility mask)
+- Use `reconstruct_full_kappa()` to convert visible-pixel maps to full HEALPix maps for plotting
+- Likelihood automatically handles visible-pixel sampling with correct HEALPix pixel area scaling
+
+### Batched Sampling
+
+The `batched_sampling` function:
+- Saves warmup state to `{path}/sampling_state.pkl` for resumption
+- Saves samples to `{path}/samples_{i}.npz` (one file per batch)
+- Can be interrupted and resumed by re-running with increased `batch_count`
+- Use `load_samples(path)` to efficiently load and concatenate all batches
+
+## Troubleshooting
+
+**CUDA plugin errors on CPU-only runs:**
+```bash
+export JAX_PLATFORM_NAME=cpu
+export JAX_PLATFORMS=cpu
+python scripts/run_lensing_model.py ...
+```
+
+**Out of memory with large box sizes:**
+- Use `batched_sampling` with smaller `num_samples` and more `batch_count`
+- Enable distributed sharding (requires multiple devices)
+- Reduce `box_size` or `density_plane_npix`
+
+**Posterior plots look odd (too narrow/spiky):**
+- For small sample counts (n < 200), try `plot_posterior(..., pair_kind="scatter")`
+- Check that likelihood noise levels are reasonable for your setup
+- Verify forward model gradients with gradient analysis (see notebook)
+
 ## Support
 
 - **Issues**: https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/issues
-- **Documentation**: https://fwd-model-tools.readthedocs.io (coming soon)
 - **JAXPM Documentation**: https://github.com/DifferentiableUniverseInitiative/JaxPM

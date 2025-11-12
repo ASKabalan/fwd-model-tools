@@ -32,9 +32,13 @@ dependencies = [
     "numpyro",
     "jaxtyping",
     "jaxpm",
+    "healpy",
     "jax-cosmo",
     "diffrax",
     "arviz",
+    "getdist",
+    "rich",
+    "orbax-checkpoint",
 ]
 
 [project.optional-dependencies]

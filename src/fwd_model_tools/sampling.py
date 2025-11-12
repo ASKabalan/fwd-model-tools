@@ -1,20 +1,80 @@
 import os
-import pickle
 from functools import partial
-from glob import glob
+from pathlib import Path
 
 import blackjax
 import jax
 import jax.numpy as jnp
-import numpy as np
 import numpyro
-from jax.experimental.multihost_utils import process_allgather
+import orbax.checkpoint as ocp
 from jaxtyping import Key, PyTree
+from numpyro.distributions import Normal, constraints
+from numpyro.distributions.util import promote_shapes
 from numpyro.infer import HMC, MCMC, NUTS
 from numpyro.infer.util import initialize_model
-from tqdm import tqdm
 
-all_gather = partial(process_allgather, tiled=True)
+from .distributed import load_sharded, save_sharded
+
+
+class DistributedNormal(Normal):
+    """
+    Sharded normal distribution for distributed initial conditions.
+
+    This class extends NumPyro's Normal distribution to support distributed
+    sampling across multiple devices using JAX's sharding mechanism.
+
+    Parameters
+    ----------
+    loc : float or jax.Array, default=0.0
+        Mean of the normal distribution.
+    scale : float or jax.Array, default=1.0
+        Standard deviation of the normal distribution.
+    sharding : jax.sharding.Sharding, optional
+        Sharding specification for distributed sampling.
+    validate_args : bool, optional
+        Whether to validate input arguments.
+    """
+
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
+    support = constraints.real
+    reparametrized_params = ["loc", "scale"]
+
+    def __init__(self,
+                 loc=0.0,
+                 scale=1.0,
+                 sharding=None,
+                 *,
+                 validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        self.sharding = sharding
+        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc),
+                                               jnp.shape(scale))
+        super(Normal, self).__init__(batch_shape=batch_shape,
+                                     validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        """
+        Sample from the distributed normal distribution.
+
+        Parameters
+        ----------
+        key : jax.random.PRNGKey
+            Random number generator key.
+        sample_shape : tuple, default=()
+            Shape of samples to generate.
+
+        Returns
+        -------
+        jax.Array
+            Samples from the normal distribution.
+        """
+        assert is_prng_key(key)
+
+        eps = normal_field(key,
+                           sample_shape + self.batch_shape + self.event_shape,
+                           self.sharding)
+
+        return self.loc + eps * self.scale
 
 
 def batched_sampling(
@@ -25,16 +85,18 @@ def batched_sampling(
     num_samples: int = 1000,
     batch_count: int = 5,
     save: bool = True,
-    sampler: str = "NUTS",  # NUTS, HMC, MCLMC
-    backend: str = "numpyro",  # numpyro or blackjax
+    sampler: str = "NUTS",
+    backend: str = "numpyro",
     init_params: PyTree | None = None,
+    progress_bar: bool = True,
     *model_args,
     **model_kwargs,
 ):
     os.makedirs(path, exist_ok=True)
-    state_path = f"{path}/sampling_state.pkl"
+    state_path = f"{path}/sampling_state"
     samples_prefix = f"{path}/samples"
     nb_samples = 0
+    init_params = jax.tree.map(jnp.asarray, init_params)
 
     assert backend in {"numpyro",
                        "blackjax"}, "Backend must be 'numpyro' or 'blackjax'"
@@ -66,106 +128,132 @@ def batched_sampling(
         initial_position = None
         postprocess_fn = None
 
-    if not os.path.exists(state_path):
-        print(f"🔁 Starting fresh with warmup for {sampler} using {backend}...")
-        if backend == "blackjax":
-            assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
-            assert initial_position is not None, "initial_position must be defined for blackjax backend"
-            if sampler == "NUTS":
-                adapt = blackjax.window_adaptation(blackjax.nuts,
-                                                   logdensity_fn,
-                                                   progress_bar=True,
-                                                   target_acceptance_rate=0.8)
-                (last_state,
-                 parameters), _ = adapt.run(warmup_key, initial_position,
-                                            num_warmup)
-                sampler_fn = blackjax.nuts(logdensity_fn, **parameters)
+    state_exists = os.path.exists(state_path)
+    if state_exists:
+        num_warmup = 1  # No warmup when resuming
 
-            elif sampler == "HMC":
-                adapt = blackjax.window_adaptation(
-                    blackjax.hmc,
-                    logdensity_fn,
-                    progress_bar=True,
-                    target_acceptance_rate=0.8,
-                    num_integration_steps=10,
-                )
-                (last_state,
-                 parameters), _ = adapt.run(warmup_key, initial_position,
-                                            num_warmup)
-                sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
+    print(
+        f"{'▶️ Resuming' if state_exists else '🔁 Starting fresh with warmup'} for {sampler} using {backend}..."
+    )
 
-            elif sampler == "MCLMC":
-                initial_state = blackjax.mcmc.mclmc.init(
-                    position=initial_position,
-                    logdensity_fn=logdensity_fn,
-                    rng_key=init_key)
+    if backend == "blackjax":
+        assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
+        assert initial_position is not None, "initial_position must be defined for blackjax backend"
+        if sampler == "NUTS":
+            adapt = blackjax.window_adaptation(blackjax.nuts,
+                                               logdensity_fn,
+                                               progress_bar=progress_bar,
+                                               target_acceptance_rate=0.8)
+            (last_state, parameters), _ = adapt.run(warmup_key,
+                                                    initial_position,
+                                                    num_warmup)
+            sampler_fn = blackjax.nuts(logdensity_fn, **parameters)
+
+        elif sampler == "HMC":
+            adapt = blackjax.window_adaptation(
+                blackjax.hmc,
+                logdensity_fn,
+                progress_bar=progress_bar,
+                target_acceptance_rate=0.8,
+                num_integration_steps=10,
+            )
+            (last_state, parameters), _ = adapt.run(warmup_key,
+                                                    initial_position,
+                                                    num_warmup)
+            sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
+
+        elif sampler == "MCLMC":
+            initial_state = blackjax.mcmc.mclmc.init(
+                position=initial_position,
+                logdensity_fn=logdensity_fn,
+                rng_key=init_key)
+            if state_exists:
+                parameters = {
+                    "L": jax.ShapeDtypeStruct((),
+                                              jnp.asarray(0.0).dtype),
+                    "step_size": jax.ShapeDtypeStruct((),
+                                                      jnp.asarray(0.0).dtype)
+                }
+                tuned_state = initial_state
+            else:
                 kernel_builder = lambda imm: blackjax.mcmc.mclmc.build_kernel(
                     logdensity_fn=logdensity_fn,
                     integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
                     inverse_mass_matrix=imm,
                 )
                 print("🔧 Tuning MCLMC parameters (L and step_size)...")
-                with tqdm(total=100,
-                          desc="MCLMC Warmup",
-                          bar_format="{desc}: {elapsed}") as pbar:
-                    tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
-                        mclmc_kernel=kernel_builder,
-                        num_steps=num_warmup,
-                        state=initial_state,
-                        rng_key=warmup_key,
-                        diagonal_preconditioning=False,
-                        desired_energy_var=1e-3,
-                    )
-                    pbar.update(100)
+
+                tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
+                    mclmc_kernel=kernel_builder,
+                    num_steps=num_warmup,
+                    state=initial_state,
+                    rng_key=warmup_key,
+                    diagonal_preconditioning=False,
+                    desired_energy_var=1e-3,
+                )
                 parameters = {
                     "L": tuned_params.L,
                     "step_size": tuned_params.step_size
                 }
-                sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
-                last_state = tuned_state
+            sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
+            last_state = tuned_state
 
-        elif backend == "numpyro":
-            kwargs = {}
-            if init_params is not None:
-                kwargs["init_strategy"] = partial(numpyro.infer.init_to_value,
-                                                  values=init_params)
+    elif backend == "numpyro":
+        kwargs = {}
+        if init_params is not None:
+            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value,
+                                              values=init_params)
 
-            mcmc = MCMC(
-                NUTS(model, **kwargs) if sampler == "NUTS" else HMC(
-                    model, **kwargs),
-                num_warmup=num_warmup,
-                num_samples=num_samples,
-                progress_bar=True,
-            )
-            mcmc.warmup(warmup_key, *model_args, **model_kwargs)
-            last_state = mcmc.last_state
-            parameters = {}
-
-        else:
-            raise ValueError(f"Unsupported backend: {backend}")
-
-        if save:
-            with open(state_path, "wb") as f:
-                pickle.dump((0, last_state, parameters), f)
-    else:
-        print(
-            f"▶️ Resuming from saved warmup state for {sampler} using {backend}..."
+        mcmc = MCMC(
+            NUTS(model, **kwargs) if sampler == "NUTS" else HMC(
+                model, **kwargs),
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            progress_bar=True,
         )
-        with open(state_path, "rb") as f:
-            saved_state = pickle.load(f)
-        nb_samples, last_state, parameters = saved_state[:3]
-        if backend == "blackjax" and len(saved_state) > 3:
-            # Legacy state files might contain a stored postprocess function; ignore it.
-            pass
+        mcmc.warmup(warmup_key, *model_args, **model_kwargs)
+        last_state = mcmc.last_state
+        parameters = {}
 
-        if backend == "blackjax":
-            assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
-            if sampler == "NUTS":
-                sampler_fn = blackjax.nuts(logdensity_fn, **parameters)
-            elif sampler == "HMC":
-                sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
-            elif sampler == "MCLMC":
-                sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
+    else:
+        raise ValueError(f"Unsupported backend: {backend}")
+
+    if save and not state_exists:
+        inference_state = {
+            "nb_samples": jnp.array(0),
+            "last_state": last_state,
+            "parameters": parameters
+        }
+        save_sharded(inference_state,
+                     state_path,
+                     overwrite=True,
+                     dump_structure=False)
+
+    if state_exists:
+        abstract_state = jax.tree.map(
+            ocp.tree.to_shape_dtype_struct,
+            {
+                "nb_samples": jnp.array(0),
+                "last_state": last_state,
+                "parameters": parameters
+            },
+        )
+
+        saved_state = load_sharded(state_path, abstract_pytree=abstract_state)
+        nb_samples, last_state, parameters = (
+            saved_state["nb_samples"],
+            saved_state["last_state"],
+            saved_state["parameters"],
+        )
+
+    if backend == "blackjax":
+        assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
+        if sampler == "NUTS":
+            sampler_fn = blackjax.nuts(logdensity_fn, **parameters)
+        elif sampler == "HMC":
+            sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
+        elif sampler == "MCLMC":
+            sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
 
     start_batch = nb_samples // num_samples
     if start_batch >= batch_count:
@@ -181,19 +269,16 @@ def batched_sampling(
         run_key, batch_key = jax.random.split(run_key)
 
         if backend == "blackjax":
-            last_state, raw_samples = blackjax.util.run_inference_algorithm(
+            transform = lambda x, _: x.position if postprocess_fn is None else postprocess_fn(
+                *model_args, **model_kwargs)(x.position)
+            last_state, samples = blackjax.util.run_inference_algorithm(
                 rng_key=batch_key,
                 initial_state=last_state,
                 inference_algorithm=sampler_fn,
                 num_steps=num_samples,
-                transform=lambda x, _: x.position,
-                progress_bar=True,
+                transform=transform,
+                progress_bar=progress_bar,
             )
-            if postprocess_fn is not None:
-                samples = jax.vmap(postprocess_fn(*model_args,
-                                                  **model_kwargs))(raw_samples)
-            else:
-                samples = raw_samples
             nb_evals = 0  # Don't know how to get the number of evaluations in blackjax
 
         elif backend == "numpyro":
@@ -201,8 +286,9 @@ def batched_sampling(
                 NUTS(model) if sampler == "NUTS" else HMC(model),
                 num_warmup=0,
                 num_samples=num_samples,
-                progress_bar=True,
+                progress_bar=progress_bar,
             )
+
             mcmc.post_warmup_state = last_state
             mcmc.run(batch_key,
                      *model_args,
@@ -219,24 +305,26 @@ def batched_sampling(
 
         if save:
             print(f"💾 Saving batch {i + 1} samples and state...")
-            jax.tree.map_with_path(
-                lambda path, x: print(
-                    f"Before gather Key : {path[0].key} has sharding {x.sharding}"
-                ), samples)
-            host_samples = all_gather(samples)
-            jax.tree.map_with_path(
-                lambda path, x: print(
-                    f"After gather Key : {path[0].key} has type {type(x)}"),
-                host_samples)
-            host_samples["num_steps"] = nb_evals
-            np.savez(f"{samples_prefix}_{i}.npz", **host_samples)
-            del host_samples
-            with open(state_path, "wb") as f:
-                pickle.dump((nb_samples, last_state, parameters), f)
+            samples["num_steps"] = jnp.array(nb_evals)
+            save_sharded(samples, f"{samples_prefix}_{i}", overwrite=True)
+            inference_state = {
+                "nb_samples": jnp.array(nb_samples),
+                "last_state": last_state,
+                "parameters": parameters
+            }
+            save_sharded(inference_state,
+                         state_path,
+                         overwrite=True,
+                         dump_structure=False)
         del samples
 
 
-def load_samples(path: str, param_names: list[str] = None) -> dict:
+def load_samples(
+    path: str,
+    param_names: list[str] = None,
+    last_n_batches: int = None,
+    transform: str | tuple[str, str] | None = None
+) -> dict | tuple[dict, dict]:
     """
     Efficiently load and concatenate parameter samples from saved batches.
 
@@ -246,26 +334,141 @@ def load_samples(path: str, param_names: list[str] = None) -> dict:
         Directory where samples are saved (e.g., "output/mcmc_run").
     param_names : list of str, optional
         List of parameter names to load. If None, load all available parameters.
+    last_n_batches : int, optional
+        Number of last batches to load. If None, load all batches.
+    transform : str, tuple of str, or None, optional
+        Transformation to apply across batches. Options:
+        - None: concatenate all samples along batch axis (default)
+        - "mean": compute mean across batches
+        - "std": compute population standard deviation across batches (ddof=0)
+        - ("mean", "std"): compute both mean and std
 
     Returns
     -------
-    concatenated : dict
-        Dictionary mapping parameter names to concatenated JAX arrays.
+    result : dict or tuple of dict
+        If transform is None: dictionary mapping parameter names to concatenated JAX arrays.
+        If transform is "mean": dictionary mapping parameter names to mean arrays.
+        If transform is "std": dictionary mapping parameter names to std arrays.
+        If transform is ("mean", "std"): tuple of (mean_dict, std_dict).
     """
-    files = sorted(glob(os.path.join(path, "*samples_*.npz")))
-    if not files:
-        raise FileNotFoundError(f"No sample files found in path: {path}")
+    path = Path(path)
+    checkpoint_dirs = sorted([d for d in path.glob("samples_*") if d.is_dir()])
 
-    if param_names is None:
-        with np.load(files[0]) as sample_file:
-            param_names = list(sample_file.keys())
+    if len(checkpoint_dirs) == 0:
+        raise FileNotFoundError(f"No sample batches found in {path}")
 
-    collected = {name: [] for name in param_names}
+    if last_n_batches is not None and last_n_batches > 0:
+        checkpoint_dirs = checkpoint_dirs[-last_n_batches:]
 
-    for file in files:
-        data = np.load(file)
-        for name in param_names:
-            if name in data:
-                collected[name].append(jnp.atleast_1d(jnp.array(data[name])))
+    print(f"Loading {len(checkpoint_dirs)} sample batch(es) from {path}")
 
-    return {k: jnp.concatenate(v, axis=0) for k, v in collected.items() if v}
+    compute_mean = transform == "mean" or (isinstance(transform, tuple)
+                                           and "mean" in transform)
+    compute_std = transform == "std" or (isinstance(transform, tuple)
+                                         and "std" in transform)
+
+    B = len(checkpoint_dirs)
+    all_available_params = set()
+    params_to_load = None
+    result_dict = {}
+    mean_accumulators = {}
+    Ex2_accumulators = {}
+
+    for i, checkpoint_dir in enumerate(checkpoint_dirs):
+        print(
+            f"  Loading batch {i + 1}/{len(checkpoint_dirs)}: {checkpoint_dir.name}"
+        )
+        batch_samples = load_sharded(str(checkpoint_dir))
+
+        if i == 0:
+            all_available_params = set(batch_samples.keys())
+            if param_names is not None:
+                missing_params = set(param_names) - all_available_params
+                if missing_params:
+                    print(
+                        f"  Warning: Parameters {missing_params} not found in samples. Skipping."
+                    )
+                params_to_load = [
+                    p for p in param_names if p in all_available_params
+                ]
+                if not params_to_load:
+                    print(
+                        f"  No requested parameters found. Available: {all_available_params}"
+                    )
+            else:
+                params_to_load = list(all_available_params)
+
+        for param in params_to_load:
+            if param not in batch_samples:
+                continue
+
+            batch_data = jnp.asarray(batch_samples[param])
+
+            if transform is None:
+                if i == 0:
+                    if batch_data.ndim == 0:
+                        result_dict[param] = jnp.expand_dims(batch_data,
+                                                             axis=0)
+                    else:
+                        result_dict[param] = batch_data
+                else:
+                    if batch_data.ndim == 0:
+                        batch_data = jnp.expand_dims(batch_data, axis=0)
+                    result_dict[param] = jnp.concatenate(
+                        [result_dict[param], batch_data], axis=0)
+
+            else:
+                if compute_mean:
+                    batch_mean = batch_data.mean(axis=0)
+                    if param not in mean_accumulators:
+                        mean_accumulators[param] = jnp.zeros_like(batch_mean)
+                    mean_accumulators[
+                        param] = mean_accumulators[param] + batch_mean
+
+                if compute_std:
+                    batch_Ex2 = (batch_data**2).mean(axis=0)
+                    if param not in Ex2_accumulators:
+                        Ex2_accumulators[param] = jnp.zeros_like(batch_Ex2)
+                    Ex2_accumulators[
+                        param] = Ex2_accumulators[param] + batch_Ex2
+
+        del batch_samples
+
+    if transform is None:
+        print(
+            f"Loaded {len(result_dict)} parameter(s): {list(result_dict.keys())}"
+        )
+        if params_to_load:
+            print(f"Total samples: {result_dict[params_to_load[0]].shape[0]}")
+        return result_dict
+
+    else:
+        mean_result = {}
+        std_result = {}
+
+        if compute_mean:
+            for param in mean_accumulators:
+                mean_result[param] = mean_accumulators[param] / B
+
+        if compute_std:
+            if not compute_mean:
+                for param in Ex2_accumulators:
+                    mean_result[param] = mean_accumulators.get(
+                        param, jnp.zeros_like(Ex2_accumulators[param])) / B
+
+            for param in Ex2_accumulators:
+                Ex = mean_result[param]
+                Ex2 = Ex2_accumulators[param] / B
+                std_result[param] = jnp.sqrt(Ex2 - Ex**2)
+
+        if isinstance(transform, tuple):
+            print(
+                f"Computed mean and std for {len(params_to_load)} parameter(s)"
+            )
+            return (mean_result, std_result)
+        elif transform == "mean":
+            print(f"Computed mean for {len(params_to_load)} parameter(s)")
+            return mean_result
+        elif transform == "std":
+            print(f"Computed std for {len(params_to_load)} parameter(s)")
+            return std_result

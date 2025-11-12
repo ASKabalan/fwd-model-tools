@@ -1,9 +1,8 @@
-import os
 import pickle
+from pathlib import Path
 
 import jax
-import numpy as np
-from jax import make_array_from_callback
+import orbax.checkpoint as ocp
 from jax.sharding import NamedSharding
 
 
@@ -48,112 +47,100 @@ def get_pdims_from_sharding(sharding: NamedSharding):
         [get_axis_size(sharding, i) for i in range(len(sharding.spec))])
 
 
-def save_sharded_array(array, prefix="shard_data"):
+def save_sharded(pytree, path, overwrite=True, dump_structure=True):
     """
-    Saves addressable shards and mesh pdims to disk for later reconstruction.
+    Saves a sharded PyTree to disk using Orbax Checkpoint.
 
-    This function saves each addressable shard of a distributed JAX array to disk,
-    along with metadata about the sharding configuration. This allows for efficient
-    storage and loading of large distributed arrays.
+    This function saves a distributed JAX PyTree (dict/array/nested structure) to disk,
+    preserving sharding information. This allows for efficient storage and loading of
+    large distributed data structures.
 
     Parameters
     ----------
-    array : jax.Array
-        The sharded array to save. Must have a sharding attribute.
-    prefix : str, default="shard_data"
-        Directory prefix where shards will be saved.
+    pytree : PyTree
+        The sharded PyTree to save (can be dict, array, or nested structure).
+    path : str or Path
+        Directory path where checkpoint will be saved.
+    overwrite : bool, default=True
+        If True, overwrite existing checkpoint. If False, raise error if path exists.
+    dump_structure : bool, default=True
+        If True, save structure pickle file. If False, skip structure dump (useful when
+        structure will be reconstructed at load time to avoid Device pickle issues).
 
     Notes
     -----
-    - Creates one .npy file per addressable shard: {prefix}/shard_{rank}_{i}.npy
-    - Saves metadata (pdims, global_shape) to {prefix}/info.pkl (rank 0 only)
+    - Uses Orbax AsyncCheckpointer for efficient saving
+    - Preserves sharding information automatically
     - All processes must call this function (collective operation)
     """
-    assert hasattr(array, "sharding"), "Array must have a sharding spec."
+    structure_path = Path(f"{path}_structure.pkl").absolute()
+    path = Path(path).absolute()
+    checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
 
-    rank = jax.process_index()
-    shards = array.addressable_shards
-    pdims = get_pdims_from_sharding(array.sharding)
-    global_shape = array.shape
+    checkpointer.save(path,
+                      args=ocp.args.StandardSave(pytree),
+                      force=overwrite)
+    checkpointer.wait_until_finished()
 
-    os.makedirs(prefix, exist_ok=True)
+    if dump_structure:
 
-    for i, shard in enumerate(shards):
-        np.save(f"{prefix}/shard_{rank}_{i}.npy", shard.data)
+        def to_shape_dtype_struct_safe(x):
+            if hasattr(x, "shape") and hasattr(x, "dtype"):
+                return ocp.utils.to_shape_dtype_struct(x)
+            else:
+                return x
 
-    if rank == 0:
-        with open(f"{prefix}/info.pkl", "wb") as f:
-            pickle.dump((pdims, global_shape), f)
+        def strip_sharding(x):
+            if hasattr(x, "shape") and hasattr(x, "dtype"):
+                return jax.ShapeDtypeStruct(x.shape, x.dtype)
+            else:
+                return x
 
-    print(f"Rank {rank}: saved {len(shards)} shards.")
+        abstract_pytree = jax.tree.map(to_shape_dtype_struct_safe, pytree)
+        abstract_pytree_no_sharding = jax.tree.map(strip_sharding,
+                                                   abstract_pytree)
+
+        with open(structure_path, "wb") as f:
+            pickle.dump(abstract_pytree_no_sharding, f)
 
 
-def load_sharded_array(sharding, prefix="shard_data"):
+def load_sharded(path, abstract_pytree=None):
     """
-    Loads a sharded array from saved shard files using given sharding.
+    Loads a sharded PyTree from disk using Orbax Checkpoint.
 
-    This function reconstructs a distributed JAX array from shard files saved by
-    save_sharded_array(). It verifies that the current sharding configuration matches
-    the saved configuration.
+    This function reconstructs a distributed JAX PyTree from a checkpoint saved by
+    save_sharded(). It automatically restores the correct sharding configuration.
 
     Parameters
     ----------
-    sharding : NamedSharding
-        The sharding specification to use for loading. Must match the saved sharding.
-    prefix : str, default="shard_data"
-        Directory prefix where shards are stored.
+    path : str or Path
+        Directory path where checkpoint is stored.
+    abstract_pytree : PyTree, optional
+        Abstract structure with shape/dtype/sharding information for restoration.
+        If provided, uses this structure directly (useful to avoid Device pickle issues).
+        If None, loads structure from pickled file (default behavior).
+        Can be created with: jax.tree.map(ocp.utils.to_shape_dtype_struct, pytree)
 
     Returns
     -------
-    jax.Array
-        The reconstructed sharded array.
-
-    Raises
-    ------
-    ValueError
-        If the current sharding does not match the saved sharding configuration.
+    PyTree
+        The reconstructed sharded PyTree with the same structure as the original.
 
     Notes
     -----
+    - Uses Orbax AsyncCheckpointer for efficient loading
+    - Automatically restores sharding information
     - All processes must call this function (collective operation)
-    - Automatically handles multi-dimensional sharding
     """
-    rank = jax.process_index()
+    path = Path(path).absolute()
 
-    with open(f"{prefix}/info.pkl", "rb") as f:
-        saved_pdims, saved_global_shape = pickle.load(f)
+    if abstract_pytree is None:
+        structure_path = Path(f"{path}_structure.pkl").absolute()
+        with open(structure_path, "rb") as f:
+            abstract_pytree = pickle.load(f)
 
-    current_pdims = get_pdims_from_sharding(sharding)
-    if saved_pdims != current_pdims:
-        raise ValueError(
-            f"Mesh shape mismatch: saved {saved_pdims}, got {current_pdims}")
-
-    saved_pdims = saved_pdims + (1, ) * (len(saved_global_shape) -
-                                         len(saved_pdims))
-
-    nb_slices = tuple(saved_global_shape[i] // saved_pdims[i]
-                      for i in range(len(saved_pdims)))
-
-    def index_to_flat(index, pdims):
-        """Maps JAX slice-based index to flat shard index based on mesh dims."""
-        flat_index = 0
-        flatted_pdims = pdims[1:] + (1, )
-        for i, (idx, size) in enumerate(zip(index, nb_slices)):
-            if idx.start is None:
-                continue
-
-            flat_index += (idx.start // size) * flatted_pdims[i]
-
-        return 0
-
-    def load_callback(index):
-        local_index = index_to_flat(index, saved_pdims)
-        fname = f"{prefix}/shard_{rank}_{local_index}.npy"
-        return np.load(fname)
-
-    restored = make_array_from_callback(
-        saved_global_shape,
-        sharding,
-        data_callback=load_callback,
-    )
+    checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
+    restored = checkpointer.restore(
+        path, args=ocp.args.StandardRestore(abstract_pytree))
+    checkpointer.wait_until_finished()
     return restored
