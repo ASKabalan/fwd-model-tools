@@ -292,7 +292,7 @@ def make_full_field_model(
             nb_shells=number_of_shells,
             halo_size=halo_size,
             status=FieldStatus.INITIAL_FIELD,
-            scale_factor=t0,
+            scale_factors=t0,
         )
         cosmo._workspace = {}
         dx_field, p_field = lpt(

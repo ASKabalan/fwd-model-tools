@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from functools import partial
 from math import ceil
 from typing import Any, Iterable, Literal, Sequence, Tuple
 
@@ -116,11 +117,9 @@ class DensityField(AbstractField):
         "sharding",
         "nside",
         "flatsky_npix",
-        "nb_shells",
         "halo_size",
         "status",
-        "scale_factor",
-        "_observer_position_mpc",
+        "scale_factors",
     )
 
     STATUS_ENUM = FieldStatus
@@ -135,10 +134,9 @@ class DensityField(AbstractField):
         sharding: Any | None = None,
         nside: int | None = None,
         flatsky_npix: Tuple[int, int] | None = None,
-        nb_shells: int = 10,
         halo_size: int | Tuple[int, int] = 0,
         status: FieldStatus = FieldStatus.RAW,
-        scale_factor: float = 1.0,
+        scale_factors: float = 1.0,
     ):
         super().__init__(array=array)
         mesh_size = _ensure_tuple3("mesh_size", mesh_size, cast=int)
@@ -158,15 +156,14 @@ class DensityField(AbstractField):
         self.observer_position = observer_position
         self.sharding = sharding
         self.nside = nside
-        self.nb_shells = int(nb_shells)
         self.flatsky_npix = flatsky_npix
         self.halo_size = halo_size
         self.status = self._coerce_status(status)
-        self.scale_factor = scale_factor
+        self.scale_factors = scale_factors
 
     # ------------------------------------------------------------------ PyTree
     def tree_flatten(self):
-        children = (self.array, self.scale_factor)
+        children = (self.array, self.scale_factors)
         aux_data = (
             self.mesh_size,
             self.box_size,
@@ -191,7 +188,7 @@ class DensityField(AbstractField):
             halo_size,
             status,
         ) = aux_data
-        array, scale_factor = children
+        array, scale_factors = children
         return cls(
             array=array,
             mesh_size=mesh_size,
@@ -202,7 +199,7 @@ class DensityField(AbstractField):
             flatsky_npix=flatsky_npix,
             halo_size=halo_size,
             status=status,
-            scale_factor=scale_factor,
+            scale_factors=scale_factors,
         )
 
     # --------------------------------------------------------------- properties
@@ -216,16 +213,15 @@ class DensityField(AbstractField):
     @property
     def max_comoving_radius(self) -> float:
         """Maximum comoving radius accommodated by the box given observer position."""
-        box = jnp.asarray(self.box_size)
-        observer_position = jnp.asarray(self.observer_position)
-        factors = jnp.clip(observer_position, 0.0, 1.0)
-        factors = 1.0 + 2.0 * jnp.minimum(factors, 1.0 - factors)
-        return jnp.min(box / factors)
+        box = np.asarray(self.box_size)
+        observer_position = np.asarray(self.observer_position)
+        factors = np.clip(observer_position, 0.0, 1.0)
+        factors = 1.0 + 2.0 * np.minimum(factors, 1.0 - factors)
+        return np.min(box / factors)
 
-    @property
-    def density_width(self) -> float:
+    def density_width(self, nb_shells) -> float:
         """Physical thickness of each density shell in the lightcone."""
-        return self.max_comoving_radius / self.nb_shells
+        return self.max_comoving_radius / nb_shells
 
     @classmethod
     def _coerce_status(cls, status):
@@ -235,8 +231,8 @@ class DensityField(AbstractField):
     def with_array(self, array: jax.Array) -> "DensityField":
         return self.replace(array=array)
 
-    def with_scale_factor(self, scale_factor: float) -> "DensityField":
-        return self.replace(scale_factor=scale_factor)
+    def with_scale_factors(self, scale_factors: float) -> "DensityField":
+        return self.replace(scale_factors=scale_factors)
 
     def replace(self, **updates: Any) -> "DensityField":
         params = {
@@ -246,11 +242,10 @@ class DensityField(AbstractField):
             "observer_position": self.observer_position,
             "sharding": self.sharding,
             "nside": self.nside,
-            "nb_shells": self.nb_shells,
             "flatsky_npix": self.flatsky_npix,
             "halo_size": self.halo_size,
             "status": self.status,
-            "scale_factor": self.scale_factor,
+            "scale_factors": self.scale_factors,
         }
         allowed_keys = set(params.keys())
         unknown = set(updates) - allowed_keys
@@ -259,8 +254,8 @@ class DensityField(AbstractField):
         params.update(updates)
         return type(self)(**params)
 
-    def set_scale_factor(self, scale_factor: float) -> None:
-        self.scale_factor = scale_factor
+    def set_scale_factors(self, scale_factors: float) -> None:
+        self.scale_factors = scale_factors
 
     # -------------------------------------------------------- power-spectrum API
     def compute_power_spectrum(self, k: jax.Array | jnp.ndarray):
@@ -270,6 +265,18 @@ class DensityField(AbstractField):
         raise NotImplementedError(
             "3D power spectrum computation not implemented yet.")
 
+    def block_until_ready(self) -> DensityField:
+        """
+        Block until the underlying array is ready.
+
+        Returns
+        -------
+        DensityField
+            Self, after blocking.
+        """
+        self.array.block_until_ready()
+        return self
+
     def __repr__(self) -> str:
         classname = str(self.__class__.__name__)
         return (
@@ -278,8 +285,9 @@ class DensityField(AbstractField):
             f"mesh_size={self.mesh_size}, "
             f"box_size={self.box_size}, "
             f"status={self.status.value}, "
-            f"scale_factor_shape={jnp.atleast_1d(self.scale_factor).shape})")
+            f"scale_factors_shape={jnp.atleast_1d(self.scale_factors).shape})")
 
+    @partial(jax.jit, static_argnames=['nz_slices'])
     def project(self, nz_slices: int = 10) -> "FlatDensity":
         """
         Create a 2D projection by summing slices along the z-axis.
@@ -329,6 +337,11 @@ class DensityField(AbstractField):
         """
         Paint and display a 2D projection of the density field.
 
+        Raises
+        ------
+        ValueError
+            If called within a jit context (i.e., array is traced).
+
         Parameters
         ----------
         nz_slices : int, default=10
@@ -344,6 +357,10 @@ class DensityField(AbstractField):
         show_ticks : bool, default=True
             Whether to display axis ticks.
         """
+        import jax.core
+        if not jax.core.is_concrete(self.array):
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+
         flat = self.project(nz_slices=nz_slices)
         flat.show(
             cmap=cmap,
@@ -367,7 +384,7 @@ class DensityField(AbstractField):
         Returns
         -------
         DensityField
-            New DensityField with indexed array and scale_factor.
+            New DensityField with indexed array and scale_factors.
 
         Raises
         ------
@@ -389,7 +406,7 @@ class DensityField(AbstractField):
             )
 
         indexed_array = self.array[key]
-        indexed_scale_factor = self.scale_factor[key]
+        indexed_scale_factors = self.scale_factors[key]
 
         return type(self)(
             array=indexed_array,
@@ -399,10 +416,9 @@ class DensityField(AbstractField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
-            nb_shells=self.nb_shells,
             halo_size=self.halo_size,
             status=self.status,
-            scale_factor=indexed_scale_factor,
+            scale_factors=indexed_scale_factors,
         )
 
 
@@ -425,10 +441,9 @@ class ParticleField(DensityField):
         sharding: Any | None = None,
         nside: int | None = None,
         flatsky_npix: Tuple[int, int] | None = None,
-        nb_shells: int = 10,
         halo_size: int | Tuple[int, int] = 0,
         status: FieldStatus = FieldStatus.RAW,
-        scale_factor: float = 1.0,
+        scale_factors: float = 1.0,
     ):
         if isinstance(array , Array):
             if not ((array.ndim == 4 and array.shape[-1] == 3) or
@@ -445,10 +460,9 @@ class ParticleField(DensityField):
             sharding=sharding,
             nside=nside,
             flatsky_npix=flatsky_npix,
-            nb_shells=nb_shells,
             halo_size=halo_size,
             status=status,
-            scale_factor=scale_factor,
+            scale_factors=scale_factors,
         )
 
     def __getitem__(self, key) -> "ParticleField":
@@ -478,7 +492,7 @@ class ParticleField(DensityField):
                 "Indexing only supported for batched ParticleField (5D array)")
 
         indexed_array = self.array[key]
-        indexed_scale_factor = self.scale_factor[key]
+        indexed_scale_factors = self.scale_factors[key]
 
         return ParticleField(
             array=indexed_array,
@@ -488,12 +502,12 @@ class ParticleField(DensityField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
-            nb_shells=self.nb_shells,
             halo_size=self.halo_size,
             status=self.status,
-            scale_factor=indexed_scale_factor,
+            scale_factors=indexed_scale_factors,
         )
 
+    @partial(jax.jit, static_argnames=['mode', 'weights', 'chunk_size', 'batch_size'])
     def paint(
         self,
         mode: PaintMode = "relative",
@@ -501,6 +515,7 @@ class ParticleField(DensityField):
         mesh: jax.Array | None = None,
         weights: jax.Array | float = 1.0,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
+        batch_size: int | None = None,
     ) -> DensityField:
         """
         Paint particles onto a 3D density mesh using CIC interpolation.
@@ -517,6 +532,9 @@ class ParticleField(DensityField):
             Particle weights for painting.
         chunk_size : int
             Chunk size for painting operations.
+        batch_size : int, optional
+            Number of iterations to process in parallel per batch. Controls memory/performance
+            trade-off when mapping over batched inputs. If None, processes sequentially.
 
         Returns
         -------
@@ -547,7 +565,7 @@ class ParticleField(DensityField):
                 f"paint() expects 4D or 5D array, got shape {data.shape}")
 
         # Batched input: map over batch dimension
-        painted = jax.lax.map(paint_fn, data)
+        painted = jax.lax.map(paint_fn, data, batch_size=batch_size)
         painted = painted.squeeze()
 
         return DensityField(
@@ -558,12 +576,12 @@ class ParticleField(DensityField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
-            nb_shells=self.nb_shells,
             halo_size=self.halo_size,
             status=FieldStatus.DENSITY_FIELD,
-            scale_factor=self.scale_factor,
+            scale_factors=self.scale_factors,
         )
 
+    @partial(jax.jit, static_argnames=['mode'])
     def read_out(
         self,
         density_mesh: DensityField | jax.Array,
@@ -601,12 +619,12 @@ class ParticleField(DensityField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
-            nb_shells=self.nb_shells,
             halo_size=self.halo_size,
             status=self.status,
-            scale_factor=self.scale_factor,
+            scale_factors=self.scale_factors,
         )
 
+    @partial(jax.jit, static_argnames=['mode', 'weights', 'density_plane_width', 'batch_size'])
     def paint_2d(
         self,
         center: Float | jax.Array,
@@ -614,6 +632,7 @@ class ParticleField(DensityField):
         density_plane_width: Float | None = None,
         weights: jax.Array | float | None = None,
         mode: PaintMode = "relative",
+        batch_size: int | None = None,
     ) -> "FlatDensity":
         """
         Project particles onto a flat-sky grid using CIC painting.
@@ -631,6 +650,9 @@ class ParticleField(DensityField):
             Particle weights for painting.
         mode : PaintMode, default="relative"
             "relative" for displacement-based painting, "absolute" for position-based.
+        batch_size : int, optional
+            Number of iterations to process in parallel per batch. Controls memory/performance
+            trade-off when mapping over batched inputs. If None, processes sequentially.
 
         Returns
         -------
@@ -646,14 +668,17 @@ class ParticleField(DensityField):
 
         if data.ndim == 5:
             # Batched input
-            batch_size = data.shape[0]
-            if center_arr.size != batch_size:
+            nb_shells = data.shape[0]
+            if center_arr.size != nb_shells:
                 raise ValueError(
-                    f"Batched input: center must have {batch_size} elements, got {center_arr.size}"
+                    f"Batched input: center must have {nb_shells} elements, got {center_arr.size}"
                 )
+            density_plane_width = self.density_width(nb_shells) if density_plane_width is None else density_plane_width
         elif data.ndim == 4:
             data = data[None, ...]
             center_arr = center_arr[None, ...]
+            if density_plane_width is None:
+                raise ValueError("density_plane_width must be specified for single shell")
         else:
             raise ValueError(
                 f"paint_2d() expects 4D or 5D array, got shape {data.shape}")
@@ -671,10 +696,9 @@ class ParticleField(DensityField):
             weights=weights,
             mode=mode,
             max_comoving_radius=self.max_comoving_radius,
-            nb_shells=self.nb_shells,
         )
 
-        painted = jax.lax.map(paint_fn, (data, center_arr))
+        painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
         painted = painted.squeeze()
 
         return FlatDensity(
@@ -683,6 +707,7 @@ class ParticleField(DensityField):
             status=DensityStatus.LIGHTCONE,
         )
 
+    @partial(jax.jit, static_argnames=['mode', 'scheme', 'weights', 'density_plane_width', 'kernel_width_arcmin', 'smoothing_interpretation', 'paint_nside', 'ud_grade_power', 'ud_grade_order_in', 'ud_grade_order_out', 'ud_grade_pess', 'batch_size'])
     def paint_spherical(
         self,
         center: Float | jax.Array,
@@ -698,6 +723,7 @@ class ParticleField(DensityField):
         ud_grade_order_in: str = "RING",
         ud_grade_order_out: str = "RING",
         ud_grade_pess: bool = False,
+        batch_size: int | None = None,
     ) -> "SphericalDensity":
         """
         Paint particles onto a HEALPix grid using spherical painting.
@@ -731,6 +757,9 @@ class ParticleField(DensityField):
             HEALPix ordering for output.
         ud_grade_pess : bool, default=False
             Use pessimistic ud_grade.
+        batch_size : int, optional
+            Number of iterations to process in parallel per batch. Controls memory/performance
+            trade-off when mapping over batched inputs. If None, processes sequentially.
 
         Returns
         -------
@@ -745,18 +774,22 @@ class ParticleField(DensityField):
 
         if data.ndim == 5:
             # Batched input
-            batch_size = data.shape[0]
-            if center_arr.size != batch_size:
+            nb_shells = data.shape[0]
+            if center_arr.size != nb_shells:
                 raise ValueError(
-                    f"Batched input: center must have {batch_size} elements, got {center_arr.size}"
+                    f"Batched input: center must have {nb_shells} elements, got {center_arr.size}"
                 )
+            density_plane_width = self.density_width(nb_shells) if density_plane_width is None else density_plane_width
         elif data.ndim == 4:
             data = data[None, ...]
             center_arr = center_arr[None, ...]
+            if density_plane_width is None:
+                raise ValueError("density_plane_width must be specified for single shell")
         else:
             raise ValueError(
                 f"paint_spherical() expects 4D or 5D array, got shape {data.shape}"
             )
+
         # Create partial function with all fixed parameters
         paint_fn = jax.tree_util.Partial(
             _single_paint_spherical,
@@ -778,10 +811,9 @@ class ParticleField(DensityField):
             ud_grade_order_out=ud_grade_order_out,
             ud_grade_pess=ud_grade_pess,
             max_comoving_radius=self.max_comoving_radius,
-            nb_shells=self.nb_shells,
         )
 
-        painted = jax.lax.map(paint_fn, (data, center_arr))
+        painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
         painted = painted.squeeze()
 
         return SphericalDensity(
@@ -791,7 +823,8 @@ class ParticleField(DensityField):
         )
 
 
-def particle_from_density(array: jax.Array, reference: DensityField, scale_factor: float = None, status: FieldStatus = None
+@partial(jax.jit, static_argnames=['status'])
+def particle_from_density(array: jax.Array, reference: DensityField, scale_factors: float = None, status: FieldStatus = None
                           ) -> ParticleField:
     """
     Create a ParticleField from an array, inheriting metadata from a reference DensityField.
@@ -808,8 +841,8 @@ def particle_from_density(array: jax.Array, reference: DensityField, scale_facto
         Reference field to copy metadata from.
     status : FieldStatus
         Status for the new ParticleField (e.g., FieldStatus.PARTICLES, FieldStatus.LPT1).
-    scale_factor : float
-        Scale factor for the new ParticleField.
+    scale_factors : float
+        Scale factors for the new ParticleField.
 
     Returns
     -------
@@ -821,7 +854,7 @@ def particle_from_density(array: jax.Array, reference: DensityField, scale_facto
     >>> forces_array = compute_forces(positions.array)
     >>> forces = particle_from_density(forces_array, positions,
     ...                                 status=FieldStatus.PARTICLES,
-    ...                                 scale_factor=positions.scale_factor)
+    ...                                 scale_factors=positions.scale_factors)
     """
     return ParticleField(
         array=array,
@@ -831,10 +864,9 @@ def particle_from_density(array: jax.Array, reference: DensityField, scale_facto
         sharding=reference.sharding,
         nside=reference.nside,
         flatsky_npix=reference.flatsky_npix,
-        nb_shells=reference.nb_shells,
         halo_size=reference.halo_size,
         status=status if status is not None else reference.status,
-        scale_factor=scale_factor if scale_factor is not None else reference.scale_factor,)
+        scale_factors=scale_factors if scale_factors is not None else reference.scale_factors,)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -880,7 +912,7 @@ class FlatDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             halo_size=density_field.halo_size,
             status=status,
-            scale_factor=density_field.scale_factor,
+            scale_factors=density_field.scale_factors,
         )
 
     def replace(self, **updates: Any) -> "Self":
@@ -892,11 +924,10 @@ class FlatDensity(DensityField):
             "observer_position": self.observer_position,
             "sharding": self.sharding,
             "nside": self.nside,
-            "nb_shells": self.nb_shells,
             "flatsky_npix": self.flatsky_npix,
             "halo_size": self.halo_size,
             "status": self.status,
-            "scale_factor": self.scale_factor,
+            "scale_factors": self.scale_factors,
         }
         allowed_keys = set(params.keys())
         unknown = set(updates) - allowed_keys
@@ -931,7 +962,7 @@ class FlatDensity(DensityField):
             halo_size,
             status_str,
         ) = aux_data
-        array, scale_factor = children
+        array, scale_factors = children
 
         # Create instance bypassing __init__ to avoid validation issues
         instance = object.__new__(cls)
@@ -941,11 +972,10 @@ class FlatDensity(DensityField):
         instance.observer_position = observer_position
         instance.sharding = sharding
         instance.nside = nside
-        instance.nb_shells = 10  # Default value (not stored in tree_flatten)
         instance.flatsky_npix = flatsky_npix
         instance.halo_size = halo_size
         instance.status = DensityStatus(status_str)
-        instance.scale_factor = scale_factor
+        instance.scale_factors = scale_factors
         return instance
 
     def compute_power_spectrum(self, ells: jax.Array | jnp.ndarray):
@@ -961,9 +991,15 @@ class FlatDensity(DensityField):
         titles: Sequence[str] | None = None,
         show_colorbar: bool = True,
         show_ticks: bool = True,
+        apply_log: bool = True,
     ):
         """
         Visualize one or more flat-sky maps using matplotlib.
+
+        Raises
+        ------
+        ValueError
+            If called within a jit context (i.e., array is traced).
 
         Parameters
         ----------
@@ -980,6 +1016,10 @@ class FlatDensity(DensityField):
         show_ticks : bool, default=True
             Whether to keep axis ticks/labels. Set to False for cleaner grids.
         """
+        import jax.core
+        if not jax.core.is_concrete(self.array):
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+
         data = jnp.asarray(self.array)
         if data.ndim == 2:
             data = data[None, ...]
@@ -999,7 +1039,8 @@ class FlatDensity(DensityField):
         for idx in range(nrows * ncols):
             ax = axes[idx // ncols, idx % ncols]
             if idx < n_maps:
-                im = ax.imshow(data[idx], origin="lower", cmap=cmap)
+                to_plot = jnp.log10(data[idx] + 1) if apply_log else data[idx]
+                im = ax.imshow(to_plot, origin="lower", cmap=cmap)
                 if show_colorbar:
                     # Keep colorbars narrow so they do not fill the figure.
                     divider = make_axes_locatable(ax)
@@ -1029,7 +1070,7 @@ class FlatDensity(DensityField):
         Returns
         -------
         FlatDensity
-            New FlatDensity with indexed array and scale_factor.
+            New FlatDensity with indexed array and scale_factors.
 
         Raises
         ------
@@ -1051,7 +1092,7 @@ class FlatDensity(DensityField):
             )
 
         indexed_array = self.array[key]
-        indexed_scale_factor = self.scale_factor[key]
+        indexed_scale_factors = self.scale_factors[key]
 
         # Create a temporary DensityField to pass to FlatDensity.__init__
         temp_field = DensityField(
@@ -1062,10 +1103,9 @@ class FlatDensity(DensityField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
-            nb_shells=self.nb_shells,
             halo_size=self.halo_size,
             status=FieldStatus.RAW,
-            scale_factor=indexed_scale_factor,
+            scale_factors=indexed_scale_factors,
         )
 
         return FlatDensity(
@@ -1088,7 +1128,16 @@ class FlatDensity(DensityField):
         Plot and display flat-sky maps using matplotlib.
 
         Parameters mirror :meth:`FlatDensity.plot`.
+
+        Raises
+        ------
+        ValueError
+            If called within a jit context (i.e., array is traced).
         """
+        import jax.core
+        if not jax.core.is_concrete(self.array):
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+
         self.plot(
             cmap=cmap,
             figsize=figsize,
@@ -1114,7 +1163,6 @@ class FlatDensity(DensityField):
             "observer_position",
             "sharding",
             "flatsky_npix",
-            "nb_shells",
             "halo_size",
             "status",
         )
@@ -1161,7 +1209,7 @@ class SphericalDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             halo_size=density_field.halo_size,
             status=status,
-            scale_factor=density_field.scale_factor,
+            scale_factors=density_field.scale_factors,
         )
 
     def replace(self, **updates: Any) -> "Self":
@@ -1173,11 +1221,10 @@ class SphericalDensity(DensityField):
             "observer_position": self.observer_position,
             "sharding": self.sharding,
             "nside": self.nside,
-            "nb_shells": self.nb_shells,
             "flatsky_npix": self.flatsky_npix,
             "halo_size": self.halo_size,
             "status": self.status,
-            "scale_factor": self.scale_factor,
+            "scale_factors": self.scale_factors,
         }
         allowed_keys = set(params.keys())
         unknown = set(updates) - allowed_keys
@@ -1212,7 +1259,7 @@ class SphericalDensity(DensityField):
             halo_size,
             status_str,
         ) = aux_data
-        array, scale_factor = children
+        array, scale_factors = children
 
         # Create instance bypassing __init__ to avoid validation issues
         instance = object.__new__(cls)
@@ -1222,11 +1269,10 @@ class SphericalDensity(DensityField):
         instance.observer_position = observer_position
         instance.sharding = sharding
         instance.nside = nside
-        instance.nb_shells = 10  # Default value (not stored in tree_flatten)
         instance.flatsky_npix = flatsky_npix
         instance.halo_size = halo_size
         instance.status = DensityStatus(status_str)
-        instance.scale_factor = scale_factor
+        instance.scale_factors = scale_factors
         return instance
 
     def compute_power_spectrum(self, ells: jax.Array | jnp.ndarray):
@@ -1247,7 +1293,7 @@ class SphericalDensity(DensityField):
         Returns
         -------
         SphericalDensity
-            New SphericalDensity with indexed array and scale_factor.
+            New SphericalDensity with indexed array and scale_factors.
 
         Raises
         ------
@@ -1269,7 +1315,7 @@ class SphericalDensity(DensityField):
             )
 
         indexed_array = self.array[key]
-        indexed_scale_factor = self.scale_factor[key]
+        indexed_scale_factors = self.scale_factors[key]
 
         # Create a temporary DensityField to pass to SphericalDensity.__init__
         temp_field = DensityField(
@@ -1280,10 +1326,9 @@ class SphericalDensity(DensityField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
-            nb_shells=self.nb_shells,
             halo_size=self.halo_size,
             status=FieldStatus.RAW,
-            scale_factor=indexed_scale_factor,
+            scale_factors=indexed_scale_factors,
         )
 
         return SphericalDensity(
@@ -1299,10 +1344,20 @@ class SphericalDensity(DensityField):
         figsize: Tuple[float, float] | None = None,
         ncols: int = 3,
         titles: Sequence[str] | None = None,
+        apply_log: bool = True,
     ):
         """
         Visualize one or more spherical maps using ``healpy.mollview``.
+
+        Raises
+        ------
+        ValueError
+            If called within a jit context (i.e., array is traced).
         """
+        import jax.core
+        if not jax.core.is_concrete(self.array):
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+
         data = jnp.asarray(self.array)
         if data.ndim == 1:
             data = data[None, ...]
@@ -1322,6 +1377,7 @@ class SphericalDensity(DensityField):
         for idx in range(n_maps):
             title = titles[idx] if titles and idx < len(titles) else ""
             map_np = np.asarray(data[idx])
+            map_np = np.log10(map_np + 1) if apply_log else map_np
             hp.mollview(map_np,
                         fig=fig,
                         sub=(nrows, ncols, idx + 1),
@@ -1345,7 +1401,16 @@ class SphericalDensity(DensityField):
     ) -> None:
         """
         Plot and display spherical maps using healpy.
+
+        Raises
+        ------
+        ValueError
+            If called within a jit context (i.e., array is traced).
         """
+        import jax.core
+        if not jax.core.is_concrete(self.array):
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+
         self.plot(cmap=cmap, figsize=figsize, ncols=ncols, titles=titles)
         plt.show()
 
@@ -1365,7 +1430,6 @@ class SphericalDensity(DensityField):
             "observer_position",
             "sharding",
             "nside",
-            "nb_shells",
             "halo_size",
             "status",
         )

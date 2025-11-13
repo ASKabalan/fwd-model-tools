@@ -125,7 +125,7 @@ def symplectic_ode(reference_field: ParticleField,
         dvel = particle_from_density(
             dvel,
             pos,
-            scale_factor=a,
+            scale_factors=a,
         )
 
         return dvel
@@ -233,7 +233,7 @@ def symplectic_fpm_ode(reference_field: ParticleField,
             dpos * (drift_contr / dt0),
             vel,
             status=FieldStatus.PARTICLES,
-            scale_factor=a,
+            scale_factors=a,
         )
 
     def kick(a, pos, args):
@@ -295,7 +295,7 @@ def symplectic_fpm_ode(reference_field: ParticleField,
             dvel * ((kick_factor_1 + kick_factor_2) / dt0),
             pos,
             status=FieldStatus.PARTICLES,
-            scale_factor=a,
+            scale_factors=a,
         )
 
     def first_kick(a, pos, args):
@@ -344,7 +344,7 @@ def symplectic_fpm_ode(reference_field: ParticleField,
             dvel * (kick_factor / dt0),
             pos,
             status=FieldStatus.PARTICLES,
-            scale_factor=a,
+            scale_factors=a,
         )
 
     return drift, kick, first_kick

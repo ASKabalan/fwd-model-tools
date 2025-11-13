@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
@@ -13,6 +15,7 @@ __all__ = [
 ]
 
 
+@partial(jax.jit, static_argnames=['max_redshift', 'observer_position'])
 def compute_box_size_from_redshift(cosmo, max_redshift, observer_position):
     """
     Compute simulation box size from maximum redshift and observer position.
@@ -65,6 +68,7 @@ def compute_box_size_from_redshift(cosmo, max_redshift, observer_position):
     return box_size
 
 
+@partial(jax.jit, static_argnames=['box_size', 'observer_position'])
 def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
     """
     Compute maximum redshift from simulation box size and observer position.
@@ -115,7 +119,8 @@ def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
     return max_redshift
 
 
-def compute_snapshot_scale_factors(cosmo, field: DensityField) -> jax.Array:
+@partial(jax.jit, static_argnames=['nb_shells'])
+def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax.Array:
     """
     Compute scale factors for lightcone shells from a DensityField.
 
@@ -152,8 +157,7 @@ def compute_snapshot_scale_factors(cosmo, field: DensityField) -> jax.Array:
     """
     # Use field properties for cleaner code
     max_radius = field.max_comoving_radius
-    density_plane_width = field.density_width
-    nb_shells = field.nb_shells
+    density_plane_width = field.density_width(nb_shells=nb_shells)
     n_lens = int(max_radius // float(density_plane_width))
 
     r_edges = jnp.linspace(0.0,
@@ -166,6 +170,7 @@ def compute_snapshot_scale_factors(cosmo, field: DensityField) -> jax.Array:
     return a_center
 
 
+@jax.jit
 def compute_lpt_lightcone_scale_factors(cosmo,
                                         field: DensityField) -> jax.Array:
     """

@@ -33,6 +33,11 @@ def main():
     print("N-body Simulation and Lightcone Generation")
     print("=" * 80)
 
+    # Create output directory for plots
+    output_dir = "output/plots"
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"\nOutput directory: {output_dir}")
+
     # Configuration
     print("\n## Configuration")
     print("\nSet up simulation parameters. Using small mesh size for demonstration.")
@@ -81,12 +86,14 @@ def main():
 
     print(f"Displacement field: {dx_field}")
     print(f"Array shape: {dx_field.array.shape}")
-    print(f"Scale factor: {dx_field.scale_factor}")
+    print(f"Scale factors: {dx_field.scale_factors}")
 
     # Compute number of shells from field properties
+    nb_shells = 6
     max_radius = dx_field.max_comoving_radius
-    density_plane_width = dx_field.density_width
-    nb_shells = int(max_radius // float(density_plane_width))
+    density_plane_width = dx_field.density_width(nb_shells=nb_shells)
+    print(f"Max comoving radius: {max_radius} Mpc/h")
+    print(f"Density plane width: {density_plane_width} Mpc/h")
     print(f"Number of shells: {nb_shells}")
 
     # Run N-body with geometry='particles'
@@ -94,18 +101,20 @@ def main():
     print("\nRun N-body simulation saving particle positions at each shell.")
     print("This is flexible (can paint to any projection later) but memory-intensive.")
 
+    ts = jnp.linspace(t0, t1, nb_shells)
     density_snapshots = nbody(
         cosmo,
         dx_field,
         p_field,
         t1=t1,
         dt0=dt0,
+        ts=ts,
         geometry='particles',
     )
 
     print(f"Density snapshots: {density_snapshots}")
     print(f"Array shape: {density_snapshots.array.shape}")
-    print(f"Scale factor shape: {density_snapshots.scale_factor.shape}")
+    print(f"Scale factors shape: {density_snapshots.scale_factors.shape}")
 
     # Post-hoc Painting to Flat Geometry
     print("\n## Post-hoc Painting to Flat Geometry")
@@ -124,22 +133,28 @@ def main():
         p_field,
         t1=t1,
         dt0=dt0,
+        nb_shells=nb_shells,
+        ts=ts,
         geometry="flat",
     )
 
     print(f"Flat lightcone: {flat_lightcone}")
     print(f"Array shape: {flat_lightcone.array.shape}")
-    print(f"Scale factor shape: {flat_lightcone.scale_factor.shape}")
+    print(f"Scale factors shape: {flat_lightcone.scale_factors.shape}")
 
     # Visualize Flat Lightcone
     print("\n## Visualize Flat Lightcone")
-    print("\nShow the flat-sky lightcone density maps for selected shells.")
+    print("\nSaving flat-sky lightcone density maps for selected shells.")
 
-    shells_to_plot = [0, nb_shells//2, nb_shells-1]
-    flat_lightcone[shells_to_plot].show(
+    shells_to_plot = jnp.array([0, nb_shells//2, nb_shells-1])
+    fig, axes = flat_lightcone[shells_to_plot].plot(
         figsize=(15, 5),
-        titles=[f"Shell {i}, a={flat_lightcone.scale_factor[i]:.3f}" for i in shells_to_plot]
+        titles=[f"Shell {i}, a={flat_lightcone.scale_factors[i]:.3f}" for i in shells_to_plot]
     )
+    flat_output_path = os.path.join(output_dir, "flat_lightcone.png")
+    fig.savefig(flat_output_path, dpi=600, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved flat lightcone plot to: {flat_output_path}")
 
     # Memory-Efficient: On-the-fly Spherical Painting
     print("\n## Memory-Efficient: On-the-fly Spherical Painting")
@@ -151,22 +166,27 @@ def main():
         p_field,
         t1=t1,
         dt0=dt0,
+        nb_shells=nb_shells,
         geometry="spherical",
     )
 
     print(f"Spherical lightcone: {spherical_lightcone}")
     print(f"Array shape: {spherical_lightcone.array.shape}")
-    print(f"Scale factor shape: {spherical_lightcone.scale_factor.shape}")
+    print(f"Scale factors shape: {spherical_lightcone.scale_factors.shape}")
 
     # Visualize Spherical Lightcone
     print("\n## Visualize Spherical Lightcone")
-    print("\nShow the HEALPix spherical lightcone density maps for selected shells.")
+    print("\nSaving HEALPix spherical lightcone density maps for selected shells.")
 
-    shells_to_plot = [0, nb_shells//2, nb_shells-1]
-    spherical_lightcone[shells_to_plot].show(
+    shells_to_plot = jnp.array([0, nb_shells//2, nb_shells-1])
+    fig = spherical_lightcone[shells_to_plot].plot(
         figsize=(15, 15),
-        titles=[f"Shell {i}, a={spherical_lightcone.scale_factor[i]:.3f}" for i in shells_to_plot]
+        titles=[f"Shell {i}, a={spherical_lightcone.scale_factors[i]:.3f}" for i in shells_to_plot]
     )
+    spherical_output_path = os.path.join(output_dir, "spherical_lightcone.png")
+    fig.savefig(spherical_output_path, dpi=600, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved spherical lightcone plot to: {spherical_output_path}")
 
     # Summary
     print("\n## Memory Trade-off Summary")

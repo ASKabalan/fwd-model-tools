@@ -10,10 +10,10 @@ from jaxpm.kernels import fftk, interpolate_power_spectrum
 from numpyro.distributions import Normal, constraints
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key
-
+from functools import partial
 from .field import DensityField, FieldStatus
 
-
+@partial(jax.jit, static_argnames=['mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size', 'sharding'])
 def gaussian_initial_conditions(
     key: jax.random.KeyArray,
     mesh_size: Tuple[int, int, int],
@@ -73,7 +73,7 @@ def gaussian_initial_conditions(
         sharding=sharding,
     )
 
-
+@partial(jax.jit, static_argnames=['mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size', 'sharding'])
 def interpolate_initial_conditions(
     initial_field: jax.Array,
     mesh_size: Tuple[int, int, int],
@@ -147,5 +147,5 @@ def interpolate_initial_conditions(
         flatsky_npix=flatsky_npix,
         halo_size=halo_size,
         status=FieldStatus.INITIAL_FIELD,
-        scale_factor=0.0,
+        scale_factors=0.0,
     )

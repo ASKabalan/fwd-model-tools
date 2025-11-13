@@ -99,7 +99,6 @@ def _single_paint_2d(
     weights: jax.Array | float | None,
     mode: PaintMode,
     max_comoving_radius: float,
-    nb_shells: int,
 ) -> jax.Array:
     """
     Paint a single shell of particles onto a 2D flat-sky grid.
@@ -143,8 +142,7 @@ def _single_paint_2d(
     array, center = array_center
 
     # Compute density width from max_comoving_radius and nb_shells
-    density_width = max_comoving_radius / nb_shells
-    width = density_width if density_plane_width is None else density_plane_width
+    width = density_plane_width
     width = (width * nz) / mpc_z  # thickness in grid units
     center_grid = (center * nz) / mpc_z  # center in grid units
 
@@ -208,7 +206,6 @@ def _single_paint_spherical(
     ud_grade_order_out: str,
     ud_grade_pess: bool,
     max_comoving_radius: float,
-    nb_shells: int,
 ) -> jax.Array:
     """
     Paint a single shell of particles onto a HEALPix grid.
@@ -270,8 +267,7 @@ def _single_paint_spherical(
         positions = array
 
     # Compute density width from max_comoving_radius and nb_shells
-    density_width = max_comoving_radius / nb_shells
-    width = density_width if density_plane_width is None else density_plane_width
+    width = density_plane_width
     rmin, rmax = center - (width / 2), center + (width / 2)
 
     # Observer position in Mpc

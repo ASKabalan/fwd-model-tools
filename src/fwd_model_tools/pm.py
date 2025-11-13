@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import Tuple
 
 import jax
@@ -17,6 +18,7 @@ from .utils import compute_snapshot_scale_factors
 __all__ = ["lpt", "nbody"]
 
 
+@partial(jax.jit, static_argnames=['order'])
 def lpt(
     cosmo,
     initial_field: DensityField,
@@ -87,15 +89,16 @@ def lpt(
     status = FieldStatus.LPT1 if order == 1 else FieldStatus.LPT2
     dx_field = particle_from_density(dx,
                                       initial_field,
-                                      scale_factor=a,
+                                      scale_factors=a,
                                       status=status)
     p_field = particle_from_density(p,
                                      initial_field,
-                                     scale_factor=a,
+                                     scale_factors=a,
                                      status=status)
     return dx_field, p_field
 
 
+@partial(jax.jit, static_argnames=['t1', 'dt0', 'nb_shells', 'geometry', 'solver', 'adjoint'])
 def nbody(
     cosmo,
     dx_field: ParticleField,
@@ -103,6 +106,7 @@ def nbody(
     t1: float = 1.0,
     dt0: float = 0.05,
     ts: jnp.ndarray | None = None,
+    nb_shells: int | None = None,
     geometry: str = "spherical",
     solver=ReversibleEfficientFastPM(),
     adjoint: str | object = RecursiveCheckpointAdjoint(),
@@ -144,7 +148,7 @@ def nbody(
         - geometry="flat": FlatDensity with shape (nb_shells, npix, npix)
         - geometry="density": DensityField with shape (nb_shells, mesh_x, mesh_y, mesh_z)
         - geometry="particles": ParticleField with shape (nb_shells, mesh_x, mesh_y, mesh_z, 3)
-        Each snapshot has scale_factor set to the corresponding scale factor.
+        Each snapshot has scale_factors set to the corresponding scale factor.
 
     Raises
     ------
@@ -157,12 +161,14 @@ def nbody(
     >>> dx, p = lpt(cosmo, initial_field, a=0.1, order=1)
     >>> lightcone = nbody(cosmo, dx, p, t1=1.0, geometry="spherical")
     >>> lightcone.array.shape  # (nb_shells, 12*nside**2)
-    >>> lightcone.scale_factor.shape  # (nb_shells,)
+    >>> lightcone.scale_factors.shape  # (nb_shells,)
     """
     # Validate inputs
     if geometry not in ["spherical", "flat", "density", "particles"]:
         raise ValueError(
             f"geometry must be 'spherical' or 'flat' or 'density' or 'particles', got {geometry}")
+    if ts is None and nb_shells is None:
+        raise ValueError("Either ts or nb_shells must be provided.")
 
     # Validate fields match
     if dx_field.mesh_size != p_field.mesh_size:
@@ -171,7 +177,7 @@ def nbody(
         raise ValueError("dx_field and p_field must have matching box_size")
 
     # Extract metadata from fields
-    t0 = jnp.atleast_1d(dx_field.scale_factor).squeeze()
+    t0 = jnp.atleast_1d(dx_field.scale_factors).squeeze()
     if not jnp.isscalar(t0):
         raise ValueError("Starting scale factor t0 must be a scalar.")
 
@@ -182,15 +188,16 @@ def nbody(
     halo_size = dx_field.halo_size
     nside = dx_field.nside
     flatsky_npix = dx_field.flatsky_npix
-    nb_shells = dx_field.nb_shells
 
     # Compute shell centers using field properties
     if ts is None:
-        ts = compute_snapshot_scale_factors(cosmo, dx_field)
+        ts = compute_snapshot_scale_factors(cosmo, dx_field, nb_shells=nb_shells)
 
+    density_plane_width = dx_field.density_width(nb_shells=ts.shape[0])
     # Create ODE terms using local symplectic_ode with ParticleField
     drift, kick = symplectic_ode(dx_field, paint_mode="relative")
     ode_terms = (ODETerm(kick), ODETerm(drift))
+
 
     # Set up SaveAt with appropriate density function
     if geometry == "spherical":
@@ -205,11 +212,12 @@ def nbody(
 
             # Create temporary ParticleField from displacement array
             particle_field = y[1]
-            particle_field = particle_field.replace(scale_factor=t)
+            particle_field = particle_field.replace(scale_factors=t)
             # Paint to spherical
             return particle_field.paint_spherical(
                 center=r_center,
-                mode="relative"
+                mode="relative",
+                density_plane_width=density_plane_width,
             )
     elif geometry == "flat":
         if flatsky_npix is None:
@@ -223,19 +231,20 @@ def nbody(
 
             # Create temporary ParticleField from displacement array
             particle_field = y[1]
-            particle_field = particle_field.replace(scale_factor=t)
+            particle_field = particle_field.replace(scale_factors=t)
 
             # Paint to flat 2D
             return particle_field.paint_2d(
                 center=r_center,
-                mode="relative"
+                mode="relative",
+                density_plane_width=density_plane_width,
             )
 
     elif geometry == "density":
         def snapshot_fn(t, y, args):
             # Create temporary ParticleField from displacement array
             particle_field = y[1]
-            particle_field = particle_field.replace(scale_factor=t)
+            particle_field = particle_field.replace(scale_factors=t)
 
             # Paint to 3D density grid
             return particle_field.paint(mode="relative")
@@ -244,7 +253,7 @@ def nbody(
         def snapshot_fn(t, y, args):
             # Return ParticleField with displacements directly
             particle_field = y[1]
-            return particle_field.replace(scale_factor=t)
+            return particle_field.replace(scale_factors=t)
 
     saveat = SaveAt(ts=ts, fn=snapshot_fn)
 
