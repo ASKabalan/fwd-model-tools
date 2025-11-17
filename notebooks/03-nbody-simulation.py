@@ -90,6 +90,8 @@ def main():
 
     # Compute number of shells from field properties
     nb_shells = 6
+    shells_to_plot = [0, nb_shells // 2, nb_shells - 1]
+    shell_idx_array = jnp.array(shells_to_plot)
     max_radius = dx_field.max_comoving_radius
     density_plane_width = dx_field.density_width(nb_shells=nb_shells)
     print(f"Max comoving radius: {max_radius} Mpc/h")
@@ -116,11 +118,42 @@ def main():
     print(f"Array shape: {density_snapshots.array.shape}")
     print(f"Scale factors shape: {density_snapshots.scale_factors.shape}")
 
+    shell_centers_mpc = jc.background.radial_comoving_distance(
+        cosmo, density_snapshots.scale_factors
+    )
+    cosmo._workspace = {}
+    print(f"Shell centers (Mpc/h): {shell_centers_mpc}")
+
     # Post-hoc Painting to Flat Geometry
     print("\n## Post-hoc Painting to Flat Geometry")
     print("\nNote: For post-hoc painting, we would typically save displacement fields (geometry='particles')")
     print("and then use ParticleField.paint_2d() on each snapshot.")
     print(f"Density snapshots contain {density_snapshots.array.shape[0]} shells.")
+
+    flat_from_particles = density_snapshots.paint_2d(center=shell_centers_mpc)
+    fig, axes = flat_from_particles[shell_idx_array].plot(
+        figsize=(15, 5),
+        titles=[f"Shell {i}, a={density_snapshots.scale_factors[i]:.3f}" for i in shells_to_plot],
+    )
+    flat_particles_path = os.path.join(output_dir, "flat_from_particles.png")
+    fig.savefig(flat_particles_path, dpi=600, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved post-hoc flat maps to: {flat_particles_path}")
+
+    density_snapshots = density_snapshots.replace(nside=nside)
+    spherical_from_particles = density_snapshots.paint_spherical(
+        center=shell_centers_mpc,
+        scheme="ngp",
+    )
+    fig = spherical_from_particles[shell_idx_array].plot(
+        figsize=(15, 15),
+        titles=[f"Shell {i}, a={density_snapshots.scale_factors[i]:.3f}" for i in shells_to_plot],
+        apply_log=False,
+    )
+    spherical_particles_path = os.path.join(output_dir, "spherical_from_particles.png")
+    fig.savefig(spherical_particles_path, dpi=600, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved post-hoc spherical maps to: {spherical_particles_path}")
 
     # Memory-Efficient: On-the-fly Flat Painting
     print("\n## Memory-Efficient: On-the-fly Flat Painting")
@@ -146,8 +179,7 @@ def main():
     print("\n## Visualize Flat Lightcone")
     print("\nSaving flat-sky lightcone density maps for selected shells.")
 
-    shells_to_plot = jnp.array([0, nb_shells//2, nb_shells-1])
-    fig, axes = flat_lightcone[shells_to_plot].plot(
+    fig, axes = flat_lightcone[shell_idx_array].plot(
         figsize=(15, 5),
         titles=[f"Shell {i}, a={flat_lightcone.scale_factors[i]:.3f}" for i in shells_to_plot]
     )
@@ -178,8 +210,7 @@ def main():
     print("\n## Visualize Spherical Lightcone")
     print("\nSaving HEALPix spherical lightcone density maps for selected shells.")
 
-    shells_to_plot = jnp.array([0, nb_shells//2, nb_shells-1])
-    fig = spherical_lightcone[shells_to_plot].plot(
+    fig = spherical_lightcone[shell_idx_array].plot(
         figsize=(15, 15),
         titles=[f"Shell {i}, a={spherical_lightcone.scale_factors[i]:.3f}" for i in shells_to_plot]
     )

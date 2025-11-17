@@ -6,8 +6,9 @@ import numpyro
 import numpyro.distributions as dist
 from diffrax import ODETerm, RecursiveCheckpointAdjoint, SaveAt, diffeqsolve
 from jax_cosmo.scipy.integrate import simps
-from jaxpm.lensing import (convergence_Born, density_plane_fn,
-                           spherical_density_fn)
+from jaxpm.lensing import density_plane_fn, spherical_density_fn
+
+from fwd_model_tools.lensing import convergence_Born
 from jaxpm.ode import symplectic_ode
 from jaxpm.spherical import spherical_visibility_mask
 

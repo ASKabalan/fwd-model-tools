@@ -9,6 +9,7 @@ import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax_healpy as jhp
+from jax.image import resize
 import matplotlib.pyplot as plt
 import numpy as np
 from jaxpm.distributed import uniform_particles
@@ -117,6 +118,7 @@ class DensityField(AbstractField):
         "sharding",
         "nside",
         "flatsky_npix",
+        "field_size",
         "halo_size",
         "status",
         "scale_factors",
@@ -134,6 +136,7 @@ class DensityField(AbstractField):
         sharding: Any | None = None,
         nside: int | None = None,
         flatsky_npix: Tuple[int, int] | None = None,
+        field_size: float | None = None,
         halo_size: int | Tuple[int, int] = 0,
         status: FieldStatus = FieldStatus.RAW,
         scale_factors: float = 1.0,
@@ -157,6 +160,7 @@ class DensityField(AbstractField):
         self.sharding = sharding
         self.nside = nside
         self.flatsky_npix = flatsky_npix
+        self.field_size = field_size
         self.halo_size = halo_size
         self.status = self._coerce_status(status)
         self.scale_factors = scale_factors
@@ -171,6 +175,7 @@ class DensityField(AbstractField):
             self.sharding,
             self.nside,
             self.flatsky_npix,
+            self.field_size,
             self.halo_size,
             self.status,
         )
@@ -185,6 +190,7 @@ class DensityField(AbstractField):
             sharding,
             nside,
             flatsky_npix,
+            field_size,
             halo_size,
             status,
         ) = aux_data
@@ -197,6 +203,7 @@ class DensityField(AbstractField):
             sharding=sharding,
             nside=nside,
             flatsky_npix=flatsky_npix,
+            field_size=field_size,
             halo_size=halo_size,
             status=status,
             scale_factors=scale_factors,
@@ -416,6 +423,7 @@ class DensityField(AbstractField):
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
+            field_size=self.field_size,
             halo_size=self.halo_size,
             status=self.status,
             scale_factors=indexed_scale_factors,
@@ -441,6 +449,7 @@ class ParticleField(DensityField):
         sharding: Any | None = None,
         nside: int | None = None,
         flatsky_npix: Tuple[int, int] | None = None,
+        field_size: float | None = None,
         halo_size: int | Tuple[int, int] = 0,
         status: FieldStatus = FieldStatus.RAW,
         scale_factors: float = 1.0,
@@ -460,6 +469,7 @@ class ParticleField(DensityField):
             sharding=sharding,
             nside=nside,
             flatsky_npix=flatsky_npix,
+            field_size=field_size,
             halo_size=halo_size,
             status=status,
             scale_factors=scale_factors,
@@ -910,6 +920,7 @@ class FlatDensity(DensityField):
             sharding=density_field.sharding,
             nside=density_field.nside,
             flatsky_npix=density_field.flatsky_npix,
+            field_size=density_field.field_size,
             halo_size=density_field.halo_size,
             status=status,
             scale_factors=density_field.scale_factors,
@@ -925,6 +936,7 @@ class FlatDensity(DensityField):
             "sharding": self.sharding,
             "nside": self.nside,
             "flatsky_npix": self.flatsky_npix,
+            "field_size": self.field_size,
             "halo_size": self.halo_size,
             "status": self.status,
             "scale_factors": self.scale_factors,
@@ -944,7 +956,7 @@ class FlatDensity(DensityField):
     def tree_flatten(self):
         # Use parent's tree_flatten but store status as string to avoid enum mismatch
         children, aux_data = super().tree_flatten()
-        # aux_data is (mesh_size, box_size, observer_position, sharding, nside, flatsky_npix, halo_size, status)
+        # aux_data is (mesh_size, box_size, observer_position, sharding, nside, flatsky_npix, field_size, halo_size, status)
         aux_list = list(aux_data)
         aux_list[-1] = str(self.status.value)  # Convert status to string
         return children, tuple(aux_list)
@@ -959,6 +971,7 @@ class FlatDensity(DensityField):
             sharding,
             nside,
             flatsky_npix,
+            field_size,
             halo_size,
             status_str,
         ) = aux_data
@@ -973,6 +986,7 @@ class FlatDensity(DensityField):
         instance.sharding = sharding
         instance.nside = nside
         instance.flatsky_npix = flatsky_npix
+        instance.field_size = field_size
         instance.halo_size = halo_size
         instance.status = DensityStatus(status_str)
         instance.scale_factors = scale_factors
@@ -1123,6 +1137,7 @@ class FlatDensity(DensityField):
         titles: Sequence[str] | None = None,
         show_colorbar: bool = True,
         show_ticks: bool = True,
+        apply_log: bool = True,
     ) -> None:
         """
         Plot and display flat-sky maps using matplotlib.
@@ -1145,8 +1160,37 @@ class FlatDensity(DensityField):
             titles=titles,
             show_colorbar=show_colorbar,
             show_ticks=show_ticks,
+            apply_log=apply_log
         )
         plt.show()
+
+    def ud_sample(self, new_npix):
+        """
+        Resample to new resolution using jax.image.resize.
+
+        Parameters
+        ----------
+        new_npix : int
+            New pixel resolution (assumes square grid)
+
+        Returns
+        -------
+        FlatDensity
+            Resampled flat-sky map (functional, immutable)
+
+        Examples
+        --------
+        >>> density_hires = density.ud_sample(new_npix=512)
+        """
+        # Handle batch dimension: (n_sources, ny, nx) or (ny, nx)
+        if self.array.ndim == 3:
+            new_shape = (self.array.shape[0], new_npix, new_npix)
+        else:
+            new_shape = (new_npix, new_npix)
+
+        resampled = resize(self.array, new_shape, method="bilinear")
+
+        return self.replace(array=resampled, flatsky_npix=(new_npix, new_npix))
 
     @classmethod
     def stack(cls, fields: Sequence["FlatDensity"]) -> "FlatDensity":
@@ -1156,25 +1200,10 @@ class FlatDensity(DensityField):
         field_list = tuple(fields)
         if not field_list:
             raise ValueError("FlatDensity.stack requires at least one field.")
-        ref = field_list[0]
-        attrs = (
-            "mesh_size",
-            "box_size",
-            "observer_position",
-            "sharding",
-            "flatsky_npix",
-            "halo_size",
-            "status",
+        return jax.tree.map(
+            lambda *arrays: jnp.stack(arrays, axis=0),
+            *field_list,
         )
-        for fld in field_list[1:]:
-            for attr in attrs:
-                if getattr(fld, attr) != getattr(ref, attr):
-                    raise ValueError(
-                        f"Cannot stack FlatDensity objects with differing {attr}."
-                    )
-        stacked = jnp.stack([fld.array for fld in field_list], axis=0)
-        return cls(array=stacked, density_field=ref, status=ref.status)
-
 
 @jax.tree_util.register_pytree_node_class
 class SphericalDensity(DensityField):
@@ -1207,6 +1236,7 @@ class SphericalDensity(DensityField):
             sharding=density_field.sharding,
             nside=density_field.nside,
             flatsky_npix=density_field.flatsky_npix,
+            field_size=density_field.field_size,
             halo_size=density_field.halo_size,
             status=status,
             scale_factors=density_field.scale_factors,
@@ -1222,6 +1252,7 @@ class SphericalDensity(DensityField):
             "sharding": self.sharding,
             "nside": self.nside,
             "flatsky_npix": self.flatsky_npix,
+            "field_size": self.field_size,
             "halo_size": self.halo_size,
             "status": self.status,
             "scale_factors": self.scale_factors,
@@ -1241,7 +1272,7 @@ class SphericalDensity(DensityField):
     def tree_flatten(self):
         # Use parent's tree_flatten but store status as string to avoid enum mismatch
         children, aux_data = super().tree_flatten()
-        # aux_data is (mesh_size, box_size, observer_position, sharding, nside, flatsky_npix, halo_size, status)
+        # aux_data is (mesh_size, box_size, observer_position, sharding, nside, flatsky_npix, field_size, halo_size, status)
         aux_list = list(aux_data)
         aux_list[-1] = str(self.status.value)  # Convert status to string
         return children, tuple(aux_list)
@@ -1256,6 +1287,7 @@ class SphericalDensity(DensityField):
             sharding,
             nside,
             flatsky_npix,
+            field_size,
             halo_size,
             status_str,
         ) = aux_data
@@ -1270,6 +1302,7 @@ class SphericalDensity(DensityField):
         instance.sharding = sharding
         instance.nside = nside
         instance.flatsky_npix = flatsky_npix
+        instance.field_size = field_size
         instance.halo_size = halo_size
         instance.status = DensityStatus(status_str)
         instance.scale_factors = scale_factors
@@ -1398,6 +1431,7 @@ class SphericalDensity(DensityField):
         figsize: Tuple[float, float] | None = None,
         ncols: int = 3,
         titles: Sequence[str] | None = None,
+        apply_log: bool = True,
     ) -> None:
         """
         Plot and display spherical maps using healpy.
@@ -1411,8 +1445,38 @@ class SphericalDensity(DensityField):
         if not jax.core.is_concrete(self.array):
             raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
 
-        self.plot(cmap=cmap, figsize=figsize, ncols=ncols, titles=titles)
+        self.plot(cmap=cmap, figsize=figsize, ncols=ncols, titles=titles, apply_log=apply_log)
         plt.show()
+
+    def ud_sample(self, new_nside):
+        """
+        Change HEALPix resolution using jax_healpy.ud_grade.
+
+        Supports batched input automatically: (n_sources, npix) → (n_sources, new_npix)
+
+        Parameters
+        ----------
+        new_nside : int
+            New HEALPix nside parameter (must be power of 2)
+
+        Returns
+        -------
+        SphericalDensity
+            Resampled spherical map (functional, immutable)
+
+        Examples
+        --------
+        >>> density_hires = density.ud_sample(new_nside=256)
+
+        Notes
+        -----
+        Uses jax_healpy.ud_grade which automatically handles both single
+        and batched arrays.
+        """
+        # jax_healpy.ud_grade handles both single and batched automatically!
+        resampled = jhp.ud_grade(self.array, new_nside)
+
+        return self.replace(array=resampled, nside=new_nside)
 
     @classmethod
     def stack(cls, fields: Sequence["SphericalDensity"]) -> "SphericalDensity":
@@ -1423,24 +1487,10 @@ class SphericalDensity(DensityField):
         if not field_list:
             raise ValueError(
                 "SphericalDensity.stack requires at least one field.")
-        ref = field_list[0]
-        attrs = (
-            "mesh_size",
-            "box_size",
-            "observer_position",
-            "sharding",
-            "nside",
-            "halo_size",
-            "status",
+        return jax.tree.maple(
+            lambda *arrays: jnp.stack(arrays, axis=0),
+            *field_list,
         )
-        for fld in field_list[1:]:
-            for attr in attrs:
-                if getattr(fld, attr) != getattr(ref, attr):
-                    raise ValueError(
-                        f"Cannot stack SphericalDensity objects with differing {attr}."
-                    )
-        stacked = jnp.stack([fld.array for fld in field_list], axis=0)
-        return cls(array=stacked, density_field=ref, status=ref.status)
 
 
 def stack(fields: Sequence[DensityField]) -> DensityField:
