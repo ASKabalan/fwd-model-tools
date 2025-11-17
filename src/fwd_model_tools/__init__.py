@@ -22,10 +22,14 @@ from fwd_model_tools.lensing_model import (E, Planck18, full_field_probmodel,
 from fwd_model_tools.plotting import (plot_gradient_analysis, plot_ic,
                                       plot_kappa, plot_lightcone,
                                       plot_posterior)
+from fwd_model_tools.power import (PowerSpectrum, compute_flat_cl,
+                                   compute_pk, compute_spherical_cl,
+                                   compute_theory_cl)
 from fwd_model_tools.powerspec_model import (make_2pt_model,
                                              pixel_window_function,
                                              powerspec_probmodel)
 from fwd_model_tools.utils import (compute_box_size_from_redshift,
+                                   compute_lightcone_shells,
                                    compute_max_redshift_from_box_size,
                                    compute_snapshot_scale_factors)
 
@@ -39,7 +43,13 @@ __all__ = [
     "make_full_field_model",
     "full_field_probmodel",
     "reconstruct_full_kappa",
+    "PowerSpectrum",
+    "compute_pk",
+    "compute_spherical_cl",
+    "compute_flat_cl",
+    "compute_theory_cl",
     "compute_box_size_from_redshift",
+    "compute_lightcone_shells",
     "compute_max_redshift_from_box_size",
     "compute_snapshot_scale_factors",
     "plot_lightcone",

@@ -21,7 +21,11 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from fwd_model_tools._src._painting import (_single_paint, _single_paint_2d,
                                             _single_paint_spherical)
 from fwd_model_tools._src.core import AbstractField
+from fwd_model_tools.power import (compute_flat_cl, compute_pk,
+                                   compute_spherical_cl)
 from jaxtyping import Array
+
+
 __all__ = [
     "FieldStatus",
     "DensityStatus",
@@ -265,12 +269,18 @@ class DensityField(AbstractField):
         self.scale_factors = scale_factors
 
     # -------------------------------------------------------- power-spectrum API
-    def compute_power_spectrum(self, k: jax.Array | jnp.ndarray):
+    def compute_power_spectrum(
+        self,
+        *,
+        kedges: jax.Array | jnp.ndarray | None = None,
+        **kwargs: Any,
+    ) -> "PowerSpectrum":
+        """Compute the 3D matter power spectrum P(k).
+
+        Parameters mirror :func:`fwd_model_tools.power.compute_pk`. Any keyword
+        arguments are forwarded verbatim to that helper.
         """
-        Placeholder for 3D power spectrum evaluation.
-        """
-        raise NotImplementedError(
-            "3D power spectrum computation not implemented yet.")
+        return compute_pk(self, kedges=kedges, **kwargs)
 
     def block_until_ready(self) -> DensityField:
         """
@@ -992,9 +1002,25 @@ class FlatDensity(DensityField):
         instance.scale_factors = scale_factors
         return instance
 
-    def compute_power_spectrum(self, ells: jax.Array | jnp.ndarray):
-        raise NotImplementedError(
-            "Flat-sky power spectrum computation not implemented yet.")
+    def compute_power_spectrum(
+        self,
+        *,
+        field_size: float | None = None,
+        pixel_size: float | None = None,
+        **kwargs: Any,
+    ) -> "PowerSpectrum":
+        """Compute a flat-sky angular power spectrum C_ell.
+
+        Parameters mirror :func:`fwd_model_tools.power.compute_flat_cl`. Geometry
+        metadata is inferred from the current instance unless overridden.
+        """
+        effective_field_size = field_size or self.field_size
+        return compute_flat_cl(
+            self,
+            field_size=effective_field_size,
+            pixel_size=pixel_size,
+            **kwargs,
+        )
 
     def plot(
         self,
@@ -1308,9 +1334,18 @@ class SphericalDensity(DensityField):
         instance.scale_factors = scale_factors
         return instance
 
-    def compute_power_spectrum(self, ells: jax.Array | jnp.ndarray):
-        raise NotImplementedError(
-            "Spherical power spectrum computation not implemented yet.")
+    def compute_power_spectrum(
+        self,
+        *,
+        lmax: int | None = None,
+        **kwargs: Any,
+    ) -> "PowerSpectrum":
+        """Compute a spherical (HEALPix) angular power spectrum C_ell."""
+        return compute_spherical_cl(
+            self,
+            lmax=lmax,
+            **kwargs,
+        )
 
     def __getitem__(self, key) -> "SphericalDensity":
         """

@@ -12,6 +12,7 @@ __all__ = [
     "compute_box_size_from_redshift",
     "compute_max_redshift_from_box_size",
     "compute_snapshot_scale_factors",
+    "compute_lightcone_shells",
 ]
 
 
@@ -120,13 +121,12 @@ def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
 
 
 @partial(jax.jit, static_argnames=['nb_shells'])
-def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax.Array:
-    """
-    Compute scale factors for lightcone shells from a DensityField.
-
-    This function extracts box geometry and observer information from the field
-    to compute radial shell centers, then converts them to scale factors using
-    the cosmology's distance-redshift relation.
+def compute_lightcone_shells(
+    cosmo,
+    field: DensityField,
+    nb_shells,
+) -> tuple[jax.Array, jax.Array, float]:
+    """Return comoving shell centers, scale factors, and shell width.
 
     Parameters
     ----------
@@ -134,39 +134,41 @@ def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax
         Cosmology object for distance computations.
     field : DensityField
         Field containing box_size, observer_position, and nb_shells metadata.
+    nb_shells : int
+        Number of radial shells to divide the lightcone into.
 
     Returns
     -------
-    jax.Array
-        Scale factors at shell centers, shape (nb_shells,).
+    tuple
+        ``(r_center, a_center, density_plane_width)`` where ``r_center`` and
+        ``a_center`` have shape ``(nb_shells,)``.
 
     Notes
     -----
-    Follows the logic from lensing_model.py:
-    1. Compute maximum observable radius based on box geometry and observer position
-    2. Divide into nb_shells radial bins
-    3. Compute bin centers in comoving distance
-    4. Convert to scale factors using a_of_chi
-
-    Examples
-    --------
-    >>> cosmo = Planck18()
-    >>> field = gaussian_initial_conditions(key, mesh_size, box_size, pk_fn)
-    >>> scale_factors = compute_snapshot_scale_factors(cosmo, field)
-    >>> # Returns array of shape (field.nb_shells,)
+    This mirrors the logic from :func:`compute_snapshot_scale_factors` but keeps
+    both the comoving distance grid and the corresponding scale factors, which
+    is convenient for painting functions that require centers in Mpc.
     """
-    # Use field properties for cleaner code
     max_radius = field.max_comoving_radius
     density_plane_width = field.density_width(nb_shells=nb_shells)
     n_lens = int(max_radius // float(density_plane_width))
 
-    r_edges = jnp.linspace(0.0,
-                           float(n_lens) * float(density_plane_width),
-                           n_lens + 1)[::-1]  # Reverse so near to far
+    r_edges = jnp.linspace(
+        0.0,
+        float(n_lens) * float(density_plane_width),
+        n_lens + 1,
+    )[::-1]
     r_center = 0.5 * (r_edges[1:] + r_edges[:-1])
     a_center = jc.background.a_of_chi(cosmo, r_center)
     cosmo._workspace = {}
 
+    return r_center, a_center
+
+
+@partial(jax.jit, static_argnames=['nb_shells'])
+def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax.Array:
+    """Compute only the shell scale factors (wrapper around ``compute_lightcone_shells``)."""
+    _, a_center, _ = compute_lightcone_shells(cosmo, field, nb_shells)
     return a_center
 
 
