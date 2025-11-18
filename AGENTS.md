@@ -9,6 +9,19 @@
 - `scripts/`: runnable examples (`run_lensing_model.py`, `run_simple_sampling.py`).
 - `tests/`: pytest suite; stash reproduced artifacts under `output/`.
 
+## API Rewrite Status
+- The library is currently being rewritten to provide a cleaner, more user-friendly API.
+- The new API lives primarily in the following modules and directories:
+  - `src/fwd_model_tools/field.py`
+  - `src/fwd_model_tools/normal.py`
+  - `src/fwd_model_tools/pm.py`
+  - `src/fwd_model_tools/sampling.py`
+  - `src/fwd_model_tools/utils.py`
+  - `src/fwd_model_tools/kappa.py`
+  - `src/fwd_model_tools/lensing.py`
+  - everything in `src/fwd_model_tools/solvers`, `src/fwd_model_tools/power`, and `src/fwd_model_tools/_src`
+- The rest of the code, in particular `src/fwd_model_tools/lensing_model.py`, has not been updated yet and should be treated as legacy until the rewrite is complete.
+
 ## Build, Test, and Development Commands
 - `pip install -e .[dev]`: editable install with pytest/ruff extras.
 - `pytest`: run tests with coverage (`--cov=fwd_model_tools --cov-report=term-missing`).
@@ -37,4 +50,3 @@
 ## Distributed & JAX Tips
 - Set env early when sharing repros: `JAX_PLATFORM_NAME=gpu`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`.
 - Use sharding-aware helpers in `distributed.py` and `sampling.py`; document expected mesh sizes/partitioning in PRs.
-
