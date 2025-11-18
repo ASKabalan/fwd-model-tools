@@ -1,3 +1,5 @@
+"""Batched MCMC sampling utilities."""
+
 import os
 from functools import partial
 from pathlib import Path
@@ -8,73 +10,10 @@ import jax.numpy as jnp
 import numpyro
 import orbax.checkpoint as ocp
 from jaxtyping import Key, PyTree
-from numpyro.distributions import Normal, constraints
-from numpyro.distributions.util import promote_shapes
 from numpyro.infer import HMC, MCMC, NUTS
 from numpyro.infer.util import initialize_model
 
-from .distributed import load_sharded, save_sharded
-
-
-class DistributedNormal(Normal):
-    """
-    Sharded normal distribution for distributed initial conditions.
-
-    This class extends NumPyro's Normal distribution to support distributed
-    sampling across multiple devices using JAX's sharding mechanism.
-
-    Parameters
-    ----------
-    loc : float or jax.Array, default=0.0
-        Mean of the normal distribution.
-    scale : float or jax.Array, default=1.0
-        Standard deviation of the normal distribution.
-    sharding : jax.sharding.Sharding, optional
-        Sharding specification for distributed sampling.
-    validate_args : bool, optional
-        Whether to validate input arguments.
-    """
-
-    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
-    support = constraints.real
-    reparametrized_params = ["loc", "scale"]
-
-    def __init__(self,
-                 loc=0.0,
-                 scale=1.0,
-                 sharding=None,
-                 *,
-                 validate_args=None):
-        self.loc, self.scale = promote_shapes(loc, scale)
-        self.sharding = sharding
-        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc),
-                                               jnp.shape(scale))
-        super(Normal, self).__init__(batch_shape=batch_shape,
-                                     validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        """
-        Sample from the distributed normal distribution.
-
-        Parameters
-        ----------
-        key : jax.random.PRNGKey
-            Random number generator key.
-        sample_shape : tuple, default=()
-            Shape of samples to generate.
-
-        Returns
-        -------
-        jax.Array
-            Samples from the normal distribution.
-        """
-        assert is_prng_key(key)
-
-        eps = normal_field(key,
-                           sample_shape + self.batch_shape + self.event_shape,
-                           self.sharding)
-
-        return self.loc + eps * self.scale
+from .persistency import load_sharded, save_sharded
 
 
 def batched_sampling(
@@ -132,10 +71,6 @@ def batched_sampling(
     if state_exists:
         num_warmup = 1  # No warmup when resuming
 
-    print(
-        f"{'▶️ Resuming' if state_exists else '🔁 Starting fresh with warmup'} for {sampler} using {backend}..."
-    )
-
     if backend == "blackjax":
         assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
         assert initial_position is not None, "initial_position must be defined for blackjax backend"
@@ -147,8 +82,6 @@ def batched_sampling(
             (last_state, parameters), _ = adapt.run(warmup_key,
                                                     initial_position,
                                                     num_warmup)
-            sampler_fn = blackjax.nuts(logdensity_fn, **parameters)
-
         elif sampler == "HMC":
             adapt = blackjax.window_adaptation(
                 blackjax.hmc,
@@ -160,8 +93,6 @@ def batched_sampling(
             (last_state, parameters), _ = adapt.run(warmup_key,
                                                     initial_position,
                                                     num_warmup)
-            sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
-
         elif sampler == "MCLMC":
             initial_state = blackjax.mcmc.mclmc.init(
                 position=initial_position,
@@ -181,7 +112,7 @@ def batched_sampling(
                     integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
                     inverse_mass_matrix=imm,
                 )
-                print("🔧 Tuning MCLMC parameters (L and step_size)...")
+                print("Tuning MCLMC parameters (L and step_size)...")
 
                 tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
                     mclmc_kernel=kernel_builder,
@@ -197,7 +128,8 @@ def batched_sampling(
                 }
             sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
             last_state = tuned_state
-
+        else:
+            sampler_fn = None
     elif backend == "numpyro":
         kwargs = {}
         if init_params is not None:
@@ -214,7 +146,6 @@ def batched_sampling(
         mcmc.warmup(warmup_key, *model_args, **model_kwargs)
         last_state = mcmc.last_state
         parameters = {}
-
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -257,14 +188,14 @@ def batched_sampling(
 
     start_batch = nb_samples // num_samples
     if start_batch >= batch_count:
-        print(f"✅ All {batch_count} batches already completed. Exiting.")
+        print(f"All {batch_count} batches already completed. Exiting.")
         return
 
     for i in range(start_batch, batch_count):
         print(
-            f"📦 Sampling batch {i + 1}/{batch_count} using {sampler} with {backend}...\n"
+            f"Sampling batch {i + 1}/{batch_count} using {sampler} with {backend}..."
         )
-        print(f"at sample batch {i + 1}, total samples: {nb_samples}")
+        print(f"At sample batch {i + 1}, total samples so far: {nb_samples}")
 
         run_key, batch_key = jax.random.split(run_key)
 
@@ -279,7 +210,7 @@ def batched_sampling(
                 transform=transform,
                 progress_bar=progress_bar,
             )
-            nb_evals = 0  # Don't know how to get the number of evaluations in blackjax
+            nb_evals = 0  # BlackJAX does not expose the number of evaluations
 
         elif backend == "numpyro":
             mcmc = MCMC(
@@ -300,11 +231,10 @@ def batched_sampling(
         else:
             raise ValueError(f"Unsupported backend: {backend}")
 
-        print("\n")
         nb_samples += num_samples
 
         if save:
-            print(f"💾 Saving batch {i + 1} samples and state...")
+            print(f"Saving batch {i + 1} samples and state...")
             samples["num_steps"] = jnp.array(nb_evals)
             save_sharded(samples, f"{samples_prefix}_{i}", overwrite=True)
             inference_state = {
@@ -442,33 +372,33 @@ def load_samples(
             print(f"Total samples: {result_dict[params_to_load[0]].shape[0]}")
         return result_dict
 
-    else:
-        mean_result = {}
-        std_result = {}
+    mean_result = {}
+    std_result = {}
 
-        if compute_mean:
-            for param in mean_accumulators:
-                mean_result[param] = mean_accumulators[param] / B
+    if compute_mean:
+        for param in mean_accumulators:
+            mean_result[param] = mean_accumulators[param] / B
 
-        if compute_std:
-            if not compute_mean:
-                for param in Ex2_accumulators:
-                    mean_result[param] = mean_accumulators.get(
-                        param, jnp.zeros_like(Ex2_accumulators[param])) / B
-
+    if compute_std:
+        if not compute_mean:
             for param in Ex2_accumulators:
-                Ex = mean_result[param]
-                Ex2 = Ex2_accumulators[param] / B
-                std_result[param] = jnp.sqrt(Ex2 - Ex**2)
+                mean_result[param] = mean_accumulators.get(
+                    param, jnp.zeros_like(Ex2_accumulators[param])) / B
 
-        if isinstance(transform, tuple):
-            print(
-                f"Computed mean and std for {len(params_to_load)} parameter(s)"
-            )
-            return (mean_result, std_result)
-        elif transform == "mean":
-            print(f"Computed mean for {len(params_to_load)} parameter(s)")
-            return mean_result
-        elif transform == "std":
-            print(f"Computed std for {len(params_to_load)} parameter(s)")
-            return std_result
+        for param in Ex2_accumulators:
+            Ex = mean_result[param]
+            Ex2 = Ex2_accumulators[param] / B
+            std_result[param] = jnp.sqrt(Ex2 - Ex**2)
+
+    if isinstance(transform, tuple):
+        print(
+            f"Computed mean and std for {len(params_to_load)} parameter(s)"
+        )
+        return (mean_result, std_result)
+    if transform == "mean":
+        print(f"Computed mean for {len(params_to_load)} parameter(s)")
+        return mean_result
+    if transform == "std":
+        print(f"Computed std for {len(params_to_load)} parameter(s)")
+        return std_result
+

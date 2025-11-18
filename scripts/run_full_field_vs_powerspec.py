@@ -43,11 +43,13 @@ from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
-from fwd_model_tools import (Configurations, Planck18, full_field_probmodel,
-                             reconstruct_full_kappa)
+from fwd_model_tools import (Configurations, Planck18, full_field_probmodel)
+from fwd_model_tools.utils import reconstruct_full_sphere
 from fwd_model_tools.plotting import plot_kappa, plot_lightcone
-from fwd_model_tools.powerspec_model import (compute_cl_from_convergence_map,
-                                             powerspec_probmodel)
+from fwd_model_tools.probabilistic_models.power_spec_model import (
+    compute_cl_from_convergence_map,
+    powerspec_probmodel,
+)
 from fwd_model_tools.sampling import batched_sampling, load_samples
 from fwd_model_tools.utils import compute_box_size_from_redshift
 
@@ -107,6 +109,7 @@ def generate_synthetic_observations(config, fiducial_cosmology,
                                     initial_conditions, data_dir, plots_dir):
     print("\nGenerating synthetic observations")
 
+    # TODO: update to new API full_field_probmodel(template_field, config)
     full_field_basemodel = full_field_probmodel(config)
 
     fiducial_model = condition(
@@ -131,9 +134,9 @@ def generate_synthetic_observations(config, fiducial_cosmology,
         for key in kappa_keys
     }
 
-    true_kappas_full = reconstruct_full_kappa(true_kappas_visible,
-                                              config.nside,
-                                              config.observer_position)
+    true_kappas_full = reconstruct_full_sphere(
+        true_kappas_visible, config.nside, config.observer_position
+    )
 
     np.savez(
         data_dir / "true_kappas.npz",
@@ -200,7 +203,27 @@ def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
                              init_params):
     print("\nSetting up full-field MCMC inference")
 
-    config_inference = config._replace(log_lightcone=False, log_ic=False)
+    config_inference = Configurations(
+        density_plane_smoothing=config.density_plane_smoothing,
+        nz_shear=config.nz_shear,
+        fiducial_cosmology=config.fiducial_cosmology,
+        sigma_e=config.sigma_e,
+        priors=config.priors,
+        t0=config.t0,
+        dt0=config.dt0,
+        t1=config.t1,
+        adjoint=config.adjoint,
+        min_redshift=config.min_redshift,
+        max_redshift=config.max_redshift,
+        geometry=config.geometry,
+        log_lightcone=False,
+        log_ic=False,
+        ells=config.ells,
+        number_of_shells=config.number_of_shells,
+        lensing=config.lensing,
+        lpt_order=config.lpt_order,
+    )
+    # TODO: update to new API full_field_probmodel(template_field, config)
     full_field_basemodel = full_field_probmodel(config_inference)
 
     nbins = len(config.nz_shear)
@@ -235,7 +258,7 @@ def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
                             fiducial_cosmology):
     print("\nSetting up power spectrum MCMC inference")
 
-    model = powerspec_probmodel(config)
+    model = powerspec_probmodel(config, nside=config.nside)
 
     init_params_ps = {
         "Omega_c": fiducial_cosmology.Omega_c,
@@ -451,9 +474,11 @@ def main():
     sharding = setup_sharding(tuple(args.pdims))
 
     fiducial_cosmology = Planck18()
+    observer_position = tuple(args.observer_position)
+    # Physical box size inferred from max redshift and observer position
     box_size = compute_box_size_from_redshift(fiducial_cosmology,
                                               args.max_redshift,
-                                              tuple(args.observer_position))
+                                              observer_position)
 
     print(f"Box size: {box_size} Mpc/h")
     print(f"Max redshift: {args.max_redshift}")
@@ -462,13 +487,6 @@ def main():
     nz_shear, nbins = create_redshift_distribution(args.max_redshift)
 
     config = Configurations(
-        field_size=9.6,
-        field_npix=args.box_size[0],
-        box_size=tuple(args.box_size),
-        box_size=box_size,
-        number_of_shells=args.number_of_shells,
-        density_plane_npix=args.box_size[0],
-        nside=args.box_size[0],
         density_plane_smoothing=0.1,
         nz_shear=nz_shear,
         fiducial_cosmology=Planck18,
@@ -480,21 +498,24 @@ def main():
         t0=0.1,
         dt0=0.1,
         t1=1.0,
+        adjoint=RecursiveCheckpointAdjoint(4),
         min_redshift=0.01,
         max_redshift=args.max_redshift,
-        sharding=sharding,
-        halo_size=0 if sharding is None else args.box_size[0] // 8,
-        adjoint=RecursiveCheckpointAdjoint(4),
         geometry=args.geometry,
-        observer_position=tuple(args.observer_position),
         log_lightcone=True,
         log_ic=False,
+        number_of_shells=args.number_of_shells,
     )
+
+    # Attach geometry/box metadata that no longer lives in Configurations
+    config.nside = args.box_shape[0]
+    config.observer_position = observer_position
+    config.box_size = box_size
 
     print("Configuration created")
 
     initial_conditions = normal_field(jax.random.key(args.seed),
-                                      config.box_size,
+                                      box_size,
                                       sharding=sharding)
     print("Initial conditions generated")
 

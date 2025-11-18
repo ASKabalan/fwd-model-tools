@@ -27,8 +27,8 @@ from jaxpm.spherical import spherical_visibility_mask
 from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
-from fwd_model_tools import (Configurations, Planck18, full_field_probmodel,
-                             reconstruct_full_kappa)
+from fwd_model_tools import (Configurations, Planck18, full_field_probmodel)
+from fwd_model_tools.utils import reconstruct_full_sphere
 from fwd_model_tools.lensing_model import (compute_box_size_from_redshift,
                                            compute_max_redshift_from_box_size,
                                            make_full_field_model)
@@ -147,9 +147,9 @@ def generate_observations(config, fiducial_cosmology, initial_conditions,
 
     # Prepare full maps only for plotting (spherical geometry)
     if config.geometry == "spherical":
-        true_kappas_full = reconstruct_full_kappa(true_kappas_visible,
-                                                  config.nside,
-                                                  config.observer_position)
+    true_kappas_full = reconstruct_full_sphere(
+        true_kappas_visible, config.nside, config.observer_position
+    )
     else:
         true_kappas_full = true_kappas_visible
 

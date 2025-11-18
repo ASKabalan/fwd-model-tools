@@ -5,9 +5,9 @@ import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
 
-from fwd_model_tools.field import (DensityField, DensityStatus, FieldStatus,
+from fwd_model_tools.fields import (DensityField, DensityStatus, FieldStatus,
                                    FlatDensity, SphericalDensity)
-from fwd_model_tools.lensing_model import Planck18
+from fwd_model_tools.probabilistic_models.full_field_model import Planck18
 from fwd_model_tools.power import (PowerSpectrum, compute_flat_cl, compute_pk,
                                    compute_spherical_cl, compute_theory_cl)
 

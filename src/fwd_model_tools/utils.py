@@ -5,14 +5,16 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
+from jaxpm.spherical import spherical_visibility_mask
 
-from .field import DensityField
+from .fields import DensityField
 
 __all__ = [
     "compute_box_size_from_redshift",
     "compute_max_redshift_from_box_size",
     "compute_snapshot_scale_factors",
     "compute_lightcone_shells",
+    "reconstruct_full_sphere",
 ]
 
 
@@ -206,3 +208,15 @@ def compute_lpt_lightcone_scale_factors(cosmo,
                  field.mesh_size[-1])[::-1]
     a_centers = jc.background.a_of_chi(cosmo, r_centers)
     return a_centers
+from jaxpm.spherical import spherical_visibility_mask
+
+__all__.append("reconstruct_full_sphere")
+
+
+def reconstruct_full_sphere(visible_kappa, nside, observer_position):
+    npix = 12 * nside ** 2
+    full_kappa = jax.tree.map(lambda x: jnp.zeros(npix, dtype=x.dtype), visible_kappa)
+    visibility_mask = spherical_visibility_mask(nside, observer_position)
+    visible_indices, = jnp.where(visibility_mask > 0)
+    full_kappa = jax.tree.map(lambda fk, vk: fk.at[visible_indices].set(vk), full_kappa, visible_kappa)
+    return full_kappa

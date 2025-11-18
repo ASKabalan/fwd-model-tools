@@ -80,7 +80,7 @@ python scripts/run_full_field_vs_powerspec.py --output-dir output/comparison
 - `Planck18()`: Returns JAX-Cosmo cosmology object with Planck 2018 parameters
 - `compute_box_size_from_redshift()`: Compute simulation box size from max redshift and observer position
 - `compute_max_redshift_from_box_size()`: Compute max redshift from box size and observer position
-- `reconstruct_full_kappa()`: Reconstruct full HEALPix convergence map from visible pixels only
+  - `reconstruct_full_sphere()`: Reconstruct full HEALPix map from visible pixels only
 
 **Field Containers (`field.py`):**
 - `DensityField`: PyTree container for 3D volumetric simulation arrays with metadata

@@ -8,8 +8,8 @@ import numpyro
 import numpyro.distributions as dist
 import pytest
 
-from fwd_model_tools.distributed import save_sharded
 from fwd_model_tools.sampling import batched_sampling, load_samples
+from fwd_model_tools.sampling.persistency import save_sharded
 
 
 class TestLoadSamples:

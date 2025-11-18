@@ -35,8 +35,8 @@ pip install fwd-model-tools[dev]
 ```python
 import jax
 import jax.numpy as jnp
-from fwd_model_tools.fields import DistributedNormal, linear_field
-from fwd_model_tools import Planck18
+from fwd_model_tools.sampling import DistributedNormal
+from fwd_model_tools import Planck18, linear_field
 
 # Setup
 key = jax.random.PRNGKey(42)
@@ -128,7 +128,7 @@ samples = load_samples("output/mcmc_run")
 print(f"Omega_c: {samples['Omega_c'].mean():.4f} ± {samples['Omega_c'].std():.4f}")
 
 # Plot posteriors
-from fwd_model_tools.plotting import plot_posterior
+from fwd_model_tools.sampling.plot import plot_posterior
 plot_posterior(samples, "output/plots", params=("Omega_c", "sigma8"))
 ```
 ## Design Principles
@@ -264,7 +264,7 @@ batched_sampling(..., backend="numpyro", sampler="NUTS", sharding=sharding)
 
 When using `geometry="spherical"`:
 - The forward model returns convergence maps for **visible pixels only** (determined by observer position and HEALPix visibility mask)
-- Use `reconstruct_full_kappa()` to convert visible-pixel maps to full HEALPix maps for plotting
+- Use `reconstruct_full_sphere()` to convert visibility-masked maps to full HEALPix maps for plotting
 - Likelihood automatically handles visible-pixel sampling with correct HEALPix pixel area scaling
 
 ### Batched Sampling

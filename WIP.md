@@ -1,0 +1,87 @@
+# WIP Notes
+
+## Completed (beyond original plan draft)
+
+- Renamed `src/fwd_model_tools/normal.py` to `initial.py` and updated all imports (source, tests, scripts, README, notebooks) to the new module.
+- Introduced the new `fwd_model_tools.fields` package:
+  - Migrated the entire density/particle/flat/spherical field stack into `fields/density.py`.
+  - Added `fields/lensing_maps.py` with kappa and shear field classes (Flat/Spherical) and working `compute_power_spectrum` helpers.
+  - Created `fields/__init__.py` to re-export the public API.
+  - Deleted the legacy `field.py`/`kappa.py` modules and pointed all repo imports (including scripts/tests/docs/notebooks) to the new package.
+- Extended `DensityField` to carry `z_source`, allowing subclasses to rely on the base `replace` implementation.
+- Normalized type hints:
+  - Replaced `T | None` with `Optional[T]` in touched modules.
+  - Swapped `jax.Array` annotations for `jaxtyping.Array`, and RNG keys for `PRNGKeyArray`.
+- README and scripts now import `DistributedNormal` from `fwd_model_tools.sampling` (actual definition).
+- Split the PM layer into a package:
+  - Added `src/fwd_model_tools/pm/__init__.py` to re-export `lpt`/`nbody`.
+  - Moved the `lpt` helper into `pm/lpt.py` and the `nbody` integrator into `pm/nbody.py`.
+  - Removed the legacy `pm.py` module.
+- Renamed the semi-implicit solver module to `reversible_efficient_fastpm.py` and updated all imports.
+- Confirmed solver helpers now import field utilities from the `fields` package.
+- Reorganized lensing into a package:
+  - Added `src/fwd_model_tools/lensing/__init__.py`, `born.py`, and `raytrace.py`.
+  - Moved Born-specific helpers into `src/fwd_model_tools/_src/lensing/_born.py`.
+  - Deleted the legacy `lensing.py`.
+- Lensing Born solver now only accepts `nz_shear` inputs:
+  - Updated `_src/lensing/_born.py` to support heterogeneous nx/ny pixel sizes.
+  - `lensing.born` normalizes lists of redshifts or redshift distributions and returns kappa fields per source.
+  - `raytrace` exposes the same signature (still raising `NotImplementedError`).
+- Further simplified Born source handling:
+  - `_src/lensing/_born.py` now treats `nz_shear` exactly as discussed: either a 1D array-like of scalar redshifts (validated after `jnp.array(...).squeeze()`) or a list of `jc.redshift` distributions, with mixing rejected.
+  - `lensing.born` simply forwards `nz_shear` and receives `(source, map)` pairs, keeping reference metadata unchanged.
+- `Configurations` dataclass clean-up:
+  - Removed the unused `z_source` field and added `lpt_order`.
+  - Default adjoint now uses a `default_factory` to avoid shared mutable state.
+- Split the forward model from the probabilistic wrapper:
+  - Added `probabilistic_models/forward_model.py` with `Planck18` and the deterministic `make_full_field_model`.
+  - Rewrote `probabilistic_models/full_field_model.py` so `full_field_probmodel` takes a user-supplied `DensityField`, logs arrays only, and drops the spherical visibility mask shortcut.
+- Moved configuration into the probabilistic models package:
+  - Added `probabilistic_models/config.py` hosting the streamlined `Configurations` dataclass (now the single source of truth).
+  - Removed the old top-level `config.py` module and updated all internal imports to use the new location.
+  - Extended `Configurations` with `number_of_shells`, `lensing`, and `lpt_order` hyperparameters used by the forward model.
+- Updated probabilistic power-spectrum helpers:
+  - `probabilistic_models/power_spec_model.py` now consumes the streamlined `Configurations` dataclass.
+  - `powerspec_probmodel` no longer reads pixel geometry from `Configurations`; it takes `pixel_size_arcmin` / `nside` as explicit arguments.
+  - `run_full_field_vs_powerspec.py` passes `nside=config.nside` when building the power-spectrum model.
+- Refined public package exports:
+  - `probabilistic_models/__init__.py` now re-exports `Configurations`, `Planck18`, `make_full_field_model`, `full_field_probmodel`, and the power-spectrum helpers from the package root.
+  - Top-level `fwd_model_tools/__init__.py` imports probabilistic utilities from `fwd_model_tools.probabilistic_models` and re-exports them alongside power and plotting helpers.
+  - `lensing/__init__.py` now only exposes `born` and `raytrace` (removed the stale `convergence_Born` export).
+  - `solvers/__init__.py` imports `ReversibleEfficientFastPM` from the renamed `reversible_efficient_fastpm.py` module instead of the old `semi_implicit_euler` name.
+- Sampling refactor into a dedicated package:
+  - Replaced the monolithic `sampling.py` module with a `sampling/` package:
+    - `sampling/dist.py` now hosts `DistributedNormal`, with explicit imports of `is_prng_key` and `normal_field`.
+    - `sampling/batched_sampling.py` contains `batched_sampling` and `load_samples`, using `sampling.persistency.save_sharded` / `load_sharded` for checkpoint IO.
+    - `sampling/persistency.py` houses Orbax-based `save_sharded` / `load_sharded` helpers shared across sampling and tests.
+  - `sampling/__init__.py` re-exports `DistributedNormal`, `batched_sampling`, `load_samples`, `save_sharded`, and `load_sharded` so existing imports from `fwd_model_tools.sampling` keep working.
+  - `distributed.py` now provides thin shims for `save_sharded` / `load_sharded` that delegate to `sampling.persistency`, while keeping sharding-geometry helpers intact.
+  - Updated `tests/test_sampling.py` and `scripts/generate_pm_densities.py` to import `save_sharded` from `fwd_model_tools.sampling.persistency`.
+  - Removed emojis from sampling-related logging in `batched_sampling` and `scripts/run_simple_sampling.py` per repository guidelines.
+- Sampling-specific plotting moved under `sampling.plot`:
+  - Added `sampling/plot.py` with `plot_ic` and `plot_posterior` implementations (moved from `plotting.py`).
+  - `sampling/__init__.py` now re-exports `plot_ic` and `plot_posterior`, making `from fwd_model_tools.sampling import plot_posterior` possible.
+  - `plotting.py` retains light shims for `plot_ic` and `plot_posterior` that simply delegate to `sampling.plot`, so existing imports keep working while new code can rely on the sampling namespace.
+  - Updated `scripts/run_simple_sampling.py`, `scripts/run_distributed_full_field_inference.py`, and the README to import `plot_posterior` from `fwd_model_tools.sampling.plot` instead of `fwd_model_tools.plotting`.
+- Plotting module narrowed for sampling and top-level exports:
+  - `plot_kappa` and `plot_lightcone` remain in `plotting.py` for now, but their docstrings now clearly mark them as legacy array-based wrappers, with a recommendation to use field `.plot()` / `.show()` methods from `fwd_model_tools.fields` instead.
+  - Top-level `fwd_model_tools.__init__` no longer re-exports `plot_kappa` and `plot_lightcone`, so new code is steered away from these helpers, while scripts and notebooks that import them from `fwd_model_tools.plotting` continue to work.
+- Top-level API redefined and consolidated:
+  - `fwd_model_tools.__init__` now exposes a single curated public surface:
+    - Fields: the main density and lensing map types and statuses (`DensityField`, `FlatDensity`, `SphericalDensity`, `FlatKappaField`, `SphericalKappaField`, `FlatShearField`, `SphericalShearField`, `FieldStatus`, `DensityStatus`, `stack`).
+    - Initial conditions: `gaussian_initial_conditions`, `interpolate_initial_conditions`.
+    - PM evolution: `lpt`, `nbody`.
+    - Lensing: `born`, `raytrace`.
+    - Probabilistic models: `Configurations`, `Planck18`, `make_full_field_model`, `full_field_probmodel`, `reconstruct_full_sphere`, `powerspec_probmodel`, `make_2pt_model`, `pixel_window_function`.
+    - Power spectrum utilities: `PowerSpectrum`, `compute_pk`, `compute_flat_cl`, `compute_spherical_cl`, `compute_theory_cl`.
+    - Geometry/utilities: `compute_box_size_from_redshift`, `compute_lightcone_shells`, `compute_max_redshift_from_box_size`, `compute_snapshot_scale_factors`, `compute_lpt_lightcone_scale_factors`.
+    - Sampling: `DistributedNormal`, `batched_sampling`, `load_samples`.
+    - Plotting: `plot_posterior` (from `sampling.plot`) plus `plot_ic` and `plot_gradient_analysis` from `plotting.py`.
+  - Verified that all intended names in the curated API are present on the top-level `fwd_model_tools` namespace, and that legacy module-level exports are no longer surfaced globally.
+
+## Next
+
+- Continue with the plan’s remaining steps:
+  - Finish narrowing `plotting.py` by migrating field-map helpers (`plot_kappa`, `plot_lightcone`) to rely on field `.plot`/`.show` methods in callers, and eventually removing these legacy wrappers once scripts/notebooks are updated.
+  - Update scripts, tests, docs, and notebooks to fully rely on the new `fields`, `initial`, `pm`, `lensing`, and `probabilistic_models` APIs.
+  - Add smoke tests for lensing (`born`), the forward model / `full_field_probmodel`, and basic `Configurations` construction.

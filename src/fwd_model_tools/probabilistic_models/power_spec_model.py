@@ -1,5 +1,4 @@
 from itertools import combinations_with_replacement
-from operator import itemgetter
 
 import healpy as hp
 import jax.numpy as jnp
@@ -7,6 +6,8 @@ import jax_cosmo as jc
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+
+from .config import Configurations
 
 
 def compute_cl_from_convergence_map(kappas, lmax):
@@ -83,7 +84,12 @@ def make_2pt_model(pixel_scale,
     return forward_model
 
 
-def powerspec_probmodel(config):
+def powerspec_probmodel(
+    config: Configurations,
+    *,
+    pixel_size_arcmin: float | None = None,
+    nside: int | None = None,
+):
     """
     Create NumPyro probabilistic model for power spectrum inference.
 
@@ -91,6 +97,12 @@ def powerspec_probmodel(config):
     ----------
     config : Configurations
         Configuration object containing priors, nz_shear, sigma_e, etc.
+    pixel_size_arcmin : float, optional
+        Pixel size in arcminutes for flat-sky maps. Required when
+        ``config.geometry == 'flat'``.
+    nside : int, optional
+        HEALPix nside resolution for spherical maps. Required when
+        ``config.geometry == 'spherical'``.
 
     Returns
     -------
@@ -118,10 +130,19 @@ def powerspec_probmodel(config):
         cosmo._workspace = {}
 
         if config.geometry == "flat":
-            pixel_scale = config.field_size * 60.0 / config.field_npix
+            if pixel_size_arcmin is None:
+                raise ValueError(
+                    "pixel_size_arcmin must be provided for flat geometry"
+                )
+            pixel_scale = pixel_size_arcmin
         else:
+            if nside is None:
+                raise ValueError(
+                    "nside must be provided for spherical geometry"
+                )
             pixel_scale = jnp.sqrt(
-                4 * jnp.pi / (12 * config.nside**2)) * (180.0 * 60.0 / jnp.pi)
+                4 * jnp.pi / (12 * (nside**2))
+            ) * (180.0 * 60.0 / jnp.pi)
 
         forward_model = make_2pt_model(pixel_scale,
                                        config.ells,

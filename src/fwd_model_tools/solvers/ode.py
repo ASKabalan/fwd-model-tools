@@ -14,7 +14,7 @@ from jaxpm.growth import growth_factor as Gp
 from jaxpm.pm import pm_forces
 import jax
 
-from ..field import FieldStatus, ParticleField, particle_from_density
+from ..fields import FieldStatus, ParticleField, particle_from_density
 
 __all__ = ["symplectic_ode", "symplectic_fpm_ode"]
 

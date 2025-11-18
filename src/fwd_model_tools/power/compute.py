@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import jax.numpy as jnp
 import numpy as np
@@ -9,9 +9,9 @@ from jaxpm.utils import power_spectrum as jaxpm_power_spectrum
 from fwd_model_tools.power.power_spec import PowerSpectrum
 
 if TYPE_CHECKING:
-    from fwd_model_tools.field import DensityField, FlatDensity, SphericalDensity
+    from fwd_model_tools.fields import DensityField, FlatDensity, SphericalDensity
 
-WindowSpec = Callable[[jnp.ndarray], jnp.ndarray] | jnp.ndarray | None
+WindowSpec = Optional[Callable[[jnp.ndarray], jnp.ndarray] | jnp.ndarray]
 
 __all__ = ["compute_pk", "compute_spherical_cl", "compute_flat_cl"]
 
@@ -19,11 +19,11 @@ __all__ = ["compute_pk", "compute_spherical_cl", "compute_flat_cl"]
 def compute_pk(
     field_or_array: "DensityField" | jnp.ndarray,
     *,
-    kedges: jnp.ndarray | np.ndarray | None = None,
-    box_size: Sequence[float] | None = None,
-    axis: Sequence[int] | None = None,
+    kedges: Optional[jnp.ndarray | np.ndarray] = None,
+    box_size: Optional[Sequence[float]] = None,
+    axis: Optional[Sequence[int]] = None,
     window: WindowSpec = None,
-    second_field: DensityField | jnp.ndarray | None = None,
+    second_field: Optional[DensityField | jnp.ndarray] = None,
     multipoles: int = 0,
     los: Sequence[float] = (0.0, 0.0, 1.0),
 ) -> PowerSpectrum:
@@ -70,8 +70,8 @@ def compute_spherical_cl(
     field_or_array: "SphericalDensity" | jnp.ndarray | np.ndarray,
     *,
     map_b: SphericalDensity | jnp.ndarray | np.ndarray | None = None,
-    nside: int | None = None,
-    lmax: int | None = None,
+    nside: Optional[int] = None,
+    lmax: Optional[int] = None,
 ) -> PowerSpectrum:
     """Estimate angular power spectra C_ell for HEALPix maps via :func:`healpy.anafast`."""
     import healpy as hp
@@ -94,8 +94,8 @@ def compute_spherical_cl(
 def compute_flat_cl(
     field_or_array: "FlatDensity" | jnp.ndarray | np.ndarray,
     *,
-    field_size: float | None = None,
-    pixel_size: float | None = None,
+    field_size: Optional[float] = None,
+    pixel_size: Optional[float] = None,
     nbins: int = 50,
     lmax: float | None = None,
     binning: str = "log",
@@ -156,8 +156,8 @@ def compute_flat_cl(
 
 def _prepare_volume(
     obj: Any,
-    axis: Sequence[int] | None,
-) -> tuple[jnp.ndarray, tuple[float, float, float] | None]:
+    axis: Optional[Sequence[int]],
+) -> tuple[jnp.ndarray, Optional[tuple[float, float, float]]]:
     array = jnp.asarray(obj.array if _is_density_field(obj) else obj)
 
     if axis is None:
@@ -180,7 +180,7 @@ def _prepare_volume(
 
 def _prepare_healpix_map(
     obj: Any,
-    nside: int | None,
+    nside: Optional[int],
 ) -> tuple[np.ndarray, int]:
     import healpy as hp
 
@@ -209,17 +209,17 @@ def _prepare_healpix_map(
 
 def _prepare_flat_map(
     obj: Any,
-) -> tuple[np.ndarray, Any | None]:
+) -> tuple[np.ndarray, Optional[Any]]:
     if _is_flat_density(obj):
         return np.asarray(obj.array), obj
     return np.asarray(obj), None
 
 
 def _infer_pixel_size_deg(
-    reference: Any | None,
+    reference: Optional[Any],
     spatial_shape: tuple[int, int],
-    field_size: float | None,
-    pixel_size: float | None,
+    field_size: Optional[float],
+    pixel_size: Optional[float],
 ) -> float:
     if pixel_size is not None:
         return float(pixel_size)

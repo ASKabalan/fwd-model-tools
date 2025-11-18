@@ -1,31 +1,33 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
+from functools import partial
+from jaxtyping import Array, PRNGKeyArray
 from jaxpm.distributed import fft3d, ifft3d, normal_field
 from jaxpm.kernels import fftk, interpolate_power_spectrum
 from numpyro.distributions import Normal, constraints
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key
-from functools import partial
-from .field import DensityField, FieldStatus
+
+from .fields import DensityField, FieldStatus
 
 @partial(jax.jit, static_argnames=['mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size', 'sharding'])
 def gaussian_initial_conditions(
-    key: jax.random.KeyArray,
+    key: PRNGKeyArray,
     mesh_size: Tuple[int, int, int],
     box_size: Tuple[float, float, float],
     *,
-    cosmo: jc.Cosmology | None = None,
+    cosmo: Optional[jc.Cosmology] = None,
     pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
     observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-    flatsky_npix: Tuple[int, int] | None = None,
-    nside: int | None = None,
+    flatsky_npix: Optional[Tuple[int, int]] = None,
+    nside: Optional[int] = None,
     halo_size: int | Tuple[int, int] = 0,
-    sharding: Any | None = None,
+    sharding: Optional[Any] = None,
 ) -> DensityField:
     """
     Sample Gaussian initial conditions and package them as a Field PyTree.
@@ -75,17 +77,17 @@ def gaussian_initial_conditions(
 
 @partial(jax.jit, static_argnames=['mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size', 'sharding'])
 def interpolate_initial_conditions(
-    initial_field: jax.Array,
+    initial_field: Array,
     mesh_size: Tuple[int, int, int],
     box_size: Tuple[float, float, float],
     *,
-    cosmo: jc.Cosmology | None = None,
+    cosmo: Optional[jc.Cosmology] = None,
     pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
     observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-    flatsky_npix: Tuple[int, int] | None = None,
-    nside: int | None = None,
+    flatsky_npix: Optional[Tuple[int, int]] = None,
+    nside: Optional[int] = None,
     halo_size: int | Tuple[int, int] = 0,
-    sharding: Any | None = None,
+    sharding: Optional[Any] = None,
 ) -> DensityField:
     """
     Sample Gaussian initial conditions and package them as a Field PyTree.

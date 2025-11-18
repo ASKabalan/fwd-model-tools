@@ -3,12 +3,13 @@ from __future__ import annotations
 from enum import Enum
 from functools import partial
 from math import ceil
-from typing import Any, Iterable, Literal, Sequence, Tuple
+from typing import Any, Iterable, Literal, Optional, Sequence, Tuple
 
 import healpy as hp
 import jax
 import jax.numpy as jnp
 import jax_healpy as jhp
+from jaxtyping import Array
 from jax.image import resize
 import matplotlib.pyplot as plt
 import numpy as np
@@ -86,6 +87,7 @@ class DensityField(AbstractField):
         "flatsky_npix",
         "field_size",
         "halo_size",
+        "z_source",
         "status",
         "scale_factors",
     )
@@ -95,15 +97,16 @@ class DensityField(AbstractField):
     def __init__(
         self,
         *,
-        array: jax.Array,
+        array: Array,
         mesh_size: Tuple[int, int, int],
         box_size: Tuple[float, float, float],
         observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Any | None = None,
-        nside: int | None = None,
-        flatsky_npix: Tuple[int, int] | None = None,
-        field_size: float | None = None,
+        sharding: Optional[Any] = None,
+        nside: Optional[int] = None,
+        flatsky_npix: Optional[Tuple[int, int]] = None,
+        field_size: Optional[float] = None,
         halo_size: int | Tuple[int, int] = 0,
+        z_source: Optional[Any] = None,
         status: FieldStatus = FieldStatus.RAW,
         scale_factors: float = 1.0,
     ):
@@ -128,6 +131,7 @@ class DensityField(AbstractField):
         self.flatsky_npix = flatsky_npix
         self.field_size = field_size
         self.halo_size = halo_size
+        self.z_source = z_source
         self.status = self._coerce_status(status)
         self.scale_factors = scale_factors
 
@@ -143,6 +147,7 @@ class DensityField(AbstractField):
             self.flatsky_npix,
             self.field_size,
             self.halo_size,
+            self.z_source,
             self.status,
         )
         return children, aux_data
@@ -158,6 +163,7 @@ class DensityField(AbstractField):
             flatsky_npix,
             field_size,
             halo_size,
+            z_source,
             status,
         ) = aux_data
         array, scale_factors = children
@@ -171,6 +177,7 @@ class DensityField(AbstractField):
             flatsky_npix=flatsky_npix,
             field_size=field_size,
             halo_size=halo_size,
+            z_source=z_source,
             status=status,
             scale_factors=scale_factors,
         )
@@ -201,7 +208,7 @@ class DensityField(AbstractField):
         enum_cls = cls.STATUS_ENUM
         return enum_cls(status)
 
-    def with_array(self, array: jax.Array) -> "DensityField":
+    def with_array(self, array: Array) -> "DensityField":
         return self.replace(array=array)
 
     def with_scale_factors(self, scale_factors: float) -> "DensityField":
@@ -216,7 +223,9 @@ class DensityField(AbstractField):
             "sharding": self.sharding,
             "nside": self.nside,
             "flatsky_npix": self.flatsky_npix,
+            "field_size": self.field_size,
             "halo_size": self.halo_size,
+            "z_source": self.z_source,
             "status": self.status,
             "scale_factors": self.scale_factors,
         }
@@ -225,7 +234,10 @@ class DensityField(AbstractField):
         if unknown:
             raise TypeError(f"Unknown DensityField attribute(s): {unknown}")
         params.update(updates)
-        return type(self)(**params)
+        instance = object.__new__(type(self))
+        for key, value in params.items():
+            setattr(instance, key, value)
+        return instance
 
     def set_scale_factors(self, scale_factors: float) -> None:
         self.scale_factors = scale_factors
@@ -234,7 +246,7 @@ class DensityField(AbstractField):
     def compute_power_spectrum(
         self,
         *,
-        kedges: jax.Array | jnp.ndarray | None = None,
+        kedges: Optional[Array | jnp.ndarray] = None,
         **kwargs: Any,
     ) -> "PowerSpectrum":
         """Compute the 3D matter power spectrum P(k).
@@ -308,8 +320,8 @@ class DensityField(AbstractField):
         nz_slices: int = 10,
         *,
         cmap: str = "magma",
-        figsize: Tuple[float, float] | None = None,
-        title: str | None = None,
+        figsize: Optional[Tuple[float, float]] = None,
+        title: Optional[str] = None,
         show_colorbar: bool = True,
         show_ticks: bool = True,
     ) -> None:
@@ -414,14 +426,14 @@ class ParticleField(DensityField):
     def __init__(
         self,
         *,
-        array: jax.Array,
+        array: Array,
         mesh_size: Tuple[int, int, int],
         box_size: Tuple[float, float, float],
         observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Any | None = None,
-        nside: int | None = None,
-        flatsky_npix: Tuple[int, int] | None = None,
-        field_size: float | None = None,
+        sharding: Optional[Any] = None,
+        nside: Optional[int] = None,
+        flatsky_npix: Optional[Tuple[int, int]] = None,
+        field_size: Optional[float] = None,
         halo_size: int | Tuple[int, int] = 0,
         status: FieldStatus = FieldStatus.RAW,
         scale_factors: float = 1.0,
@@ -494,10 +506,10 @@ class ParticleField(DensityField):
         self,
         mode: PaintMode = "relative",
         *,
-        mesh: jax.Array | None = None,
-        weights: jax.Array | float = 1.0,
+        mesh: Optional[Array] = None,
+        weights: Array | float = 1.0,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
-        batch_size: int | None = None,
+        batch_size: Optional[int] = None,
     ) -> DensityField:
         """
         Paint particles onto a 3D density mesh using CIC interpolation.
@@ -508,9 +520,9 @@ class ParticleField(DensityField):
         ----------
         mode : PaintMode, default="relative"
             "relative" for displacement-based painting, "absolute" for position-based.
-        mesh : jax.Array, optional
+        mesh : Array, optional
             Pre-allocated mesh for absolute mode.
-        weights : jax.Array | float, default=1.0
+        weights : Array | float, default=1.0
             Particle weights for painting.
         chunk_size : int
             Chunk size for painting operations.
@@ -566,7 +578,7 @@ class ParticleField(DensityField):
     @partial(jax.jit, static_argnames=['mode'])
     def read_out(
         self,
-        density_mesh: DensityField | jax.Array,
+        density_mesh: DensityField | Array,
         *,
         mode: PaintMode = "relative",
     ) -> "ParticleField":
@@ -609,12 +621,12 @@ class ParticleField(DensityField):
     @partial(jax.jit, static_argnames=['mode', 'weights', 'density_plane_width', 'batch_size'])
     def paint_2d(
         self,
-        center: Float | jax.Array,
+        center: Float | Array,
         *,
-        density_plane_width: Float | None = None,
-        weights: jax.Array | float | None = None,
+        density_plane_width: Optional[Float] = None,
+        weights: Optional[Array | float] = None,
         mode: PaintMode = "relative",
-        batch_size: int | None = None,
+        batch_size: Optional[int] = None,
     ) -> "FlatDensity":
         """
         Project particles onto a flat-sky grid using CIC painting.
@@ -624,11 +636,11 @@ class ParticleField(DensityField):
 
         Parameters
         ----------
-        center : Float | jax.Array
+        center : Float | Array
             Center of density plane(s) in Mpc. Scalar for single shell, array for batched.
         density_plane_width : Float, optional
             Physical width of density plane in Mpc. Defaults to max_comoving_radius / nb_shells.
-        weights : jax.Array | float, optional
+        weights : Array | float, optional
             Particle weights for painting.
         mode : PaintMode, default="relative"
             "relative" for displacement-based painting, "absolute" for position-based.
@@ -692,20 +704,20 @@ class ParticleField(DensityField):
     @partial(jax.jit, static_argnames=['mode', 'scheme', 'weights', 'density_plane_width', 'kernel_width_arcmin', 'smoothing_interpretation', 'paint_nside', 'ud_grade_power', 'ud_grade_order_in', 'ud_grade_order_out', 'ud_grade_pess', 'batch_size'])
     def paint_spherical(
         self,
-        center: Float | jax.Array,
+        center: Float | Array,
         *,
         mode: PaintMode = "relative",
         scheme: SphericalScheme = "rbf_neighbor",
-        weights: jax.Array | None = None,
-        density_plane_width: Float | None = None,
-        kernel_width_arcmin: float | None = None,
+        weights: Optional[Array] = None,
+        density_plane_width: Optional[Float] = None,
+        kernel_width_arcmin: Optional[float] = None,
         smoothing_interpretation: str = "fwhm",
-        paint_nside: int | None = None,
+        paint_nside: Optional[int] = None,
         ud_grade_power: float = 0.0,
         ud_grade_order_in: str = "RING",
         ud_grade_order_out: str = "RING",
         ud_grade_pess: bool = False,
-        batch_size: int | None = None,
+        batch_size: Optional[int] = None,
     ) -> "SphericalDensity":
         """
         Paint particles onto a HEALPix grid using spherical painting.
@@ -715,13 +727,13 @@ class ParticleField(DensityField):
 
         Parameters
         ----------
-        center : Float | jax.Array
+        center : Float | Array
             Center of density shell(s) in Mpc. Scalar for single shell, array for batched.
         mode : PaintMode, default="relative"
             "relative" for displacement-based painting, "absolute" for position-based.
         scheme : SphericalScheme, default="rbf_neighbor"
             Painting method: "ngp", "bilinear", or "rbf_neighbor".
-        weights : jax.Array, optional
+        weights : Array, optional
             Particle weights for painting.
         density_plane_width : Float, optional
             Physical width of density shell in Mpc. Defaults to max_comoving_radius / nb_shells.
@@ -806,7 +818,7 @@ class ParticleField(DensityField):
 
 
 @partial(jax.jit, static_argnames=['status'])
-def particle_from_density(array: jax.Array, reference: DensityField, scale_factors: float = None, status: FieldStatus = None
+def particle_from_density(array: Array, reference: DensityField, scale_factors: float = None, status: FieldStatus = None
                           ) -> ParticleField:
     """
     Create a ParticleField from an array, inheriting metadata from a reference DensityField.
@@ -817,7 +829,7 @@ def particle_from_density(array: jax.Array, reference: DensityField, scale_facto
 
     Parameters
     ----------
-    array : jax.Array
+    array : Array
         Particle data array with shape (X, Y, Z, 3) or (N, X, Y, Z, 3).
     reference : DensityField
         Reference field to copy metadata from.
@@ -847,6 +859,7 @@ def particle_from_density(array: jax.Array, reference: DensityField, scale_facto
         nside=reference.nside,
         flatsky_npix=reference.flatsky_npix,
         halo_size=reference.halo_size,
+        z_source=reference.z_source,
         status=status if status is not None else reference.status,
         scale_factors=scale_factors if scale_factors is not None else reference.scale_factors,)
 
@@ -861,7 +874,7 @@ class FlatDensity(DensityField):
     def __init__(
         self,
         *,
-        array: jax.Array,
+        array: Array,
         density_field: DensityField,
         status: DensityStatus = DensityStatus.LIGHTCONE,
     ):
@@ -894,81 +907,16 @@ class FlatDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
+            z_source=density_field.z_source,
             status=status,
             scale_factors=density_field.scale_factors,
         )
 
-    def replace(self, **updates: Any) -> "Self":
-        """Override replace to handle special __init__ signature."""
-        params = {
-            "array": self.array,
-            "mesh_size": self.mesh_size,
-            "box_size": self.box_size,
-            "observer_position": self.observer_position,
-            "sharding": self.sharding,
-            "nside": self.nside,
-            "flatsky_npix": self.flatsky_npix,
-            "field_size": self.field_size,
-            "halo_size": self.halo_size,
-            "status": self.status,
-            "scale_factors": self.scale_factors,
-        }
-        allowed_keys = set(params.keys())
-        unknown = set(updates) - allowed_keys
-        if unknown:
-            raise TypeError(f"Unknown {type(self).__name__} attribute(s): {unknown}")
-        params.update(updates)
-
-        # Create using object.__new__ to bypass __init__
-        instance = object.__new__(type(self))
-        for key, value in params.items():
-            setattr(instance, key, value)
-        return instance
-
-    def tree_flatten(self):
-        # Use parent's tree_flatten but store status as string to avoid enum mismatch
-        children, aux_data = super().tree_flatten()
-        # aux_data is (mesh_size, box_size, observer_position, sharding, nside, flatsky_npix, field_size, halo_size, status)
-        aux_list = list(aux_data)
-        aux_list[-1] = str(self.status.value)  # Convert status to string
-        return children, tuple(aux_list)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        # aux_data has status as string, convert back to DensityStatus
-        (
-            mesh_size,
-            box_size,
-            observer_position,
-            sharding,
-            nside,
-            flatsky_npix,
-            field_size,
-            halo_size,
-            status_str,
-        ) = aux_data
-        array, scale_factors = children
-
-        # Create instance bypassing __init__ to avoid validation issues
-        instance = object.__new__(cls)
-        instance.array = array
-        instance.mesh_size = mesh_size
-        instance.box_size = box_size
-        instance.observer_position = observer_position
-        instance.sharding = sharding
-        instance.nside = nside
-        instance.flatsky_npix = flatsky_npix
-        instance.field_size = field_size
-        instance.halo_size = halo_size
-        instance.status = DensityStatus(status_str)
-        instance.scale_factors = scale_factors
-        return instance
-
     def compute_power_spectrum(
         self,
         *,
-        field_size: float | None = None,
-        pixel_size: float | None = None,
+        field_size: Optional[float] = None,
+        pixel_size: Optional[float] = None,
         **kwargs: Any,
     ) -> "PowerSpectrum":
         """Compute a flat-sky angular power spectrum C_ell.
@@ -988,9 +936,9 @@ class FlatDensity(DensityField):
         self,
         *,
         cmap: str = "magma",
-        figsize: Tuple[float, float] | None = None,
+        figsize: Optional[Tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Sequence[str] | None = None,
+        titles: Optional[Sequence[str]] = None,
         show_colorbar: bool = True,
         show_ticks: bool = True,
         apply_log: bool = True,
@@ -1120,9 +1068,9 @@ class FlatDensity(DensityField):
         self,
         *,
         cmap: str = "magma",
-        figsize: Tuple[float, float] | None = None,
+        figsize: Optional[Tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Sequence[str] | None = None,
+        titles: Optional[Sequence[str]] = None,
         show_colorbar: bool = True,
         show_ticks: bool = True,
         apply_log: bool = True,
@@ -1203,7 +1151,7 @@ class SphericalDensity(DensityField):
     def __init__(
         self,
         *,
-        array: jax.Array,
+        array: Array,
         density_field: DensityField,
         status: DensityStatus = DensityStatus.LIGHTCONE,
     ):
@@ -1226,80 +1174,15 @@ class SphericalDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
+            z_source=density_field.z_source,
             status=status,
             scale_factors=density_field.scale_factors,
         )
 
-    def replace(self, **updates: Any) -> "Self":
-        """Override replace to handle special __init__ signature."""
-        params = {
-            "array": self.array,
-            "mesh_size": self.mesh_size,
-            "box_size": self.box_size,
-            "observer_position": self.observer_position,
-            "sharding": self.sharding,
-            "nside": self.nside,
-            "flatsky_npix": self.flatsky_npix,
-            "field_size": self.field_size,
-            "halo_size": self.halo_size,
-            "status": self.status,
-            "scale_factors": self.scale_factors,
-        }
-        allowed_keys = set(params.keys())
-        unknown = set(updates) - allowed_keys
-        if unknown:
-            raise TypeError(f"Unknown {type(self).__name__} attribute(s): {unknown}")
-        params.update(updates)
-
-        # Create using object.__new__ to bypass __init__
-        instance = object.__new__(type(self))
-        for key, value in params.items():
-            setattr(instance, key, value)
-        return instance
-
-    def tree_flatten(self):
-        # Use parent's tree_flatten but store status as string to avoid enum mismatch
-        children, aux_data = super().tree_flatten()
-        # aux_data is (mesh_size, box_size, observer_position, sharding, nside, flatsky_npix, field_size, halo_size, status)
-        aux_list = list(aux_data)
-        aux_list[-1] = str(self.status.value)  # Convert status to string
-        return children, tuple(aux_list)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        # aux_data has status as string, convert back to DensityStatus
-        (
-            mesh_size,
-            box_size,
-            observer_position,
-            sharding,
-            nside,
-            flatsky_npix,
-            field_size,
-            halo_size,
-            status_str,
-        ) = aux_data
-        array, scale_factors = children
-
-        # Create instance bypassing __init__ to avoid validation issues
-        instance = object.__new__(cls)
-        instance.array = array
-        instance.mesh_size = mesh_size
-        instance.box_size = box_size
-        instance.observer_position = observer_position
-        instance.sharding = sharding
-        instance.nside = nside
-        instance.flatsky_npix = flatsky_npix
-        instance.field_size = field_size
-        instance.halo_size = halo_size
-        instance.status = DensityStatus(status_str)
-        instance.scale_factors = scale_factors
-        return instance
-
     def compute_power_spectrum(
         self,
         *,
-        lmax: int | None = None,
+        lmax: Optional[int] = None,
         **kwargs: Any,
     ) -> "PowerSpectrum":
         """Compute a spherical (HEALPix) angular power spectrum C_ell."""
@@ -1373,7 +1256,7 @@ class SphericalDensity(DensityField):
         cmap: str = "magma",
         figsize: Tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Sequence[str] | None = None,
+        titles: Optional[Sequence[str]] = None,
         apply_log: bool = True,
     ):
         """
@@ -1427,7 +1310,7 @@ class SphericalDensity(DensityField):
         cmap: str = "magma",
         figsize: Tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Sequence[str] | None = None,
+        titles: Optional[Sequence[str]] = None,
         apply_log: bool = True,
     ) -> None:
         """

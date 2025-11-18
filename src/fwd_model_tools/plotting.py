@@ -15,7 +15,12 @@ def plot_kappa(kappa,
                titles=None,
                output_format="png",
                dpi=600):
-    """Plot convergence maps.
+    """Plot convergence maps (legacy wrapper).
+
+    This helper operates directly on numpy arrays and is kept for backward
+    compatibility. New code should prefer calling ``.plot`` / ``.show`` on
+    ``FlatDensity`` / ``SphericalDensity`` / kappa field instances from
+    :mod:`fwd_model_tools.fields`.
 
     Parameters
     ----------
@@ -89,7 +94,11 @@ def plot_lightcone(lightcone,
                    titles=None,
                    output_format="png",
                    dpi=600):
-    """Plot lightcone density planes.
+    """Plot lightcone density planes (legacy wrapper).
+
+    This helper operates directly on numpy arrays and is kept for backward
+    compatibility. New code should prefer calling ``.plot`` / ``.show`` on
+    density field instances from :mod:`fwd_model_tools.fields`.
 
     Parameters
     ----------
@@ -169,55 +178,18 @@ def plot_ic(true_ic,
             titles=("True", "Mean", "Std", "Diff"),
             output_format="png",
             dpi=600):
-    """Plot initial conditions: true, posterior mean, and posterior std.
+    """Shim for backwards-compatibility; use fwd_model_tools.sampling.plot.plot_ic instead."""
+    from fwd_model_tools.sampling.plot import plot_ic as _plot_ic
 
-    Parameters
-    ----------
-    true_ic : array_like
-        Shape (X, Y, Z), the true initial conditions.
-    mean_ic : array_like
-        Shape (X, Y, Z), posterior mean of initial conditions.
-    std_ic : array_like
-        Shape (X, Y, Z), posterior standard deviation of initial conditions.
-    outdir : str or Path
-        Output directory for saved plots.
-    titles : tuple of str, optional
-        Titles for the four panels. Default is ("True", "Mean", "Std", "Diff").
-    output_format : str, optional
-        Output format: "png", "pdf", or "show". Default is "png".
-    dpi : int, optional
-        DPI for saved figures. Default is 600.
-    """
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    true_ic = np.asarray(true_ic)
-    mean_ic = np.asarray(mean_ic)
-    std_ic = np.asarray(std_ic)
-
-    diff_ic = mean_ic - true_ic
-
-    slice_idx = 3 * true_ic.shape[-1] // 4
-
-    fig, axes = plt.subplots(1, 4, figsize=(20, 4))
-
-    data = [
-        true_ic[..., slice_idx], mean_ic[..., slice_idx],
-        std_ic[..., slice_idx], diff_ic[..., slice_idx]
-    ]
-
-    for ax, d, title in zip(axes, data, titles):
-        im = ax.imshow(d, origin="lower", cmap="viridis")
-        ax.set_title(title)
-        plt.colorbar(im, ax=ax)
-
-    plt.tight_layout()
-    if output_format == "show":
-        plt.show()
-    else:
-        filename = f"ic_comparison.{output_format}"
-        plt.savefig(outdir / filename, dpi=dpi, bbox_inches="tight")
-    plt.close()
+    return _plot_ic(
+        true_ic=true_ic,
+        mean_ic=mean_ic,
+        std_ic=std_ic,
+        outdir=outdir,
+        titles=titles,
+        output_format=output_format,
+        dpi=dpi,
+    )
 
 
 def plot_gradient_analysis(
@@ -316,72 +288,19 @@ def plot_posterior(
     title_limit=1,
     width_inch=7,
 ):
-    """Plot posterior distributions using GetDist triangle plot.
+    """Shim for backwards-compatibility; use fwd_model_tools.sampling.plot.plot_posterior instead."""
+    from fwd_model_tools.sampling.plot import plot_posterior as _plot_posterior
 
-    Parameters
-    ----------
-    param_samples : dict
-        Dictionary mapping parameter names to arrays of shape (n_samples,).
-    outdir : str or Path
-        Output directory for saved plots.
-    params : tuple of str, optional
-        Parameter names to plot. Default is ("Omega_c", "sigma8").
-    true_values : dict, optional
-        Dictionary mapping parameter names to true values. These will be
-        shown as markers on the plots.
-    labels : dict, optional
-        Dictionary mapping parameter names to LaTeX labels for plotting.
-        If None, uses parameter names directly.
-    output_format : str, optional
-        Output format: "png", "pdf", or "show". Default is "png".
-    dpi : int, optional
-        DPI for saved figures. Default is 600.
-    filled : bool, optional
-        Whether to use filled contours. Default is True.
-    contour_colors : list, optional
-        List of colors for contours. Default is None (uses GetDist defaults).
-    title_limit : int, optional
-        Print marginalized limit on diagonal 1D plots. Default is 1.
-    width_inch : float, optional
-        Width of the plot in inches. Default is 7.
-    """
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    samples_array = np.column_stack([param_samples[p] for p in params])
-    names = list(params)
-
-    if labels is None:
-        labels_list = names
-    else:
-        labels_list = [labels.get(p, p) for p in params]
-
-    mc_samples = MCSamples(samples=samples_array,
-                           names=names,
-                           labels=labels_list)
-
-    markers_dict = None
-    if true_values is not None:
-        markers_dict = {p: true_values[p] for p in params if p in true_values}
-
-    gdplt = gdplots.get_subplot_plotter(width_inch=width_inch)
-
-    plot_kwargs = {
-        "filled": filled,
-        "title_limit": title_limit,
-    }
-
-    if markers_dict:
-        plot_kwargs["markers"] = markers_dict
-
-    if contour_colors:
-        plot_kwargs["contour_colors"] = contour_colors
-
-    gdplt.triangle_plot([mc_samples], **plot_kwargs)
-
-    if output_format == "show":
-        plt.show()
-    else:
-        filename = f"posterior.{output_format}"
-        plt.savefig(outdir / filename, dpi=dpi, bbox_inches="tight")
-    plt.close()
+    return _plot_posterior(
+        param_samples=param_samples,
+        outdir=outdir,
+        params=params,
+        true_values=true_values,
+        labels=labels,
+        output_format=output_format,
+        dpi=dpi,
+        filled=filled,
+        contour_colors=contour_colors,
+        title_limit=title_limit,
+        width_inch=width_inch,
+    )

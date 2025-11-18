@@ -35,9 +35,8 @@ import numpyro.distributions as dist
 from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 
-from fwd_model_tools.fields import DistributedNormal
-from fwd_model_tools.plotting import plot_posterior
-from fwd_model_tools.sampling import batched_sampling, load_samples
+from fwd_model_tools.sampling import DistributedNormal, batched_sampling, load_samples
+from fwd_model_tools.sampling.plot import plot_posterior
 
 FIELD_SHAPE = (4, 4)
 TRUE_ALPHA = 2.0
@@ -173,7 +172,7 @@ def generate_synthetic_observations(data_dir,
 
     key = jax.random.PRNGKey(magic_seed)
     true_ic_raw = normal_field(key, FIELD_SHAPE, sharding=sharding)
-    print("✓ Generated initial conditions with sharding : \n")
+    print("Generated initial conditions with sharding:")
     jax.debug.visualize_array_sharding(true_ic_raw)
     true_ic, true_ic_scale = normalize_field(true_ic_raw)
 
@@ -190,7 +189,7 @@ def generate_synthetic_observations(data_dir,
     start_time = time.time()
     model_trace = trace(seed(conditioned_model, magic_seed)).get_trace()
     elapsed = time.time() - start_time
-    print(f"✓ Model traced in {elapsed:.2f}s")
+    print(f"Model traced in {elapsed:.2f}s")
 
     true_obs_linear = model_trace["obs_linear"]["value"]
     true_obs_quadratic = model_trace["obs_quadratic"]["value"]
@@ -207,7 +206,7 @@ def generate_synthetic_observations(data_dir,
         obs_quadratic=np.asarray(true_obs_quadratic),
         obs_combined=np.asarray(true_obs_combined),
     )
-    print(f"✓ Saved true data to {data_dir / 'true_data.npz'}")
+    print(f"Saved true data to {data_dir / 'true_data.npz'}")
     print(
         f"  True IC scale (std before normalization): {float(true_ic_scale):.4f}"
     )
@@ -242,7 +241,7 @@ def generate_synthetic_observations(data_dir,
     plt.subplots_adjust(bottom=0.1)
     plt.savefig(plots_dir / "true_data.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"✓ Plotted true data to {plots_dir / 'true_data.png'}")
+    print(f"Plotted true data to {plots_dir / 'true_data.png'}")
 
     return (
         {
@@ -299,7 +298,7 @@ def run_mcmc_inference(true_obs,
         init_params=init_params,
     )
     elapsed = time.time() - start_time
-    print(f"✓ MCMC sampling completed in {elapsed:.2f}s")
+    print(f"MCMC sampling completed in {elapsed:.2f}s")
 
 
 def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
@@ -340,7 +339,7 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
     if "ic" in ic_mean:
         print("\nPlotting IC comparison...")
         plot_field_comparison(true_ic, ic_mean["ic"], ic_std["ic"], plots_dir)
-        print(f"✓ Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
+        print(f"Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
 
     param_samples = {
         "alpha": scalar_samples["alpha"],
@@ -351,7 +350,7 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
                    plots_dir,
                    params=("alpha", "beta"),
                    true_values=true_param_values)
-    print(f"✓ Plotted posteriors to {plots_dir / 'posterior.png'}")
+    print(f"Plotted posteriors to {plots_dir / 'posterior.png'}")
 
 
 def main():
@@ -453,7 +452,7 @@ def main():
                         n_samples_plot=args.n_samples_plot)
 
     print("\n" + "=" * 60)
-    print("✓ Workflow completed successfully!")
+    print("Workflow completed successfully!")
     print("=" * 60)
 
 

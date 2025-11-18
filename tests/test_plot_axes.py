@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import healpy as hp
 import healpy.projaxes as hp_projaxes
 
-from fwd_model_tools.field import (DensityField, DensityStatus, FieldStatus,
+from fwd_model_tools.fields import (DensityField, DensityStatus, FieldStatus,
                                    FlatDensity, SphericalDensity)
 
 

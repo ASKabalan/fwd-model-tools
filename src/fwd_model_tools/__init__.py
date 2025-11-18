@@ -1,63 +1,121 @@
 """
-fwd_model_tools: Forward-modeling and sampling on top of JAXPM + JAX-Decomp
+fwd_model_tools: Forward-modeling and sampling on top of JAXPM + JAX-Decomp.
 
-Tagline: Forward-modeling and sampling on top of JAXPM + JAX-Decomp (no painting).
-Scope: IC priors → JAXPM evolution → user-supplied summaries/likelihoods; optional sampling.
-
-This package provides clean, JAX-native primitives to sample whitened ICs and run JAXPM,
-with BlackJAX and NumPyro support for HMC/NUTS/MCLMC sampling with whitening reparametrization.
-
-Installation
-------------
-    pip install fwd-model-tools
-
-For development:
-    pip install fwd-model-tools[dev]
+This package exposes a curated top-level API organized around:
+    - fields and initial conditions
+    - particle-mesh (PM) evolution
+    - lensing
+    - probabilistic models
+    - power-spectrum utilities
+    - sampling and persistency
+    - lightweight plotting helpers
 """
 
-from fwd_model_tools.config import Configurations
-from fwd_model_tools.lensing_model import (E, Planck18, full_field_probmodel,
-                                           linear_field, make_full_field_model,
-                                           reconstruct_full_kappa)
-from fwd_model_tools.plotting import (plot_gradient_analysis, plot_ic,
-                                      plot_kappa, plot_lightcone,
-                                      plot_posterior)
-from fwd_model_tools.power import (PowerSpectrum, compute_flat_cl,
-                                   compute_pk, compute_spherical_cl,
-                                   compute_theory_cl)
-from fwd_model_tools.powerspec_model import (make_2pt_model,
-                                             pixel_window_function,
-                                             powerspec_probmodel)
-from fwd_model_tools.utils import (compute_box_size_from_redshift,
-                                   compute_lightcone_shells,
-                                   compute_max_redshift_from_box_size,
-                                   compute_snapshot_scale_factors)
+from fwd_model_tools.fields import (
+    DensityField,
+    DensityStatus,
+    FieldStatus,
+    FlatDensity,
+    FlatKappaField,
+    FlatShearField,
+    ParticleField,
+    SphericalDensity,
+    SphericalKappaField,
+    SphericalShearField,
+    stack,
+)
+from fwd_model_tools.initial import (
+    gaussian_initial_conditions,
+    interpolate_initial_conditions,
+)
+from fwd_model_tools.lensing import born, raytrace
+from fwd_model_tools.pm import lpt, nbody
+from fwd_model_tools.power import (
+    PowerSpectrum,
+    compute_flat_cl,
+    compute_pk,
+    compute_spherical_cl,
+    compute_theory_cl,
+)
+from fwd_model_tools.probabilistic_models import (
+    Configurations,
+    Planck18,
+    full_field_probmodel,
+    make_2pt_model,
+    make_full_field_model,
+    pixel_window_function,
+    powerspec_probmodel,
+)
+from fwd_model_tools.sampling import (
+    DistributedNormal,
+    batched_sampling,
+    load_samples,
+)
+from fwd_model_tools.sampling.plot import plot_posterior
+from fwd_model_tools.utils import (
+    compute_box_size_from_redshift,
+    compute_lightcone_shells,
+    compute_lpt_lightcone_scale_factors,
+    compute_max_redshift_from_box_size,
+    compute_snapshot_scale_factors,
+    reconstruct_full_sphere,
+)
+from fwd_model_tools.plotting import (
+    plot_gradient_analysis,
+    plot_ic,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
+    # Fields
+    "DensityField",
+    "ParticleField",
+    "FlatDensity",
+    "SphericalDensity",
+    "FlatKappaField",
+    "SphericalKappaField",
+    "FlatShearField",
+    "SphericalShearField",
+    "FieldStatus",
+    "DensityStatus",
+    "stack",
+    # Initial conditions
+    "gaussian_initial_conditions",
+    "interpolate_initial_conditions",
+    # PM
+    "lpt",
+    "nbody",
+    # Lensing
+    "born",
+    "raytrace",
+    # Probabilistic models
     "Configurations",
-    "E",
     "Planck18",
-    "linear_field",
     "make_full_field_model",
     "full_field_probmodel",
-    "reconstruct_full_kappa",
+    "reconstruct_full_sphere",
+    "powerspec_probmodel",
+    "make_2pt_model",
+    "pixel_window_function",
+    # Power
     "PowerSpectrum",
     "compute_pk",
-    "compute_spherical_cl",
     "compute_flat_cl",
+    "compute_spherical_cl",
     "compute_theory_cl",
+    # Utilities
     "compute_box_size_from_redshift",
     "compute_lightcone_shells",
     "compute_max_redshift_from_box_size",
     "compute_snapshot_scale_factors",
-    "plot_lightcone",
-    "plot_kappa",
-    "plot_ic",
+    "compute_lpt_lightcone_scale_factors",
+    # Sampling
+    "DistributedNormal",
+    "batched_sampling",
+    "load_samples",
+    # Plotting
     "plot_posterior",
+    "plot_ic",
     "plot_gradient_analysis",
-    "make_2pt_model",
-    "pixel_window_function",
-    "powerspec_probmodel",
 ]
