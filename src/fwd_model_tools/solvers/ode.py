@@ -14,7 +14,7 @@ from jaxpm.growth import growth_factor as Gp
 from jaxpm.pm import pm_forces
 import jax
 
-from ..fields import FieldStatus, ParticleField, particle_from_density
+from ..fields import FieldStatus, ParticleField
 
 __all__ = ["symplectic_ode", "symplectic_fpm_ode"]
 
@@ -122,13 +122,11 @@ def symplectic_ode(reference_field: ParticleField,
         dvel = 1.0 / (a**2 * E(cosmo, a)) * forces_array
 
         # Wrap back into ParticleField
-        dvel = particle_from_density(
+        return ParticleField.FromDensityMetadata(
             dvel,
             pos,
             scale_factors=a,
         )
-
-        return dvel
 
     return drift, kick
 
@@ -229,7 +227,7 @@ def symplectic_fpm_ode(reference_field: ParticleField,
         # Computes the update of position (drift)
         dpos = 1 / (ac**3 * E(cosmo, ac)) * vel.array
 
-        return particle_from_density(
+        return ParticleField.FromDensityMetadata(
             dpos * (drift_contr / dt0),
             vel,
             status=FieldStatus.PARTICLES,
@@ -291,7 +289,7 @@ def symplectic_fpm_ode(reference_field: ParticleField,
             kick_factor_2 = (t2 - t1t2) / t2
 
         # Wrap back into ParticleField
-        return particle_from_density(
+        return ParticleField.FromDensityMetadata(
             dvel * ((kick_factor_1 + kick_factor_2) / dt0),
             pos,
             status=FieldStatus.PARTICLES,
@@ -340,7 +338,7 @@ def symplectic_fpm_ode(reference_field: ParticleField,
         cosmo._workspace = {}
 
         # Wrap back into ParticleField
-        return particle_from_density(
+        return ParticleField.FromDensityMetadata(
             dvel * (kick_factor / dt0),
             pos,
             status=FieldStatus.PARTICLES,

@@ -35,6 +35,8 @@ def _normalize_sources(nz_shear: Any) -> Tuple[str, List[Any]]:
         return "distribution", entries
 
     z_array = jnp.array(entries).squeeze()
+    if z_array.ndim == 0:
+        z_array = jnp.array([z_array])
     if z_array.ndim != 1:
         raise ValueError("Scalar redshift sources must be 1D array-like")
 
@@ -98,7 +100,6 @@ def _born_core_impl(
 
         kappa_contributions = jax.vmap(interpolate_plane)(kappa_contributions, r)
 
-    kappa_contributions = jnp.expand_dims(kappa_contributions, axis=0)
     if jnp.ndim(z_source) > 0 and not is_spherical:
         chi_s = jnp.expand_dims(chi_s, axis=1)
     lensing_efficiency = jnp.clip(1.0 - (r_b / chi_s), 0, 1000)
@@ -108,7 +109,7 @@ def _born_core_impl(
     convergence = jnp.sum(final_contributions, axis=0)
 
     if jnp.ndim(z_source) == 0:
-        convergence = jnp.squeeze(convergence, axis=0)
+        convergence = jnp.squeeze(convergence)
 
     return convergence
 
@@ -125,28 +126,16 @@ def _born_spherical(
     n_integrate,
 ):
     source_kind, sources = _normalize_sources(nz_shear)
+    print(f"source_kind: {source_kind}, sources: {sources}")
+    print(f"sources type: {[type(s) for s in sources]}")
 
     if source_kind == "distribution":
-        kappa_maps = [
-            simps(
-                lambda z: nz(z).reshape([-1, 1])
-                * _born_core_impl(
-                    cosmo,
-                    lightcone.array,
-                    r_center,
-                    scale_factors,
-                    z,
-                    density_plane_width,
-                ),
-                min_z,
-                max_z,
-                N=n_integrate,
-            )
-            for nz in sources
-        ]
-    else:
-        kappa_maps = [
-            _born_core_impl(
+        
+        def fn(z):
+            print(f"z inside fn: {z}")
+            reshaped_nz = nz(z).reshape([-1, 1])
+            print(f"reshaped_nz shape: {reshaped_nz.shape}")
+            born_result = _born_core_impl(
                 cosmo,
                 lightcone.array,
                 r_center,
@@ -154,10 +143,37 @@ def _born_spherical(
                 z,
                 density_plane_width,
             )
-            for z in sources
-        ]
+            print(f"born_result shape: {born_result.shape}")
+            return reshaped_nz * born_result
 
-    return list(zip(sources, kappa_maps))
+        #kappa_maps = [
+        #    simps(
+        #        lambda z: nz(z).reshape([-1, 1])
+        #        * _born_core_impl(
+        #            cosmo,
+        #            lightcone.array,
+        #            r_center,
+        #            scale_factors,
+        #            z,
+        #            density_plane_width,
+        #        ),
+        #        min_z,
+        #        max_z,
+        #        N=n_integrate,
+        #    )
+        #    for nz in sources
+        #]
+    else:
+        kappa_maps = _born_core_impl(
+                cosmo,
+                lightcone.array,
+                r_center,
+                scale_factors,
+                sources,
+                density_plane_width)
+        print(f"shape of kappa_maps: {kappa_maps.shape}")
+
+    return kappa_maps
 
 
 def _born_flat(

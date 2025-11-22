@@ -170,7 +170,7 @@ def compute_lightcone_shells(
 @partial(jax.jit, static_argnames=['nb_shells'])
 def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax.Array:
     """Compute only the shell scale factors (wrapper around ``compute_lightcone_shells``)."""
-    _, a_center, _ = compute_lightcone_shells(cosmo, field, nb_shells)
+    _, a_center = compute_lightcone_shells(cosmo, field, nb_shells)
     return a_center
 
 

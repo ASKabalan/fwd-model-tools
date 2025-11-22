@@ -309,7 +309,7 @@ class DensityField(AbstractField):
             -2:] if data.ndim == 4 else projection.shape
         projected_field = self.replace(flatsky_npix=flatsky_npix)
 
-        return FlatDensity(
+        return FlatDensity.FromDensityMetadata(
             array=projection,
             density_field=projected_field,
             status=DensityStatus.PROJECTED_DENSITY,
@@ -435,10 +435,11 @@ class ParticleField(DensityField):
         flatsky_npix: Optional[Tuple[int, int]] = None,
         field_size: Optional[float] = None,
         halo_size: int | Tuple[int, int] = 0,
+        z_source: Optional[Any] = None,
         status: FieldStatus = FieldStatus.RAW,
         scale_factors: float = 1.0,
     ):
-        if isinstance(array , Array):
+        if isinstance(array, Array):
             if not ((array.ndim == 4 and array.shape[-1] == 3) or
                     (array.ndim == 5 and array.shape[-1] == 3)):
                 raise ValueError(
@@ -455,8 +456,43 @@ class ParticleField(DensityField):
             flatsky_npix=flatsky_npix,
             field_size=field_size,
             halo_size=halo_size,
+            z_source=z_source,
             status=status,
             scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        array: Array,
+        reference: DensityField,
+        *,
+        status: FieldStatus | None = None,
+        scale_factors: float | None = None,
+    ) -> "ParticleField":
+        """
+        Construct a ParticleField from a reference DensityField and a new array.
+
+        This mirrors the older particle_from_density helper but is exposed as a
+        classmethod so it can be used by subclasses.
+        """
+        return cls(
+            array=array,
+            mesh_size=reference.mesh_size,
+            box_size=reference.box_size,
+            observer_position=reference.observer_position,
+            sharding=reference.sharding,
+            nside=reference.nside,
+            flatsky_npix=reference.flatsky_npix,
+            field_size=reference.field_size,
+            halo_size=reference.halo_size,
+            z_source=reference.z_source,
+            status=status if status is not None else reference.status,
+            scale_factors=(
+                scale_factors
+                if scale_factors is not None
+                else reference.scale_factors
+            ),
         )
 
     def __getitem__(self, key) -> "ParticleField":
@@ -488,15 +524,9 @@ class ParticleField(DensityField):
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
 
-        return ParticleField(
-            array=indexed_array,
-            mesh_size=self.mesh_size,
-            box_size=self.box_size,
-            observer_position=self.observer_position,
-            sharding=self.sharding,
-            nside=self.nside,
-            flatsky_npix=self.flatsky_npix,
-            halo_size=self.halo_size,
+        return type(self).FromDensityMetadata(
+            indexed_array,
+            self,
             status=self.status,
             scale_factors=indexed_scale_factors,
         )
@@ -695,7 +725,7 @@ class ParticleField(DensityField):
         painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
         painted = painted.squeeze()
 
-        return FlatDensity(
+        return FlatDensity.FromDensityMetadata(
             array=painted,
             density_field=self,
             status=DensityStatus.LIGHTCONE,
@@ -810,7 +840,7 @@ class ParticleField(DensityField):
         painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
         painted = painted.squeeze()
 
-        return SphericalDensity(
+        return SphericalDensity.FromDensityMetadata(
             array=painted,
             density_field=self,
             status=DensityStatus.LIGHTCONE,
@@ -818,8 +848,12 @@ class ParticleField(DensityField):
 
 
 @partial(jax.jit, static_argnames=['status'])
-def particle_from_density(array: Array, reference: DensityField, scale_factors: float = None, status: FieldStatus = None
-                          ) -> ParticleField:
+def particle_from_density(
+    array: Array,
+    reference: DensityField,
+    scale_factors: float | None = None,
+    status: FieldStatus | None = None,
+) -> ParticleField:
     """
     Create a ParticleField from an array, inheriting metadata from a reference DensityField.
 
@@ -850,18 +884,12 @@ def particle_from_density(array: Array, reference: DensityField, scale_factors: 
     ...                                 status=FieldStatus.PARTICLES,
     ...                                 scale_factors=positions.scale_factors)
     """
-    return ParticleField(
-        array=array,
-        mesh_size=reference.mesh_size,
-        box_size=reference.box_size,
-        observer_position=reference.observer_position,
-        sharding=reference.sharding,
-        nside=reference.nside,
-        flatsky_npix=reference.flatsky_npix,
-        halo_size=reference.halo_size,
-        z_source=reference.z_source,
-        status=status if status is not None else reference.status,
-        scale_factors=scale_factors if scale_factors is not None else reference.scale_factors,)
+    return ParticleField.FromDensityMetadata(
+        array,
+        reference,
+        status=status,
+        scale_factors=scale_factors,
+    )
 
 
 @jax.tree_util.register_pytree_node_class
@@ -875,9 +903,68 @@ class FlatDensity(DensityField):
         self,
         *,
         array: Array,
+        mesh_size: Tuple[int, int, int],
+        box_size: Tuple[float, float, float],
+        observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
+        sharding: Optional[Any] = None,
+        nside: Optional[int] = None,
+        flatsky_npix: Optional[Tuple[int, int]] = None,
+        field_size: Optional[float] = None,
+        halo_size: int | Tuple[int, int] = 0,
+        z_source: Optional[Any] = None,
+        status: DensityStatus = DensityStatus.LIGHTCONE,
+        scale_factors: float = 1.0,
+    ):
+        if flatsky_npix is None:
+            raise ValueError("FlatDensity requires `flatsky_npix`.")
+
+        arr = jnp.asarray(array)
+        if arr.ndim == 2:
+            spatial_shape = arr.shape
+        elif arr.ndim == 3:
+            spatial_shape = arr.shape[-2:]
+        else:
+            raise ValueError(
+                "FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx)."
+            )
+
+        if spatial_shape != tuple(flatsky_npix):
+            raise ValueError(
+                f"Array spatial shape {spatial_shape} does not match "
+                f"flatsky_npix {flatsky_npix}."
+            )
+
+        super().__init__(
+            array=arr,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            sharding=sharding,
+            nside=nside,
+            flatsky_npix=flatsky_npix,
+            field_size=field_size,
+            halo_size=halo_size,
+            z_source=z_source,
+            status=status,
+            scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        *,
+        array: Array,
         density_field: DensityField,
         status: DensityStatus = DensityStatus.LIGHTCONE,
-    ):
+        z_source: Optional[Any] = None,
+        scale_factors: float | None = None,
+    ) -> "FlatDensity":
+        """
+        Construct a FlatDensity from a reference DensityField and a 2D/3D array.
+
+        This preserves the behavior of the older FlatDensity __init__ that
+        accepted a `density_field` argument.
+        """
         if density_field.flatsky_npix is None:
             raise ValueError(
                 "FlatDensity requires `flatsky_npix` in the source DensityField."
@@ -896,8 +983,10 @@ class FlatDensity(DensityField):
         if spatial_shape != tuple(density_field.flatsky_npix):
             raise ValueError(
                 f"Array spatial shape {spatial_shape} does not match "
-                f"flatsky_npix {density_field.flatsky_npix}.")
-        super().__init__(
+                f"flatsky_npix {density_field.flatsky_npix}."
+            )
+
+        return cls(
             array=arr,
             mesh_size=density_field.mesh_size,
             box_size=density_field.box_size,
@@ -907,9 +996,15 @@ class FlatDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
-            z_source=density_field.z_source,
+            z_source=(
+                z_source if z_source is not None else density_field.z_source
+            ),
             status=status,
-            scale_factors=density_field.scale_factors,
+            scale_factors=(
+                scale_factors
+                if scale_factors is not None
+                else density_field.scale_factors
+            ),
         )
 
     def compute_power_spectrum(
@@ -1044,24 +1139,13 @@ class FlatDensity(DensityField):
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
 
-        # Create a temporary DensityField to pass to FlatDensity.__init__
-        temp_field = DensityField(
-            array=jnp.zeros(self.mesh_size),  # Dummy array, not used
-            mesh_size=self.mesh_size,
-            box_size=self.box_size,
-            observer_position=self.observer_position,
-            sharding=self.sharding,
-            nside=self.nside,
-            flatsky_npix=self.flatsky_npix,
-            halo_size=self.halo_size,
-            status=FieldStatus.RAW,
-            scale_factors=indexed_scale_factors,
-        )
-
-        return FlatDensity(
+        # Reconstruct via metadata-aware factory while updating scale_factors.
+        temp_field = self.replace(scale_factors=indexed_scale_factors)
+        return type(self).FromDensityMetadata(
             array=indexed_array,
             density_field=temp_field,
             status=self.status,
+            scale_factors=indexed_scale_factors,
         )
 
     def show(
@@ -1152,19 +1236,72 @@ class SphericalDensity(DensityField):
         self,
         *,
         array: Array,
+        mesh_size: Tuple[int, int, int],
+        box_size: Tuple[float, float, float],
+        observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
+        sharding: Optional[Any] = None,
+        nside: Optional[int] = None,
+        flatsky_npix: Optional[Tuple[int, int]] = None,
+        field_size: Optional[float] = None,
+        halo_size: int | Tuple[int, int] = 0,
+        z_source: Optional[Any] = None,
+        status: DensityStatus = DensityStatus.LIGHTCONE,
+        scale_factors: float = 1.0,
+    ):
+        if nside is None:
+            raise ValueError("SphericalDensity requires `nside`.")
+
+        arr = jnp.asarray(array)
+        npix = jhp.nside2npix(nside)
+        if arr.shape[-1] != npix:
+            raise ValueError(
+                f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
+                f"{npix} for nside {nside}."
+            )
+
+        super().__init__(
+            array=arr,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            sharding=sharding,
+            nside=nside,
+            flatsky_npix=flatsky_npix,
+            field_size=field_size,
+            halo_size=halo_size,
+            z_source=z_source,
+            status=status,
+            scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        *,
+        array: Array,
         density_field: DensityField,
         status: DensityStatus = DensityStatus.LIGHTCONE,
-    ):
+        z_source: Optional[Any] = None,
+        scale_factors: float | None = None,
+    ) -> "SphericalDensity":
+        """
+        Construct a SphericalDensity from a reference DensityField and a 1D/2D array.
+
+        This preserves the behavior of the older SphericalDensity __init__ that
+        accepted a `density_field` argument.
+        """
         if density_field.nside is None:
             raise ValueError("SphericalDensity requires `nside`.")
+
         arr = jnp.asarray(array)
         npix = jhp.nside2npix(density_field.nside)
         if arr.shape[-1] != npix:
             raise ValueError(
                 f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
-                f"{npix} for nside {density_field.nside}.")
+                f"{npix} for nside {density_field.nside}."
+            )
 
-        super().__init__(
+        return cls(
             array=arr,
             mesh_size=density_field.mesh_size,
             box_size=density_field.box_size,
@@ -1174,9 +1311,15 @@ class SphericalDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
-            z_source=density_field.z_source,
+            z_source=(
+                z_source if z_source is not None else density_field.z_source
+            ),
             status=status,
-            scale_factors=density_field.scale_factors,
+            scale_factors=(
+                scale_factors
+                if scale_factors is not None
+                else density_field.scale_factors
+            ),
         )
 
     def compute_power_spectrum(
@@ -1230,24 +1373,27 @@ class SphericalDensity(DensityField):
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
 
-        # Create a temporary DensityField to pass to SphericalDensity.__init__
+        # Reconstruct via metadata-aware factory while updating scale_factors.
         temp_field = DensityField(
-            array=jnp.zeros(self.mesh_size),  # Dummy array, not used
+            array=jnp.zeros(self.mesh_size),
             mesh_size=self.mesh_size,
             box_size=self.box_size,
             observer_position=self.observer_position,
             sharding=self.sharding,
             nside=self.nside,
             flatsky_npix=self.flatsky_npix,
+            field_size=self.field_size,
             halo_size=self.halo_size,
+            z_source=self.z_source,
             status=FieldStatus.RAW,
             scale_factors=indexed_scale_factors,
         )
 
-        return SphericalDensity(
+        return type(self).FromDensityMetadata(
             array=indexed_array,
             density_field=temp_field,
             status=self.status,
+            scale_factors=indexed_scale_factors,
         )
 
     def plot(
@@ -1367,7 +1513,7 @@ class SphericalDensity(DensityField):
         if not field_list:
             raise ValueError(
                 "SphericalDensity.stack requires at least one field.")
-        return jax.tree.maple(
+        return jax.tree.map(
             lambda *arrays: jnp.stack(arrays, axis=0),
             *field_list,
         )

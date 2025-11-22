@@ -5,15 +5,22 @@ from typing import Tuple
 
 import jax
 import jax.numpy as jnp
+import jax_cosmo as jc
 
 from jaxpm.pm import lpt as jaxpm_lpt
 
-from ..fields import DensityField, FieldStatus, ParticleField, particle_from_density
-from ..utils import compute_snapshot_scale_factors
+from ..fields import (
+    DensityField,
+    DensityStatus,
+    FieldStatus,
+    FlatDensity,
+    ParticleField,
+)
 
 __all__ = ["lpt"]
 
-@partial(jax.jit, static_argnames=['order'])
+
+@partial(jax.jit, static_argnames=["order"])
 def lpt(
     cosmo,
     initial_field: DensityField,
@@ -61,33 +68,93 @@ def lpt(
         raise ValueError("order must be either 1 or 2.")
     if initial_field.status != FieldStatus.INITIAL_FIELD:
         raise ValueError(
-            "initial_field must have status FieldStatus.INITIAL_FIELD.")
-    a = jnp.atleast_1d(a)
+            "initial_field must have status FieldStatus.INITIAL_FIELD."
+        )
 
-    if a.size > 1:
-        a = a.reshape((1, 1, -1, 1))
-        if a.shape[2] != initial_field.shape[2]:
+    a = jnp.atleast_1d(a)
+    is_lightcone = a.size > 1
+
+    a_for_solver = a
+    if is_lightcone:
+        # For LPT lightcone mode, we assume one scale factor per voxel along
+        # the z-axis of the mesh.
+        a_for_solver = a.reshape((1, 1, -1, 1))
+        if a_for_solver.shape[2] != initial_field.mesh_size[2]:
             raise ValueError(
-                "When passing multiple scale factors, the number of scale factors "
-                "must match the number of shells in the DensityField.")
+                "When passing multiple scale factors, the number of scale "
+                "factors must match the size of the z-axis in the mesh."
+            )
 
     dx, p, _ = jaxpm_lpt(
         cosmo,
         initial_field.array,
         particles=None,
-        a=a,
+        a=a_for_solver,
         halo_size=initial_field.halo_size,
         sharding=initial_field.sharding,
         order=order,
     )
 
     status = FieldStatus.LPT1 if order == 1 else FieldStatus.LPT2
-    dx_field = particle_from_density(dx,
-                                      initial_field,
-                                      scale_factors=a,
-                                      status=status)
-    p_field = particle_from_density(p,
-                                     initial_field,
-                                     scale_factors=a,
-                                     status=status)
-    return dx_field, p_field
+    if not is_lightcone:
+        # Standard single-snapshot LPT: return ParticleField displacements
+        # and momenta defined on the 3D mesh.
+        dx_field = ParticleField.FromDensityMetadata(
+            dx,
+            initial_field,
+            status=status,
+            scale_factors=a,
+        )
+        p_field = ParticleField.FromDensityMetadata(
+            p,
+            initial_field,
+            status=status,
+            scale_factors=a,
+        )
+        return dx_field, p_field
+
+    # LPT lightcone mode: interpret the box as Nz planes of (Nx, Ny) and
+    # return a FlatDensity stack with one map per z-plane. The centers of
+    # these planes correspond to the provided scale factors, converted to
+    # comoving distances.
+    #
+    # First, wrap displacements as a ParticleField sharing the original
+    # geometry, then paint to a 3D density field.
+    dx_particles = ParticleField.FromDensityMetadata(
+        dx,
+        initial_field,
+        status=status,
+        scale_factors=a,
+    )
+    density_3d = dx_particles.paint()
+
+    # Split the 3D density (nx, ny, nz) into nz planes of (ny, nx).
+    density_array = jnp.asarray(density_3d.array)
+    if density_array.ndim != 3:
+        raise ValueError(
+            "LPT lightcone painting expects a 3D density field "
+            f"(nx, ny, nz); got array with shape {density_array.shape}."
+        )
+    flat_array = jnp.transpose(density_array, (2, 1, 0))  # (nz, ny, nx)
+
+    # Convert the scale factors used into comoving distances to serve as
+    # per-plane centers for the lightcone stack.
+    r_centers = jc.background.radial_comoving_distance(cosmo, a)
+
+    flat_lightcone = FlatDensity.FromDensityMetadata(
+        array=flat_array,
+        density_field=density_3d,
+        status=DensityStatus.LIGHTCONE,
+        scale_factors=a,
+    )
+
+    # Momentafield is still returned as a ParticleField on the 3D mesh for
+    # callers that need it, but the primary lightcone representation is the
+    # FlatDensity stack.
+    p_field = ParticleField.FromDensityMetadata(
+        p,
+        initial_field,
+        status=status,
+        scale_factors=a,
+    )
+    return flat_lightcone, p_field

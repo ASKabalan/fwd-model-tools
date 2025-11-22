@@ -12,7 +12,7 @@ import jax.numpy as jnp
 
 from fwd_model_tools.power import compute_flat_cl, compute_spherical_cl
 
-from .density import DensityStatus, FlatDensity, SphericalDensity
+from .density import DensityField, DensityStatus, FlatDensity, SphericalDensity
 
 __all__ = [
     "FlatKappaField",
@@ -37,26 +37,59 @@ class FlatKappaField(FlatDensity):
         Convergence values, shape (ny, nx) or (n_sources, ny, nx)
     """
 
-    def __init__(self, *, array, density_field, status=DensityStatus.KAPPA, z_source):
+    def __init__(
+        self,
+        *,
+        array,
+        mesh_size,
+        box_size,
+        observer_position=(0.5, 0.5, 0.5),
+        sharding=None,
+        nside=None,
+        flatsky_npix=None,
+        field_size=None,
+        halo_size=0,
+        z_source=None,
+        status=DensityStatus.KAPPA,
+        scale_factors=1.0,
+    ):
         """
-        Initialize FlatKappaField.
-
-        Parameters
-        ----------
-        array : Array
-            Convergence array
-        density_field : DensityField
-            Reference field with metadata
-        status : DensityStatus, default=DensityStatus.KAPPA
-            Field status
-        z_source : float | jnp.ndarray
-            Source redshift(s)
+        Initialize FlatKappaField with explicit metadata, mirroring DensityField.__init__.
         """
         super().__init__(
+            array=array,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            sharding=sharding,
+            nside=nside,
+            flatsky_npix=flatsky_npix,
+            field_size=field_size,
+            halo_size=halo_size,
+            z_source=z_source,
+            status=status,
+            scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        *,
+        array,
+        density_field: DensityField,
+        status=DensityStatus.KAPPA,
+        z_source=None,
+        scale_factors=None,
+    ) -> "FlatKappaField":
+        """
+        Construct FlatKappaField from a reference DensityField and convergence array.
+        """
+        return super().FromDensityMetadata(
             array=array,
             density_field=density_field,
             status=status,
             z_source=z_source,
+            scale_factors=scale_factors,
         )
 
     def compute_power_spectrum(
@@ -117,26 +150,59 @@ class SphericalKappaField(SphericalDensity):
         Convergence values, shape (npix,) or (n_sources, npix)
     """
 
-    def __init__(self, *, array, density_field, status=DensityStatus.KAPPA, z_source):
+    def __init__(
+        self,
+        *,
+        array,
+        mesh_size,
+        box_size,
+        observer_position=(0.5, 0.5, 0.5),
+        sharding=None,
+        nside=None,
+        flatsky_npix=None,
+        field_size=None,
+        halo_size=0,
+        z_source=None,
+        status=DensityStatus.KAPPA,
+        scale_factors=1.0,
+    ):
         """
-        Initialize SphericalKappaField.
-
-        Parameters
-        ----------
-        array : Array
-            Convergence array
-        density_field : DensityField
-            Reference field with metadata
-        status : DensityStatus, default=DensityStatus.KAPPA
-            Field status
-        z_source : float | jnp.ndarray
-            Source redshift(s)
+        Initialize SphericalKappaField with explicit metadata, mirroring DensityField.__init__.
         """
         super().__init__(
+            array=array,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            sharding=sharding,
+            nside=nside,
+            flatsky_npix=flatsky_npix,
+            field_size=field_size,
+            halo_size=halo_size,
+            z_source=z_source,
+            status=status,
+            scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        *,
+        array,
+        density_field: DensityField,
+        status=DensityStatus.KAPPA,
+        z_source=None,
+        scale_factors=None,
+    ) -> "SphericalKappaField":
+        """
+        Construct SphericalKappaField from a reference DensityField and convergence array.
+        """
+        return super().FromDensityMetadata(
             array=array,
             density_field=density_field,
             status=status,
             z_source=z_source,
+            scale_factors=scale_factors,
         )
 
     def compute_power_spectrum(self, *, lmax: Optional[int] = None, **kwargs):
@@ -179,15 +245,52 @@ class FlatShearField(FlatDensity):
         self,
         *,
         array,
-        density_field,
+        mesh_size,
+        box_size,
+        observer_position=(0.5, 0.5, 0.5),
+        sharding=None,
+        nside=None,
+        flatsky_npix=None,
+        field_size=None,
+        halo_size=0,
+        z_source=None,
         status=DensityStatus.GAMMA,
-        z_source,
+        scale_factors=1.0,
     ):
         super().__init__(
+            array=array,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            sharding=sharding,
+            nside=nside,
+            flatsky_npix=flatsky_npix,
+            field_size=field_size,
+            halo_size=halo_size,
+            z_source=z_source,
+            status=status,
+            scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        *,
+        array,
+        density_field: DensityField,
+        status=DensityStatus.GAMMA,
+        z_source=None,
+        scale_factors=None,
+    ) -> "FlatShearField":
+        """
+        Construct FlatShearField from a reference DensityField and shear array.
+        """
+        return super().FromDensityMetadata(
             array=array,
             density_field=density_field,
             status=status,
             z_source=z_source,
+            scale_factors=scale_factors,
         )
 
     def compute_power_spectrum(
@@ -216,15 +319,52 @@ class SphericalShearField(SphericalDensity):
         self,
         *,
         array,
-        density_field,
+        mesh_size,
+        box_size,
+        observer_position=(0.5, 0.5, 0.5),
+        sharding=None,
+        nside=None,
+        flatsky_npix=None,
+        field_size=None,
+        halo_size=0,
+        z_source=None,
         status=DensityStatus.GAMMA,
-        z_source,
+        scale_factors=1.0,
     ):
         super().__init__(
+            array=array,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            sharding=sharding,
+            nside=nside,
+            flatsky_npix=flatsky_npix,
+            field_size=field_size,
+            halo_size=halo_size,
+            z_source=z_source,
+            status=status,
+            scale_factors=scale_factors,
+        )
+
+    @classmethod
+    def FromDensityMetadata(
+        cls,
+        *,
+        array,
+        density_field: DensityField,
+        status=DensityStatus.GAMMA,
+        z_source=None,
+        scale_factors=None,
+    ) -> "SphericalShearField":
+        """
+        Construct SphericalShearField from a reference DensityField and shear array.
+        """
+        return super().FromDensityMetadata(
             array=array,
             density_field=density_field,
             status=status,
             z_source=z_source,
+            scale_factors=scale_factors,
         )
 
     def compute_power_spectrum(self, *, lmax: Optional[int] = None, **kwargs):

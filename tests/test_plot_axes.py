@@ -25,7 +25,7 @@ def _base_density_field():
 
 def test_flatdensity_plot_with_ax_reuses_supplied_axes():
     density_field = _base_density_field()
-    flat = FlatDensity(
+    flat = FlatDensity.FromDensityMetadata(
         array=jnp.ones((4, 4)),
         density_field=density_field,
         status=DensityStatus.LIGHTCONE,
@@ -49,7 +49,7 @@ def test_sphericaldensity_plot_proxy_preserves_axes_reference():
     density_field = _base_density_field()
     nside = density_field.nside
     npix = hp.nside2npix(nside)
-    spherical = SphericalDensity(
+    spherical = SphericalDensity.FromDensityMetadata(
         array=jnp.ones((npix,)),
         density_field=density_field,
         status=DensityStatus.LIGHTCONE,
@@ -71,7 +71,7 @@ def test_sphericaldensity_plot_handles_multiple_axes():
     density_field = _base_density_field()
     nside = density_field.nside
     npix = hp.nside2npix(nside)
-    spherical = SphericalDensity(
+    spherical = SphericalDensity.FromDensityMetadata(
         array=jnp.ones((npix,)),
         density_field=density_field,
         status=DensityStatus.LIGHTCONE,

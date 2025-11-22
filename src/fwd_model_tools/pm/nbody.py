@@ -116,7 +116,6 @@ def nbody(
     drift, kick = symplectic_ode(dx_field, paint_mode="relative")
     ode_terms = (ODETerm(kick), ODETerm(drift))
 
-
     # Set up SaveAt with appropriate density function
     if geometry == "spherical":
         if nside is None:

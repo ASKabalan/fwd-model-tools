@@ -74,24 +74,18 @@ def born(
     base_field = lightcone.replace(status=DensityStatus.KAPPA)
 
     if is_spherical:
-        fields = [
-            SphericalKappaField(
-                array=arr,
+        kappas = SphericalKappaField.FromDensityMetadata(
+                array=source_map,
                 density_field=base_field,
                 status=DensityStatus.KAPPA,
-                z_source=source,
+                z_source=nz_shear,
             )
-            for source, arr in source_map
-        ]
     else:
-        fields = [
-            FlatKappaField(
-                array=arr,
+        kappas = FlatKappaField.FromDensityMetadata(
+                array=source_map,
                 density_field=base_field,
                 status=DensityStatus.KAPPA,
-                z_source=source,
+                z_source=nz_shear,
             )
-            for source, arr in source_map
-        ]
 
-    return fields if len(fields) > 1 else fields[0]
+    return kappas

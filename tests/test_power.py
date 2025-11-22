@@ -28,7 +28,7 @@ def _base_density_field() -> DensityField:
 
 def _flat_density() -> FlatDensity:
     density_field = _base_density_field()
-    return FlatDensity(
+    return FlatDensity.FromDensityMetadata(
         array=jnp.arange(16.0).reshape(4, 4),
         density_field=density_field,
         status=DensityStatus.LIGHTCONE,
@@ -39,7 +39,7 @@ def _spherical_density() -> SphericalDensity:
     density_field = _base_density_field()
     nside = density_field.nside
     npix = 12 * nside**2
-    return SphericalDensity(
+    return SphericalDensity.FromDensityMetadata(
         array=jnp.linspace(0.0, 1.0, npix),
         density_field=density_field,
         status=DensityStatus.LIGHTCONE,
