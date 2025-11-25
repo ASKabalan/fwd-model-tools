@@ -145,27 +145,26 @@ def _born_spherical(
             print(f"born_result shape: {born_result.shape}")
             return reshaped_nz * born_result
 
-        #kappa_maps = [
-        #    simps(
-        #        lambda z: nz(z).reshape([-1, 1])
-        #        * _born_core_impl(
-        #            cosmo,
-        #            lightcone.array,
-        #            r_center,
-        #            scale_factors,
-        #            z,
-        #            density_plane_width,
-        #        ),
-        #        min_z,
-        #        max_z,
-        #        N=n_integrate,
-        #    )
-        #    for nz in sources
-        #]
+        kappa_maps = [
+            simps(
+                lambda z: nz(z).reshape([-1, 1])
+                * _born_core_impl(
+                    cosmo,
+                    lightcone.array,
+                    r_center,
+                    scale_factors,
+                    z,
+                    density_plane_width,
+                ),
+                min_z,
+                max_z,
+                N=n_integrate,
+            )
+            for nz in sources
+        ]
+        kappa_maps = jnp.stack(kappa_maps, axis=0)
     else:
         kappa_maps = _born_core_impl(cosmo, lightcone.array, r_center, scale_factors, sources, density_plane_width)
-        print(f"shape of kappa_maps: {kappa_maps.shape}")
-
     return kappa_maps
 
 

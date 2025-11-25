@@ -18,8 +18,8 @@ from .fields import DensityField, FieldStatus
 
 @partial(jax.jit,
          static_argnames=[
-             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size',
-             'sharding'
+             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'field_size',
+             'halo_size', 'sharding'
          ])
 def gaussian_initial_conditions(
     key: PRNGKeyArray,
@@ -31,6 +31,7 @@ def gaussian_initial_conditions(
     observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
     flatsky_npix: Optional[Tuple[int, int]] = None,
     nside: Optional[int] = None,
+    field_size: Optional[Tuple[int, int]] = None,
     halo_size: int | Tuple[int, int] = 0,
     sharding: Optional[Any] = None,
 ) -> DensityField:
@@ -90,6 +91,7 @@ def gaussian_initial_conditions(
         observer_position=observer_position,
         flatsky_npix=flatsky_npix,
         nside=nside,
+        field_size=field_size,
         halo_size=halo_size,
         sharding=sharding,
     )
@@ -97,8 +99,8 @@ def gaussian_initial_conditions(
 
 @partial(jax.jit,
          static_argnames=[
-             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size',
-             'sharding'
+             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'field_size',
+             'halo_size', 'sharding'
          ])
 def interpolate_initial_conditions(
     initial_field: Array,
@@ -110,6 +112,7 @@ def interpolate_initial_conditions(
     observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
     flatsky_npix: Optional[Tuple[int, int]] = None,
     nside: Optional[int] = None,
+    field_size: Optional[Tuple[int, int]] = None,
     halo_size: int | Tuple[int, int] = 0,
     sharding: Optional[Any] = None,
 ) -> DensityField:
@@ -166,6 +169,7 @@ def interpolate_initial_conditions(
         observer_position=observer_position,
         sharding=sharding,
         nside=nside,
+        field_size=field_size,
         flatsky_npix=flatsky_npix,
         halo_size=halo_size,
         status=FieldStatus.INITIAL_FIELD,

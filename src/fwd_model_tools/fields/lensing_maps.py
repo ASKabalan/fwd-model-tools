@@ -12,7 +12,8 @@ import jax.numpy as jnp
 
 from fwd_model_tools.power import PowerSpectrum, angular_cl_flat, angular_cl_spherical
 
-from .density import DensityField, DensityStatus, FlatDensity, SphericalDensity
+from .density import DensityField, DensityStatus
+from .lightcone import FlatDensity, SphericalDensity
 
 __all__ = [
     "FlatKappaField",
@@ -70,44 +71,6 @@ class FlatKappaField(FlatDensity):
             status=status,
             scale_factors=scale_factors,
         )
-
-    @classmethod
-    def FromDensityMetadata(
-        cls,
-        *,
-        array,
-        density_field: DensityField,
-        status=DensityStatus.KAPPA,
-        z_source=None,
-        scale_factors=None,
-    ) -> "FlatKappaField":
-        """
-        Construct FlatKappaField from a reference DensityField and convergence array.
-        """
-        return super().FromDensityMetadata(
-            array=array,
-            density_field=density_field,
-            status=status,
-            z_source=z_source,
-            scale_factors=scale_factors,
-        )
-
-    def angular_cl(
-        self,
-        *,
-        field_size: Optional[float] = None,
-        pixel_size: Optional[float] = None,
-        ell_edges: Optional[jnp.ndarray] = None,
-    ) -> PowerSpectrum:
-        """Compute a flat-sky angular power spectrum C_ℓ for convergence maps."""
-        effective_field_size = field_size or self.field_size
-        ell, spectra = angular_cl_flat(
-            self.array,
-            pixel_size=pixel_size,
-            field_size=effective_field_size,
-            ell_edges=ell_edges,
-        )
-        return PowerSpectrum(wavenumber=ell, spectra=spectra, name="cl")
 
     def get_shear(self, cosmo=None):
         """
@@ -185,32 +148,6 @@ class SphericalKappaField(SphericalDensity):
             scale_factors=scale_factors,
         )
 
-    @classmethod
-    def FromDensityMetadata(
-        cls,
-        *,
-        array,
-        density_field: DensityField,
-        status=DensityStatus.KAPPA,
-        z_source=None,
-        scale_factors=None,
-    ) -> "SphericalKappaField":
-        """
-        Construct SphericalKappaField from a reference DensityField and convergence array.
-        """
-        return super().FromDensityMetadata(
-            array=array,
-            density_field=density_field,
-            status=status,
-            z_source=z_source,
-            scale_factors=scale_factors,
-        )
-
-    def angular_cl(self, *, lmax: Optional[int] = None) -> PowerSpectrum:
-        """Compute a spherical angular power spectrum C_ℓ for convergence maps."""
-        ell_out, spectra = angular_cl_spherical(self.array, lmax=lmax)
-        return PowerSpectrum(wavenumber=ell_out, spectra=spectra, name="cl")
-
     def get_shear(self, cosmo=None):
         """
         Compute shear via spin-2 spherical harmonic transform.
@@ -274,43 +211,31 @@ class FlatShearField(FlatDensity):
             scale_factors=scale_factors,
         )
 
-    @classmethod
-    def FromDensityMetadata(
-        cls,
-        *,
-        array,
-        density_field: DensityField,
-        status=DensityStatus.GAMMA,
-        z_source=None,
-        scale_factors=None,
-    ) -> "FlatShearField":
+    def get_convergence(self, cosmo=None):
         """
-        Construct FlatShearField from a reference DensityField and shear array.
-        """
-        return super().FromDensityMetadata(
-            array=array,
-            density_field=density_field,
-            status=status,
-            z_source=z_source,
-            scale_factors=scale_factors,
-        )
+        Compute convergence from shear via Kaiser-Squires inversion.
 
-    def angular_cl(
-        self,
-        *,
-        field_size: Optional[float] = None,
-        pixel_size: Optional[float] = None,
-        ell_edges: Optional[jnp.ndarray] = None,
-    ) -> PowerSpectrum:
-        """Compute the shear flat-sky power spectrum (same as density maps)."""
-        effective_field_size = field_size or self.field_size
-        ell, spectra = angular_cl_flat(
-            self.array,
-            pixel_size=pixel_size,
-            field_size=effective_field_size,
-            ell_edges=ell_edges,
-        )
-        return PowerSpectrum(wavenumber=ell, spectra=spectra, name="cl")
+        Parameters
+        ----------
+        cosmo : jax_cosmo.Cosmology, optional
+            Cosmology object if needed for calculations
+
+        Returns
+        -------
+        Array
+            Convergence map
+
+        Raises
+        ------
+        NotImplementedError
+            This method is not yet implemented
+
+        Notes
+        -----
+        Future implementation will use FFT-based Kaiser-Squires inversion
+        to derive convergence from shear.
+        """
+        raise NotImplementedError("Convergence computation coming soon")
 
 
 class SphericalShearField(SphericalDensity):
@@ -349,28 +274,28 @@ class SphericalShearField(SphericalDensity):
             scale_factors=scale_factors,
         )
 
-    @classmethod
-    def FromDensityMetadata(
-        cls,
-        *,
-        array,
-        density_field: DensityField,
-        status=DensityStatus.GAMMA,
-        z_source=None,
-        scale_factors=None,
-    ) -> "SphericalShearField":
+    def get_convergence(self, cosmo=None):
         """
-        Construct SphericalShearField from a reference DensityField and shear array.
-        """
-        return super().FromDensityMetadata(
-            array=array,
-            density_field=density_field,
-            status=status,
-            z_source=z_source,
-            scale_factors=scale_factors,
-        )
+        Compute convergence from shear via spin-2 spherical harmonic transform.
 
-    def angular_cl(self, *, lmax: Optional[int] = None) -> PowerSpectrum:
-        """Compute the shear spherical power spectrum."""
-        ell_out, spectra = angular_cl_spherical(self.array, lmax=lmax)
-        return PowerSpectrum(wavenumber=ell_out, spectra=spectra, name="cl")
+        Parameters
+        ----------
+        cosmo : jax_cosmo.Cosmology, optional
+            Cosmology object if needed for calculations
+
+        Returns
+        -------
+        Array
+            Convergence map
+
+        Raises
+        ------
+        NotImplementedError
+            This method is not yet implemented
+
+        Notes
+        -----
+        Future implementation will use spin-weighted spherical harmonic
+        transforms to derive convergence from shear on the sphere.
+        """
+        raise NotImplementedError("Convergence computation coming soon")

@@ -89,14 +89,14 @@ def lpt(
         # Standard single-snapshot LPT: return ParticleField displacements
         # and momenta defined on the 3D mesh.
         dx_field = ParticleField.FromDensityMetadata(
-            dx,
-            initial_field,
+            array=dx,
+            density_field=initial_field,
             status=status,
             scale_factors=a,
         )
         p_field = ParticleField.FromDensityMetadata(
-            p,
-            initial_field,
+            array=p,
+            density_field=initial_field,
             status=status,
             scale_factors=a,
         )

@@ -122,8 +122,8 @@ def symplectic_ode(reference_field: ParticleField, paint_mode: str = "relative")
 
         # Wrap back into ParticleField
         return ParticleField.FromDensityMetadata(
-            dvel,
-            pos,
+            array=dvel,
+            density_field=pos,
             scale_factors=a,
         )
 
@@ -227,8 +227,8 @@ def symplectic_fpm_ode(reference_field: ParticleField,
         dpos = 1 / (ac**3 * E(cosmo, ac)) * vel.array
 
         return ParticleField.FromDensityMetadata(
-            dpos * (drift_contr / dt0),
-            vel,
+            array=dpos * (drift_contr / dt0),
+            density_field=vel,
             status=FieldStatus.PARTICLES,
             scale_factors=a,
         )
@@ -289,8 +289,8 @@ def symplectic_fpm_ode(reference_field: ParticleField,
 
         # Wrap back into ParticleField
         return ParticleField.FromDensityMetadata(
-            dvel * ((kick_factor_1 + kick_factor_2) / dt0),
-            pos,
+            array=dvel * ((kick_factor_1 + kick_factor_2) / dt0),
+            density_field=pos,
             status=FieldStatus.PARTICLES,
             scale_factors=a,
         )
@@ -338,8 +338,8 @@ def symplectic_fpm_ode(reference_field: ParticleField,
 
         # Wrap back into ParticleField
         return ParticleField.FromDensityMetadata(
-            dvel * (kick_factor / dt0),
-            pos,
+            array=dvel * (kick_factor / dt0),
+            density_field=pos,
             status=FieldStatus.PARTICLES,
             scale_factors=a,
         )

@@ -23,7 +23,6 @@ from fwd_model_tools.fields import (
     SphericalDensity,
     SphericalKappaField,
     SphericalShearField,
-    stack,
 )
 from fwd_model_tools.initial import gaussian_initial_conditions, interpolate_initial_conditions
 from fwd_model_tools.lensing import born, raytrace
@@ -64,7 +63,6 @@ __all__ = [
     "SphericalShearField",
     "FieldStatus",
     "DensityStatus",
-    "stack",
     # Initial conditions
     "gaussian_initial_conditions",
     "interpolate_initial_conditions",

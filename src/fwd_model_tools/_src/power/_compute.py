@@ -1,3 +1,5 @@
+import healpy as hp
+import jax.core
 import jax.numpy as jnp
 import jax_healpy as jhp
 import numpy as np
@@ -120,12 +122,14 @@ def _power(
 def _flat_cl(map2d, map2=None, *, pixel_size=None, field_size=None, ell_edges=None):
     nx, ny = map2d.shape
 
-    # pixel_size [radians per pixel] or derived from field_size
+    # pixel_size [radians per pixel] (scalar or (px, py)) or derived from field_size
     if pixel_size is None:
         if field_size is None:
             raise ValueError("pixel_size or field_size must be provided for flat-sky Cl")
-        # assumes square map and field_size is total size in one direction
-        pixel_size = field_size / float(nx)
+        field_x, field_y = field_size
+        px, py = field_x / nx, field_y / ny
+    else:
+        px, py = pixel_size
 
     if map2 is None:
         map2 = map2d
@@ -136,14 +140,14 @@ def _flat_cl(map2d, map2=None, *, pixel_size=None, field_size=None, ell_edges=No
     map_fft = jnp.fft.fft2(map2d)
     map2_fft = jnp.fft.fft2(map2)
 
-    # flat-sky normalization: A_pix / N_pix = pixel_size^2 / (nx * ny)
-    norm = pixel_size**2 / (nx * ny)
+    # flat-sky normalization: A_pix / N_pix = (px * py) / (nx * ny)
+    norm = (px * py) / (nx * ny)
     pk_2d = (map_fft * map2_fft.conj()) * norm
 
     # ℓ-grid
     # ℓx, ℓy in 1/rad
-    lx = 2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=pixel_size)
-    ly = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=pixel_size)
+    lx = 2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=px)
+    ly = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=py)
     LX, LY = jnp.meshgrid(lx, ly, indexing="ij")
     ell_grid = jnp.sqrt(LX**2 + LY**2)
 
@@ -168,10 +172,21 @@ def _flat_cl(map2d, map2=None, *, pixel_size=None, field_size=None, ell_edges=No
     return ell_avg, cl
 
 
-def _spherical_cl(map_sphere, map_sphere2=None, *, lmax=None):
+def _spherical_cl(map_sphere, map_sphere2=None, *, lmax=None, method="jax"):
     """Spherical (HEALPix) angular power spectrum using jax_healpy.anafast."""
+    if method == "healpy":
+        if not jax.core.is_concrete(map_sphere):
+            raise ValueError("method='healpy' requires concrete (non-jax) arrays")
+        if map_sphere2 is not None and not jax.core.is_concrete(map_sphere2):
+            raise ValueError("method='healpy' requires concrete (non-jax) arrays")
 
-    cl = jhp.anafast(map_sphere, map_sphere2, lmax=lmax, pol=False)
+        map_sphere_np = np.asarray(map_sphere)
+        map_sphere2_np = None if map_sphere2 is None else np.asarray(map_sphere2)
+        cl = hp.anafast(map_sphere_np, map_sphere2_np, lmax=lmax, pol=False)
+        ell_out = np.arange(cl.shape[0])
+        return jnp.asarray(ell_out), jnp.asarray(cl)
+
+    cl = jhp.anafast(map_sphere, map_sphere2, lmax=lmax, pol=False, method=method)
     ell_out = jnp.arange(cl.shape[-1])
     return ell_out, jnp.asarray(cl)
 

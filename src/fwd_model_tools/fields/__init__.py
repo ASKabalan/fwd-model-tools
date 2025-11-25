@@ -1,15 +1,7 @@
-from .density import (
-    AbstractField,
-    DensityField,
-    DensityStatus,
-    FieldStatus,
-    FlatDensity,
-    ParticleField,
-    SphericalDensity,
-    particle_from_density,
-    stack,
-)
+from .density import AbstractField, DensityField, DensityStatus, FieldStatus
 from .lensing_maps import FlatKappaField, FlatShearField, SphericalKappaField, SphericalShearField
+from .lightcone import FlatDensity, SphericalDensity
+from .particles import ParticleField, particle_from_density
 
 __all__ = [
     "FieldStatus",
@@ -24,5 +16,4 @@ __all__ = [
     "FlatShearField",
     "SphericalShearField",
     "particle_from_density",
-    "stack",
 ]
