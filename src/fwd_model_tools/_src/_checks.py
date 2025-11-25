@@ -5,16 +5,14 @@ from __future__ import annotations
 from typing import Any, Iterable, Tuple
 
 
-def _ensure_tuple3(name: str, values: Iterable[Any], *,
-                   cast: type) -> tuple[Any, Any, Any]:
+def _ensure_tuple3(name: str, values: Iterable[Any], *, cast: type) -> tuple[Any, Any, Any]:
     seq = tuple(values)
     if len(seq) != 3:
         raise ValueError(f"{name} must be a tuple of length 3, got {seq}")
     return tuple(cast(v) for v in seq)
 
 
-def _ensure_tuple2(name: str, values: Iterable[Any], *,
-                   cast: type) -> tuple[Any, Any]:
+def _ensure_tuple2(name: str, values: Iterable[Any], *, cast: type) -> tuple[Any, Any]:
     seq = tuple(values)
     if len(seq) != 2:
         raise ValueError(f"{name} must be a tuple of length 2, got {seq}")
@@ -40,8 +38,7 @@ def _optional_positive_int(name: str, value: int | None) -> int | None:
     return ivalue
 
 
-def _optional_tuple2_positive(
-        name: str, value: Tuple[int, int] | None) -> tuple[int, int] | None:
+def _optional_tuple2_positive(name: str, value: Tuple[int, int] | None) -> tuple[int, int] | None:
     if value is None:
         return None
     x, y = _ensure_tuple2(name, value, cast=int)

@@ -72,15 +72,12 @@ class PowerSpectrum:
         if self.spectra.shape == self.wavenumber.shape:
             return
 
-        if self.spectra.ndim == 2 and (self.spectra.shape[0] == n_k
-                                       or self.spectra.shape[1] == n_k):
+        if self.spectra.ndim == 2 and (self.spectra.shape[0] == n_k or self.spectra.shape[1] == n_k):
             return
 
-        raise ValueError(
-            "Incompatible shapes for wavenumber and spectra. "
-            f"Got wavenumber={self.wavenumber.shape}, spectra={self.spectra.shape}. "
-            "Expected spectra to be 1D with n_k or 2D with one axis equal to n_k."
-        )
+        raise ValueError("Incompatible shapes for wavenumber and spectra. "
+                         f"Got wavenumber={self.wavenumber.shape}, spectra={self.spectra.shape}. "
+                         "Expected spectra to be 1D with n_k or 2D with one axis equal to n_k.")
 
     # ---- Representation ---------------------------------------------------
     def __repr__(self) -> str:
@@ -103,10 +100,8 @@ class PowerSpectrum:
                 pk_batched = pk.T
                 transposed = True
             else:
-                raise ValueError(
-                    "Incompatible shapes for wavenumber and spectra. "
-                    f"Got wavenumber={self.wavenumber.shape}, spectra={pk.shape}."
-                )
+                raise ValueError("Incompatible shapes for wavenumber and spectra. "
+                                 f"Got wavenumber={self.wavenumber.shape}, spectra={pk.shape}.")
         else:
             raise ValueError("PowerSpectrum supports 1D or 2D spectra")
         return pk_batched, transposed
@@ -123,8 +118,7 @@ class PowerSpectrum:
         # Normalize key into (spec_sel, k_sel)
         if isinstance(key, tuple):
             if len(key) != 2:
-                raise ValueError(
-                    "__getitem__ expects key like spectra_sel, k_sel")
+                raise ValueError("__getitem__ expects key like spectra_sel, k_sel")
             spec_sel, k_sel = key
         else:
             spec_sel, k_sel = slice(None), key
@@ -140,9 +134,7 @@ class PowerSpectrum:
         else:
             spectra_out = pk_sel.T if transposed else pk_sel
 
-        return PowerSpectrum(wavenumber=k_new,
-                             spectra=spectra_out,
-                             name=self.name)
+        return PowerSpectrum(wavenumber=k_new, spectra=spectra_out, name=self.name)
 
     # ---- Plotting ---------------------------------------------------------
     def plot(
@@ -171,18 +163,14 @@ class PowerSpectrum:
         - "mean_std": mean curve with ±1σ band (uses colors[0] or next cycle).
         """
         if not jax.core.is_concrete(self.wavenumber):
-            raise ValueError(
-                "Cannot plot traced arrays. Use PowerSpectrum.plot() outside of a jit context."
-            )
+            raise ValueError("Cannot plot traced arrays. Use PowerSpectrum.plot() outside of a jit context.")
 
         k_1d = self.wavenumber
         n_k = k_1d.shape[0]
         if self.spectra.ndim == 1:
             if self.spectra.shape[0] != n_k:
-                raise ValueError(
-                    "wavenumber and spectra must match for 1D spectra, "
-                    f"got wavenumber={k_1d.shape}, spectra={self.spectra.shape}."
-                )
+                raise ValueError("wavenumber and spectra must match for 1D spectra, "
+                                 f"got wavenumber={k_1d.shape}, spectra={self.spectra.shape}.")
             pk_2d = self.spectra[None, :]
         elif self.spectra.ndim == 2:
             if self.spectra.shape[1] == n_k:
@@ -190,18 +178,15 @@ class PowerSpectrum:
             elif self.spectra.shape[0] == n_k:
                 pk_2d = self.spectra
             else:
-                raise ValueError(
-                    "Could not interpret spectra as a stack over wavenumber. "
-                    f"wavenumber.shape={k_1d.shape}, spectra.shape={self.spectra.shape}."
-                )
+                raise ValueError("Could not interpret spectra as a stack over wavenumber. "
+                                 f"wavenumber.shape={k_1d.shape}, spectra.shape={self.spectra.shape}.")
         else:
             raise ValueError("spectra must be 1D or 2D for plotting")
         n_spec = pk_2d.shape[0]
         artists: list[Any] = []
 
         if mode not in {"subplots", "overlay", "mean_std"}:
-            raise ValueError(
-                "mode must be 'subplots', 'overlay', or 'mean_std'.")
+            raise ValueError("mode must be 'subplots', 'overlay', or 'mean_std'.")
 
         if mode != "overlay" and labels is not None and len(labels) != n_spec:
             raise ValueError(f"Expected {n_spec} labels, got {len(labels)}.")
@@ -225,8 +210,7 @@ class PowerSpectrum:
             axes_flat = _flatten_axes(ax)
             if axes_flat is not None:
                 if axes_flat.size < n_spec:
-                    raise ValueError(
-                        "Provided axes array is too small for subplots mode.")
+                    raise ValueError("Provided axes array is too small for subplots mode.")
                 fig = axes_flat[0].get_figure()
                 axes = axes_flat[:n_spec]
             else:
@@ -244,14 +228,9 @@ class PowerSpectrum:
                 if i >= n_spec:
                     axes[i].axis("off")
                     continue
-                lab = (labels[i] if labels is not None else
-                       (self.name and f"{self.name} {i}") or f"Spectrum {i}")
+                lab = (labels[i] if labels is not None else (self.name and f"{self.name} {i}") or f"Spectrum {i}")
                 color = _get_color(axes[i], i)
-                line, = axes[i].loglog(k_1d,
-                                       pk_2d[i],
-                                       label=lab,
-                                       color=color,
-                                       **kwargs)
+                line, = axes[i].loglog(k_1d, pk_2d[i], label=lab, color=color, **kwargs)
                 artists.append(line)
                 if logx:
                     axes[i].set_xscale("log")
@@ -281,23 +260,15 @@ class PowerSpectrum:
         if mode == "overlay":
             for i in range(n_spec):
                 lab = ((label if label is not None and n_spec == 1 else None)
-                       or (labels[i] if labels is not None else None)
-                       or (self.name and f"{self.name} {i}")
+                       or (labels[i] if labels is not None else None) or (self.name and f"{self.name} {i}")
                        or f"Spectrum {i}")
                 color = _get_color(ax_single, i)
-                line, = ax_single.loglog(k_1d,
-                                         pk_2d[i],
-                                         label=lab,
-                                         color=color,
-                                         **kwargs)
+                line, = ax_single.loglog(k_1d, pk_2d[i], label=lab, color=color, **kwargs)
                 artists.append(line)
         elif mode == "mean_std":
             if n_spec == 1:
                 plot_label = label or self.name
-                line, = ax_single.loglog(k_1d,
-                                         pk_2d[0],
-                                         label=plot_label,
-                                         **kwargs)
+                line, = ax_single.loglog(k_1d, pk_2d[0], label=plot_label, **kwargs)
                 artists.append(line)
             else:
                 mean_pk = pk_2d.mean(axis=0)
@@ -306,11 +277,7 @@ class PowerSpectrum:
                 color = colors[0] if colors else kwargs.get("color", None)
                 if color is None:
                     color = _get_color(ax_single, 0)
-                line, = ax_single.loglog(k_1d,
-                                         mean_pk,
-                                         label=plot_label,
-                                         color=color,
-                                         **kwargs)
+                line, = ax_single.loglog(k_1d, mean_pk, label=plot_label, color=color, **kwargs)
                 band = ax_single.fill_between(
                     k_1d,
                     mean_pk - std_pk,
@@ -332,8 +299,7 @@ class PowerSpectrum:
         ax_single.set_xlabel(r"$k$ or $\ell$")
         ax_single.set_ylabel(r"$P(k)$ or $C_\ell$")
 
-        if any((artist.get_label() not in ("", "_nolegend_")
-                for artist in artists)):
+        if any((artist.get_label() not in ("", "_nolegend_") for artist in artists)):
             ax_single.legend()
 
         return fig, ax_single, artists
@@ -361,9 +327,7 @@ class PowerSpectrum:
         Parameters mirror :meth:`PowerSpectrum.plot`.
         """
         if not jax.core.is_concrete(self.wavenumber):
-            raise ValueError(
-                "Cannot plot traced arrays. Use PowerSpectrum.show() outside of a jit context."
-            )
+            raise ValueError("Cannot plot traced arrays. Use PowerSpectrum.show() outside of a jit context.")
 
         self.plot(
             ax=ax,
@@ -387,8 +351,7 @@ class PowerSpectrum:
         """Helper for elementwise binary ops with validation."""
         if isinstance(other, PowerSpectrum):
             if not jnp.allclose(self.wavenumber, other.wavenumber):
-                raise ValueError(
-                    "PowerSpectrum operations require matching wavenumbers")
+                raise ValueError("PowerSpectrum operations require matching wavenumbers")
             rhs = other.spectra
         else:
             rhs = other
@@ -442,37 +405,27 @@ class PowerSpectrum:
         Compare this spectrum to a list of other spectra.
         """
         if not jax.core.is_concrete(self.wavenumber):
-            raise ValueError(
-                "Cannot plot traced arrays. Use PowerSpectrum.compare() outside of a jit context."
-            )
+            raise ValueError("Cannot plot traced arrays. Use PowerSpectrum.compare() outside of a jit context.")
 
         if not other_spectra:
-            raise ValueError(
-                "other_spectra must contain at least one PowerSpectrum.")
+            raise ValueError("other_spectra must contain at least one PowerSpectrum.")
 
         if labels is not None and len(labels) != len(other_spectra):
-            raise ValueError(
-                f"Expected {len(other_spectra)} labels, got {len(labels)}.")
+            raise ValueError(f"Expected {len(other_spectra)} labels, got {len(labels)}.")
 
         k_ref = self.wavenumber
         n_k = k_ref.shape[0]
         if self.spectra.ndim == 1:
             if self.spectra.shape[0] != n_k:
-                raise ValueError(
-                    "wavenumber and spectra must match for 1D spectra, "
-                    f"got wavenumber={k_ref.shape}, spectra={self.spectra.shape}."
-                )
+                raise ValueError("wavenumber and spectra must match for 1D spectra, "
+                                 f"got wavenumber={k_ref.shape}, spectra={self.spectra.shape}.")
             pk_ref = self.spectra
-        elif self.spectra.ndim == 2 and self.spectra.shape[
-                0] == 1 and self.spectra.shape[1] == n_k:
+        elif self.spectra.ndim == 2 and self.spectra.shape[0] == 1 and self.spectra.shape[1] == n_k:
             pk_ref = self.spectra[0]
-        elif self.spectra.ndim == 2 and self.spectra.shape[
-                1] == n_k and self.spectra.shape[0] == 1:
+        elif self.spectra.ndim == 2 and self.spectra.shape[1] == n_k and self.spectra.shape[0] == 1:
             pk_ref = self.spectra[0]
         else:
-            raise ValueError(
-                "compare() currently requires a single spectrum aligned with wavenumber."
-            )
+            raise ValueError("compare() currently requires a single spectrum aligned with wavenumber.")
 
         if show_ratio:
             fig, (ax_main, ax_ratio) = plt.subplots(
@@ -509,12 +462,7 @@ class PowerSpectrum:
 
         # Plot reference spectrum
         ref_label = self.name or "reference"
-        ref_line, = _plot_main(ax_main,
-                               k_ref,
-                               pk_ref,
-                               color="k",
-                               lw=2,
-                               label=ref_label)
+        ref_line, = _plot_main(ax_main, k_ref, pk_ref, color="k", lw=2, label=ref_label)
         artists.append(ref_line)
 
         # ratio = 1 reference line
@@ -525,44 +473,28 @@ class PowerSpectrum:
         # Plot other spectra and ratios
         for i, other in enumerate(other_spectra):
             k_other = other.wavenumber
-            if k_other.shape != k_ref.shape or not jnp.allclose(
-                    k_ref, k_other):
-                raise ValueError(
-                    "All spectra in compare() must share the same wavenumber grid."
-                )
+            if k_other.shape != k_ref.shape or not jnp.allclose(k_ref, k_other):
+                raise ValueError("All spectra in compare() must share the same wavenumber grid.")
 
             if other.spectra.ndim == 1 and other.spectra.shape[0] == n_k:
                 pk_other = other.spectra
-            elif other.spectra.ndim == 2 and other.spectra.shape[
-                    0] == 1 and other.spectra.shape[1] == n_k:
+            elif other.spectra.ndim == 2 and other.spectra.shape[0] == 1 and other.spectra.shape[1] == n_k:
                 pk_other = other.spectra[0]
-            elif other.spectra.ndim == 2 and other.spectra.shape[
-                    1] == n_k and other.spectra.shape[0] == 1:
+            elif other.spectra.ndim == 2 and other.spectra.shape[1] == n_k and other.spectra.shape[0] == 1:
                 pk_other = other.spectra[0]
             else:
                 raise ValueError(
-                    "compare() currently supports only single-spectrum PowerSpectrum instances in other_spectra."
-                )
+                    "compare() currently supports only single-spectrum PowerSpectrum instances in other_spectra.")
 
             color = ax_main._get_lines.get_next_color()
-            lab = (labels[i] if labels is not None else
-                   (other.name or f"spectrum {i}"))
+            lab = (labels[i] if labels is not None else (other.name or f"spectrum {i}"))
 
-            line_main, = _plot_main(ax_main,
-                                    k_ref,
-                                    pk_other,
-                                    color=color,
-                                    label=lab,
-                                    **kwargs)
+            line_main, = _plot_main(ax_main, k_ref, pk_other, color=color, label=lab, **kwargs)
             artists.append(line_main)
 
             if show_ratio:
                 ratio = pk_other / pk_ref
-                line_ratio, = _plot_ratio(ax_ratio,
-                                          k_ref,
-                                          ratio,
-                                          color=color,
-                                          label=lab)
+                line_ratio, = _plot_ratio(ax_ratio, k_ref, ratio, color=color, label=lab)
                 artists.append(line_ratio)
 
         # Grid styling
@@ -612,13 +544,9 @@ class PowerSpectrum:
         name = spectra[0].name
         for spec in spectra[1:]:
             if spec.shape != spectra[0].shape:
-                raise ValueError(
-                    "All PowerSpectrum instances must share the same wavenumber grid to be stacked."
-                )
+                raise ValueError("All PowerSpectrum instances must share the same wavenumber grid to be stacked.")
             if spec.name != name:
-                raise ValueError(
-                    "All PowerSpectrum instances must share the same name to be stacked."
-                )
+                raise ValueError("All PowerSpectrum instances must share the same name to be stacked.")
 
         spectra = jnp.stack([spec.spectra for spec in spectra], axis=0)
         return cls(wavenumber=ref_k, spectra=spectra, name=name)

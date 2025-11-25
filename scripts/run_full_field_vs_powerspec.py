@@ -7,8 +7,7 @@ os.environ["EQX_ON_ERROR"] = "nan"
 os.environ["JAX_ENABLE_X64"] = "False"
 os.environ["JAX_PLATFORMS"] = "cpu"
 
-if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(
-        os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1:
+if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1:
     os.environ["VSCODE_PROXY_URI"] = ""
     os.environ["no_proxy"] = ""
     os.environ["NO_PROXY"] = ""
@@ -45,11 +44,9 @@ from scipy.stats import norm
 
 from fwd_model_tools import Configurations, Planck18, full_field_probmodel
 from fwd_model_tools.plotting import plot_kappa, plot_lightcone
-from fwd_model_tools.probabilistic_models.power_spec_model import (
-    compute_cl_from_convergence_map, powerspec_probmodel)
+from fwd_model_tools.probabilistic_models.power_spec_model import compute_cl_from_convergence_map, powerspec_probmodel
 from fwd_model_tools.sampling import batched_sampling, load_samples
-from fwd_model_tools.utils import (compute_box_size_from_redshift,
-                                   reconstruct_full_sphere)
+from fwd_model_tools.utils import compute_box_size_from_redshift, reconstruct_full_sphere
 
 
 def setup_output_dir(output_dir):
@@ -103,8 +100,7 @@ def create_redshift_distribution(max_redshift):
     return nz_shear, nbins
 
 
-def generate_synthetic_observations(config, fiducial_cosmology,
-                                    initial_conditions, data_dir, plots_dir):
+def generate_synthetic_observations(config, fiducial_cosmology, initial_conditions, data_dir, plots_dir):
     print("\nGenerating synthetic observations")
 
     # TODO: update to new API full_field_probmodel(template_field, config)
@@ -127,14 +123,9 @@ def generate_synthetic_observations(config, fiducial_cosmology,
 
     nbins = len(config.nz_shear)
     kappa_keys = [f"kappa_{i}" for i in range(nbins)]
-    true_kappas_visible = {
-        key: model_trace[key]["value"]
-        for key in kappa_keys
-    }
+    true_kappas_visible = {key: model_trace[key]["value"] for key in kappa_keys}
 
-    true_kappas_full = reconstruct_full_sphere(true_kappas_visible,
-                                               config.nside,
-                                               config.observer_position)
+    true_kappas_full = reconstruct_full_sphere(true_kappas_visible, config.nside, config.observer_position)
 
     np.savez(
         data_dir / "true_kappas.npz",
@@ -158,8 +149,7 @@ def generate_synthetic_observations(config, fiducial_cosmology,
     return true_kappas_visible, true_kappas_full, kappa_keys
 
 
-def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir,
-                          plots_dir):
+def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir, plots_dir):
     print("\nComputing power spectra with healpy.anafast")
 
     ell_max = 3 * nside - 1
@@ -197,8 +187,7 @@ def compute_power_spectra(true_kappas_full, kappa_keys, nbins, nside, data_dir,
     return observed_cls, ell
 
 
-def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
-                             init_params):
+def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args, init_params):
     print("\nSetting up full-field MCMC inference")
 
     config_inference = Configurations(
@@ -227,10 +216,8 @@ def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
     nbins = len(config.nz_shear)
     observed_model = condition(
         full_field_basemodel,
-        {
-            f"kappa_{i}": true_kappas_visible[f"kappa_{i}"]
-            for i in range(nbins)
-        },
+        {f"kappa_{i}": true_kappas_visible[f"kappa_{i}"]
+         for i in range(nbins)},
     )
 
     print(f"Sampling with {args.sampler} using {args.backend} backend")
@@ -252,8 +239,7 @@ def run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
     print("Full-field MCMC sampling completed")
 
 
-def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
-                            fiducial_cosmology):
+def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args, fiducial_cosmology):
     print("\nSetting up power spectrum MCMC inference")
 
     model = powerspec_probmodel(config, nside=config.nside)
@@ -283,16 +269,13 @@ def run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
     print("Power spectrum MCMC sampling completed")
 
 
-def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
-                                plots_dir):
+def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_dir):
     print("\nLoading and comparing samples")
 
-    samples_ff = load_samples(str(samples_dir_ff),
-                              param_names=["Omega_c", "sigma8"])
+    samples_ff = load_samples(str(samples_dir_ff), param_names=["Omega_c", "sigma8"])
     print(f"Loaded {len(samples_ff['Omega_c'])} full-field samples")
 
-    samples_ps = load_samples(str(samples_dir_ps),
-                              param_names=["Omega_c", "sigma8"])
+    samples_ps = load_samples(str(samples_dir_ps), param_names=["Omega_c", "sigma8"])
     print(f"Loaded {len(samples_ps['Omega_c'])} power spectrum samples")
 
     true_data = np.load(data_dir / "true_kappas.npz")
@@ -300,35 +283,21 @@ def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
     true_sigma8 = float(true_data["sigma8"])
 
     print("\nFull-Field Posterior Statistics:")
-    print(
-        f"Omega_c: {samples_ff['Omega_c'].mean():.4f} ± {samples_ff['Omega_c'].std():.4f}"
-    )
-    print(
-        f"sigma8: {samples_ff['sigma8'].mean():.4f} ± {samples_ff['sigma8'].std():.4f}"
-    )
+    print(f"Omega_c: {samples_ff['Omega_c'].mean():.4f} ± {samples_ff['Omega_c'].std():.4f}")
+    print(f"sigma8: {samples_ff['sigma8'].mean():.4f} ± {samples_ff['sigma8'].std():.4f}")
 
     print("\nPower Spectrum Posterior Statistics:")
-    print(
-        f"Omega_c: {samples_ps['Omega_c'].mean():.4f} ± {samples_ps['Omega_c'].std():.4f}"
-    )
-    print(
-        f"sigma8: {samples_ps['sigma8'].mean():.4f} ± {samples_ps['sigma8'].std():.4f}"
-    )
+    print(f"Omega_c: {samples_ps['Omega_c'].mean():.4f} ± {samples_ps['Omega_c'].std():.4f}")
+    print(f"sigma8: {samples_ps['sigma8'].mean():.4f} ± {samples_ps['sigma8'].std():.4f}")
 
     params = ("Omega_c", "sigma8")
     labels = [r"\Omega_c", r"\sigma_8"]
 
     samples_ff_array = np.column_stack([samples_ff[p] for p in params])
-    mc_samples_ff = MCSamples(samples=samples_ff_array,
-                              names=params,
-                              labels=labels,
-                              label="Full-Field")
+    mc_samples_ff = MCSamples(samples=samples_ff_array, names=params, labels=labels, label="Full-Field")
 
     samples_ps_array = np.column_stack([samples_ps[p] for p in params])
-    mc_samples_ps = MCSamples(samples=samples_ps_array,
-                              names=params,
-                              labels=labels,
-                              label="Power Spectrum")
+    mc_samples_ps = MCSamples(samples=samples_ps_array, names=params, labels=labels, label="Power Spectrum")
 
     markers_dict = {"Omega_c": true_Omega_c, "sigma8": true_sigma8}
 
@@ -343,16 +312,13 @@ def analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
         legend_labels=["Full-Field", "Power Spectrum"],
     )
 
-    plt.savefig(plots_dir / "comparison_posterior.png",
-                dpi=600,
-                bbox_inches="tight")
+    plt.savefig(plots_dir / "comparison_posterior.png", dpi=600, bbox_inches="tight")
     plt.close()
     print("Plotted comparison posteriors")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Full-Field Sampling vs Power Spectrum Inference")
+    parser = argparse.ArgumentParser(description="Full-Field Sampling vs Power Spectrum Inference")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -452,21 +418,16 @@ def main():
     args = parser.parse_args()
 
     if args.geometry != "spherical":
-        raise ValueError(
-            "Geometry must be 'spherical' for power spectrum computation")
+        raise ValueError("Geometry must be 'spherical' for power spectrum computation")
 
     print(f"JAX devices: {jax.device_count()}")
     print(f"JAX backend: {jax.default_backend()}")
 
-    output_dir, plots_dir, samples_dir_ff, samples_dir_ps, data_dir = setup_output_dir(
-        args.output_dir)
+    output_dir, plots_dir, samples_dir_ff, samples_dir_ps, data_dir = setup_output_dir(args.output_dir)
 
     if args.plot_only:
-        print(
-            "\nPlot-only mode: Loading existing samples and generating plots..."
-        )
-        analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
-                                    plots_dir)
+        print("\nPlot-only mode: Loading existing samples and generating plots...")
+        analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir, plots_dir)
         return
 
     sharding = setup_sharding(tuple(args.pdims))
@@ -474,9 +435,7 @@ def main():
     fiducial_cosmology = Planck18()
     observer_position = tuple(args.observer_position)
     # Physical box size inferred from max redshift and observer position
-    box_size = compute_box_size_from_redshift(fiducial_cosmology,
-                                              args.max_redshift,
-                                              observer_position)
+    box_size = compute_box_size_from_redshift(fiducial_cosmology, args.max_redshift, observer_position)
 
     print(f"Box size: {box_size} Mpc/h")
     print(f"Max redshift: {args.max_redshift}")
@@ -512,17 +471,13 @@ def main():
 
     print("Configuration created")
 
-    initial_conditions = normal_field(jax.random.key(args.seed),
-                                      box_size,
-                                      sharding=sharding)
+    initial_conditions = normal_field(jax.random.key(args.seed), box_size, sharding=sharding)
     print("Initial conditions generated")
 
     true_kappas_visible, true_kappas_full, kappa_keys = generate_synthetic_observations(
         config, fiducial_cosmology, initial_conditions, data_dir, plots_dir)
 
-    observed_cls, ell = compute_power_spectra(true_kappas_full, kappa_keys,
-                                              nbins, config.nside, data_dir,
-                                              plots_dir)
+    observed_cls, ell = compute_power_spectra(true_kappas_full, kappa_keys, nbins, config.nside, data_dir, plots_dir)
 
     init_params = {
         "Omega_c": fiducial_cosmology.Omega_c,
@@ -534,8 +489,7 @@ def main():
     #run_full_field_inference(config, true_kappas_visible, samples_dir_ff, args,
     #                         init_params)
 
-    run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args,
-                            fiducial_cosmology)
+    run_powerspec_inference(config, observed_cls, ell, samples_dir_ps, args, fiducial_cosmology)
 
     #analyze_and_compare_results(samples_dir_ff, samples_dir_ps, data_dir,
     #                            plots_dir)

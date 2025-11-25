@@ -5,13 +5,10 @@ import jaxpm.utils as ju
 import numpy as np
 import pytest
 
-from fwd_model_tools.fields import (DensityField, DensityStatus, FieldStatus,
-                                    FlatDensity, SphericalDensity)
+from fwd_model_tools.fields import DensityField, DensityStatus, FieldStatus, FlatDensity, SphericalDensity
 from fwd_model_tools.initial import gaussian_initial_conditions
 from fwd_model_tools.pm import lpt
-from fwd_model_tools.power import (PowerSpectrum, angular_cl_flat,
-                                   angular_cl_spherical, compute_theory_cl,
-                                   power)
+from fwd_model_tools.power import PowerSpectrum, angular_cl_flat, angular_cl_spherical, compute_theory_cl, power
 from fwd_model_tools.probabilistic_models.full_field_model import Planck18
 
 
@@ -69,8 +66,7 @@ def test_power_spectrum_pytree_roundtrip_and_ops():
 
 
 def test_power_matches_density_method():
-    density_field = _base_density_field().replace(
-        array=jnp.arange(64.0).reshape(4, 4, 4))
+    density_field = _base_density_field().replace(array=jnp.arange(64.0).reshape(4, 4, 4))
     direct_k, direct_pk = power(
         density_field.array,
         box_shape=density_field.box_size,
@@ -94,8 +90,7 @@ def test_angular_cl_matches_method():
 
 def test_angular_cl_matches_method_and_requires_geometry():
     flat = _flat_density()
-    direct_ell, direct_cl = angular_cl_flat(flat.array,
-                                            field_size=flat.field_size)
+    direct_ell, direct_cl = angular_cl_flat(flat.array, field_size=flat.field_size)
     via_method = flat.angular_cl()
 
     assert direct_ell.shape == via_method.wavenumber.shape
@@ -136,12 +131,10 @@ def test_power_matches_jaxpm_utils_after_lpt():
     density = dx_field.paint(mode="relative")
 
     k_arr, pk_arr = power(density.array, box_shape=box_size)
-    k_ref, pk_ref = ju.power_spectrum(np.array(density.array),
-                                      box_shape=box_size)
+    k_ref, pk_ref = ju.power_spectrum(np.array(density.array), box_shape=box_size)
 
     max_dk = np.max(np.abs(np.array(k_arr) - k_ref))
-    rel_dpk = np.max(
-        np.abs(np.array(pk_arr) - pk_ref) / (np.abs(pk_ref) + 1e-12))
+    rel_dpk = np.max(np.abs(np.array(pk_arr) - pk_ref) / (np.abs(pk_ref) + 1e-12))
 
     assert max_dk < 1e-6
     assert rel_dpk < 1e-3, f"Relative pk mismatch {rel_dpk}"  # currently ~8e-3

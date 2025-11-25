@@ -17,10 +17,7 @@ from ..utils import compute_snapshot_scale_factors
 __all__ = ["nbody"]
 
 
-@partial(jax.jit,
-         static_argnames=[
-             't1', 'dt0', 'nb_shells', 'geometry', 'solver', 'adjoint'
-         ])
+@partial(jax.jit, static_argnames=['t1', 'dt0', 'nb_shells', 'geometry', 'solver', 'adjoint'])
 def nbody(
         cosmo,
         dx_field: ParticleField,
@@ -87,9 +84,7 @@ def nbody(
     """
     # Validate inputs
     if geometry not in ["spherical", "flat", "density", "particles"]:
-        raise ValueError(
-            f"geometry must be 'spherical' or 'flat' or 'density' or 'particles', got {geometry}"
-        )
+        raise ValueError(f"geometry must be 'spherical' or 'flat' or 'density' or 'particles', got {geometry}")
     if ts is None and nb_shells is None:
         raise ValueError("Either ts or nb_shells must be provided.")
 
@@ -114,9 +109,7 @@ def nbody(
 
     # Compute shell centers using field properties
     if ts is None:
-        ts = compute_snapshot_scale_factors(cosmo,
-                                            dx_field,
-                                            nb_shells=nb_shells)
+        ts = compute_snapshot_scale_factors(cosmo, dx_field, nb_shells=nb_shells)
 
     density_plane_width = dx_field.density_width(nb_shells=ts.shape[0])
     # Create ODE terms using local symplectic_ode with ParticleField
@@ -126,8 +119,7 @@ def nbody(
     # Set up SaveAt with appropriate density function
     if geometry == "spherical":
         if nside is None:
-            raise ValueError(
-                "Field must have nside set for spherical geometry")
+            raise ValueError("Field must have nside set for spherical geometry")
 
         def snapshot_fn(t, y, args):
             # Convert scale factor to comoving distance
@@ -145,8 +137,7 @@ def nbody(
             )
     elif geometry == "flat":
         if flatsky_npix is None:
-            raise ValueError(
-                "Field must have flatsky_npix set for flat geometry")
+            raise ValueError("Field must have flatsky_npix set for flat geometry")
 
         def snapshot_fn(t, y, args):
             # Convert scale factor to comoving distance

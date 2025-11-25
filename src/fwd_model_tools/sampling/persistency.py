@@ -7,10 +7,7 @@ import jax
 import orbax.checkpoint as ocp
 
 
-def save_sharded(pytree,
-                 path,
-                 overwrite: bool = True,
-                 dump_structure: bool = True):
+def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = True):
     """
     Saves a (possibly sharded) PyTree to disk using Orbax Checkpoint.
 
@@ -29,9 +26,7 @@ def save_sharded(pytree,
     path = Path(path).absolute()
     checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
 
-    checkpointer.save(path,
-                      args=ocp.args.StandardSave(pytree),
-                      force=overwrite)
+    checkpointer.save(path, args=ocp.args.StandardSave(pytree), force=overwrite)
     checkpointer.wait_until_finished()
 
     if dump_structure:
@@ -47,8 +42,7 @@ def save_sharded(pytree,
             return x
 
         abstract_pytree = jax.tree.map(to_shape_dtype_struct_safe, pytree)
-        abstract_pytree_no_sharding = jax.tree.map(strip_sharding,
-                                                   abstract_pytree)
+        abstract_pytree_no_sharding = jax.tree.map(strip_sharding, abstract_pytree)
 
         with open(structure_path, "wb") as f:
             pickle.dump(abstract_pytree_no_sharding, f)
@@ -78,7 +72,6 @@ def load_sharded(path, abstract_pytree=None):
             abstract_pytree = pickle.load(f)
 
     checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
-    restored = checkpointer.restore(
-        path, args=ocp.args.StandardRestore(abstract_pytree))
+    restored = checkpointer.restore(path, args=ocp.args.StandardRestore(abstract_pytree))
     checkpointer.wait_until_finished()
     return restored

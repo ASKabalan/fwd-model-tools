@@ -31,17 +31,38 @@ def batched_sampling(
     *model_args,
     **model_kwargs,
 ):
+    """
+    Run MCMC in batches, checkpointing after each batch to disk.
+
+    Parameters mirror the underlying NumPyro/BlackJAX samplers; results are
+    saved under ``path`` as ``samples_*`` and ``sampling_state``.
+
+    Examples
+    --------
+    >>> import jax.random as jr
+    >>> import numpyro
+    >>> def toy_model():  # zero-arg model for brevity
+    ...     numpyro.sample("x", numpyro.distributions.Normal(0, 1))
+    >>> batched_sampling(
+    ...     toy_model,
+    ...     path=\"output/toy\",
+    ...     rng_key=jr.PRNGKey(0),
+    ...     num_warmup=10,
+    ...     num_samples=20,
+    ...     batch_count=2,
+    ...     backend=\"numpyro\",
+    ...     progress_bar=False,
+    ... )
+    """
     os.makedirs(path, exist_ok=True)
     state_path = f"{path}/sampling_state"
     samples_prefix = f"{path}/samples"
     nb_samples = 0
     init_params = jax.tree.map(jnp.asarray, init_params)
 
-    assert backend in {"numpyro",
-                       "blackjax"}, "Backend must be 'numpyro' or 'blackjax'"
+    assert backend in {"numpyro", "blackjax"}, "Backend must be 'numpyro' or 'blackjax'"
     if backend == "numpyro":
-        assert sampler in {"NUTS",
-                           "HMC"}, "Only NUTS and HMC supported by numpyro"
+        assert sampler in {"NUTS", "HMC"}, "Only NUTS and HMC supported by numpyro"
     if sampler == "MCLMC":
         assert backend == "blackjax", "MCLMC is only supported by blackjax"
 
@@ -49,18 +70,15 @@ def batched_sampling(
     if backend == "blackjax":
         kwargs = {}
         if init_params is not None:
-            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value,
-                                              values=init_params)
+            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
 
-        init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(
-            init_key,
-            model,
-            model_args=model_args,
-            model_kwargs=model_kwargs,
-            dynamic_args=True,
-            **kwargs)
-        logdensity_fn = lambda position: -potential_fn(*model_args, **
-                                                       model_kwargs)(position)
+        init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(init_key,
+                                                                            model,
+                                                                            model_args=model_args,
+                                                                            model_kwargs=model_kwargs,
+                                                                            dynamic_args=True,
+                                                                            **kwargs)
+        logdensity_fn = lambda position: -potential_fn(*model_args, **model_kwargs)(position)
         initial_position = init_params_obj.z
     else:
         logdensity_fn = None
@@ -79,9 +97,7 @@ def batched_sampling(
                                                logdensity_fn,
                                                progress_bar=progress_bar,
                                                target_acceptance_rate=0.8)
-            (last_state, parameters), _ = adapt.run(warmup_key,
-                                                    initial_position,
-                                                    num_warmup)
+            (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
         elif sampler == "HMC":
             adapt = blackjax.window_adaptation(
                 blackjax.hmc,
@@ -90,14 +106,11 @@ def batched_sampling(
                 target_acceptance_rate=0.8,
                 num_integration_steps=10,
             )
-            (last_state, parameters), _ = adapt.run(warmup_key,
-                                                    initial_position,
-                                                    num_warmup)
+            (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
         elif sampler == "MCLMC":
-            initial_state = blackjax.mcmc.mclmc.init(
-                position=initial_position,
-                logdensity_fn=logdensity_fn,
-                rng_key=init_key)
+            initial_state = blackjax.mcmc.mclmc.init(position=initial_position,
+                                                     logdensity_fn=logdensity_fn,
+                                                     rng_key=init_key)
             if state_exists:
                 parameters = {
                     "L": jax.ShapeDtypeStruct((),
@@ -122,10 +135,7 @@ def batched_sampling(
                     diagonal_preconditioning=False,
                     desired_energy_var=1e-3,
                 )
-                parameters = {
-                    "L": tuned_params.L,
-                    "step_size": tuned_params.step_size
-                }
+                parameters = {"L": tuned_params.L, "step_size": tuned_params.step_size}
             sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
             last_state = tuned_state
         else:
@@ -133,12 +143,10 @@ def batched_sampling(
     elif backend == "numpyro":
         kwargs = {}
         if init_params is not None:
-            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value,
-                                              values=init_params)
+            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
 
         mcmc = MCMC(
-            NUTS(model, **kwargs) if sampler == "NUTS" else HMC(
-                model, **kwargs),
+            NUTS(model, **kwargs) if sampler == "NUTS" else HMC(model, **kwargs),
             num_warmup=num_warmup,
             num_samples=num_samples,
             progress_bar=True,
@@ -150,15 +158,8 @@ def batched_sampling(
         raise ValueError(f"Unsupported backend: {backend}")
 
     if save and not state_exists:
-        inference_state = {
-            "nb_samples": jnp.array(0),
-            "last_state": last_state,
-            "parameters": parameters
-        }
-        save_sharded(inference_state,
-                     state_path,
-                     overwrite=True,
-                     dump_structure=False)
+        inference_state = {"nb_samples": jnp.array(0), "last_state": last_state, "parameters": parameters}
+        save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
 
     if state_exists:
         abstract_state = jax.tree.map(
@@ -192,9 +193,7 @@ def batched_sampling(
         return
 
     for i in range(start_batch, batch_count):
-        print(
-            f"Sampling batch {i + 1}/{batch_count} using {sampler} with {backend}..."
-        )
+        print(f"Sampling batch {i + 1}/{batch_count} using {sampler} with {backend}...")
         print(f"At sample batch {i + 1}, total samples so far: {nb_samples}")
 
         run_key, batch_key = jax.random.split(run_key)
@@ -221,10 +220,7 @@ def batched_sampling(
             )
 
             mcmc.post_warmup_state = last_state
-            mcmc.run(batch_key,
-                     *model_args,
-                     **model_kwargs,
-                     extra_fields=("num_steps", ))
+            mcmc.run(batch_key, *model_args, **model_kwargs, extra_fields=("num_steps", ))
             samples = mcmc.get_samples()
             nb_evals = mcmc.get_extra_fields()["num_steps"]
             last_state = mcmc.last_state
@@ -237,24 +233,15 @@ def batched_sampling(
             print(f"Saving batch {i + 1} samples and state...")
             samples["num_steps"] = jnp.array(nb_evals)
             save_sharded(samples, f"{samples_prefix}_{i}", overwrite=True)
-            inference_state = {
-                "nb_samples": jnp.array(nb_samples),
-                "last_state": last_state,
-                "parameters": parameters
-            }
-            save_sharded(inference_state,
-                         state_path,
-                         overwrite=True,
-                         dump_structure=False)
+            inference_state = {"nb_samples": jnp.array(nb_samples), "last_state": last_state, "parameters": parameters}
+            save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
         del samples
 
 
-def load_samples(
-    path: str,
-    param_names: list[str] = None,
-    last_n_batches: int = None,
-    transform: str | tuple[str, str] | None = None
-) -> dict | tuple[dict, dict]:
+def load_samples(path: str,
+                 param_names: list[str] = None,
+                 last_n_batches: int = None,
+                 transform: str | tuple[str, str] | None = None) -> dict | tuple[dict, dict]:
     """
     Efficiently load and concatenate parameter samples from saved batches.
 
@@ -292,10 +279,8 @@ def load_samples(
 
     print(f"Loading {len(checkpoint_dirs)} sample batch(es) from {path}")
 
-    compute_mean = transform == "mean" or (isinstance(transform, tuple)
-                                           and "mean" in transform)
-    compute_std = transform == "std" or (isinstance(transform, tuple)
-                                         and "std" in transform)
+    compute_mean = transform == "mean" or (isinstance(transform, tuple) and "mean" in transform)
+    compute_std = transform == "std" or (isinstance(transform, tuple) and "std" in transform)
 
     B = len(checkpoint_dirs)
     all_available_params = set()
@@ -305,9 +290,7 @@ def load_samples(
     Ex2_accumulators = {}
 
     for i, checkpoint_dir in enumerate(checkpoint_dirs):
-        print(
-            f"  Loading batch {i + 1}/{len(checkpoint_dirs)}: {checkpoint_dir.name}"
-        )
+        print(f"  Loading batch {i + 1}/{len(checkpoint_dirs)}: {checkpoint_dir.name}")
         batch_samples = load_sharded(str(checkpoint_dir))
 
         if i == 0:
@@ -315,16 +298,10 @@ def load_samples(
             if param_names is not None:
                 missing_params = set(param_names) - all_available_params
                 if missing_params:
-                    print(
-                        f"  Warning: Parameters {missing_params} not found in samples. Skipping."
-                    )
-                params_to_load = [
-                    p for p in param_names if p in all_available_params
-                ]
+                    print(f"  Warning: Parameters {missing_params} not found in samples. Skipping.")
+                params_to_load = [p for p in param_names if p in all_available_params]
                 if not params_to_load:
-                    print(
-                        f"  No requested parameters found. Available: {all_available_params}"
-                    )
+                    print(f"  No requested parameters found. Available: {all_available_params}")
             else:
                 params_to_load = list(all_available_params)
 
@@ -337,37 +314,31 @@ def load_samples(
             if transform is None:
                 if i == 0:
                     if batch_data.ndim == 0:
-                        result_dict[param] = jnp.expand_dims(batch_data,
-                                                             axis=0)
+                        result_dict[param] = jnp.expand_dims(batch_data, axis=0)
                     else:
                         result_dict[param] = batch_data
                 else:
                     if batch_data.ndim == 0:
                         batch_data = jnp.expand_dims(batch_data, axis=0)
-                    result_dict[param] = jnp.concatenate(
-                        [result_dict[param], batch_data], axis=0)
+                    result_dict[param] = jnp.concatenate([result_dict[param], batch_data], axis=0)
 
             else:
                 if compute_mean:
                     batch_mean = batch_data.mean(axis=0)
                     if param not in mean_accumulators:
                         mean_accumulators[param] = jnp.zeros_like(batch_mean)
-                    mean_accumulators[
-                        param] = mean_accumulators[param] + batch_mean
+                    mean_accumulators[param] = mean_accumulators[param] + batch_mean
 
                 if compute_std:
                     batch_Ex2 = (batch_data**2).mean(axis=0)
                     if param not in Ex2_accumulators:
                         Ex2_accumulators[param] = jnp.zeros_like(batch_Ex2)
-                    Ex2_accumulators[
-                        param] = Ex2_accumulators[param] + batch_Ex2
+                    Ex2_accumulators[param] = Ex2_accumulators[param] + batch_Ex2
 
         del batch_samples
 
     if transform is None:
-        print(
-            f"Loaded {len(result_dict)} parameter(s): {list(result_dict.keys())}"
-        )
+        print(f"Loaded {len(result_dict)} parameter(s): {list(result_dict.keys())}")
         if params_to_load:
             print(f"Total samples: {result_dict[params_to_load[0]].shape[0]}")
         return result_dict
@@ -382,8 +353,7 @@ def load_samples(
     if compute_std:
         if not compute_mean:
             for param in Ex2_accumulators:
-                mean_result[param] = mean_accumulators.get(
-                    param, jnp.zeros_like(Ex2_accumulators[param])) / B
+                mean_result[param] = mean_accumulators.get(param, jnp.zeros_like(Ex2_accumulators[param])) / B
 
         for param in Ex2_accumulators:
             Ex = mean_result[param]

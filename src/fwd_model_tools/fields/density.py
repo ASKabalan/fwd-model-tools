@@ -14,21 +14,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from jax.image import resize
 from jaxpm.distributed import uniform_particles
-from jaxpm.painting import (cic_paint, cic_paint_2d, cic_paint_dx, cic_read,
-                            cic_read_dx)
+from jaxpm.painting import cic_paint, cic_paint_2d, cic_paint_dx, cic_read, cic_read_dx
 from jaxpm.spherical import paint_particles_spherical
 from jaxtyping import Array
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from fwd_model_tools._src._checks import (_ensure_tuple2, _ensure_tuple3,
-                                          _normalize_halo_size,
-                                          _optional_positive_int,
-                                          _optional_tuple2_positive)
-from fwd_model_tools._src._painting import (_single_paint, _single_paint_2d,
-                                            _single_paint_spherical)
+from fwd_model_tools._src._checks import (
+    _ensure_tuple2,
+    _ensure_tuple3,
+    _normalize_halo_size,
+    _optional_positive_int,
+    _optional_tuple2_positive,
+)
+from fwd_model_tools._src._painting import _single_paint, _single_paint_2d, _single_paint_spherical
 from fwd_model_tools._src.core import AbstractField
-from fwd_model_tools.power import (PowerSpectrum, angular_cl_flat,
-                                   angular_cl_spherical, coherence)
+from fwd_model_tools.power import PowerSpectrum, angular_cl_flat, angular_cl_spherical, coherence
 from fwd_model_tools.power import power as power_fn
 from fwd_model_tools.power import transfer
 
@@ -108,15 +108,31 @@ class DensityField(AbstractField):
         status: FieldStatus = FieldStatus.RAW,
         scale_factors: float = 1.0,
     ):
+        """
+        Initialize a density-like field along with its geometric metadata.
+
+        Parameters are kept explicit so downstream painting/analysis utilities
+        (flat, spherical, lightcone) have all required context.
+
+        Examples
+        --------
+        >>> import jax.numpy as jnp
+        >>> arr = jnp.zeros((16, 16, 16))
+        >>> field = DensityField(
+        ...     array=arr,
+        ...     mesh_size=(16, 16, 16),
+        ...     box_size=(200.0, 200.0, 200.0),
+        ...     flatsky_npix=(32, 32),
+        ... )
+        >>> field.mesh_size
+        (16, 16, 16)
+        """
         super().__init__(array=array)
         mesh_size = _ensure_tuple3("mesh_size", mesh_size, cast=int)
         box_size = _ensure_tuple3("box_size", box_size, cast=float)
-        observer_position = _ensure_tuple3("observer_position",
-                                           observer_position,
-                                           cast=float)
+        observer_position = _ensure_tuple3("observer_position", observer_position, cast=float)
         if any(not 0.0 <= frac <= 1.0 for frac in observer_position):
-            raise ValueError(
-                "observer_position entries must lie within [0, 1]")
+            raise ValueError("observer_position entries must lie within [0, 1]")
         halo_size = _normalize_halo_size(halo_size)
         nside = _optional_positive_int("nside", nside)
         flatsky_npix = _optional_tuple2_positive("flatsky_npix", flatsky_npix)
@@ -184,9 +200,7 @@ class DensityField(AbstractField):
     @property
     def observer_position_mpc(self) -> tuple[float, float, float]:
         """Observer coordinates in physical units (box_size scaled)."""
-        return tuple(
-            frac * length
-            for frac, length in zip(self.observer_position, self.box_size))
+        return tuple(frac * length for frac, length in zip(self.observer_position, self.box_size))
 
     @property
     def max_comoving_radius(self) -> float:
@@ -255,21 +269,17 @@ class DensityField(AbstractField):
         arguments are forwarded verbatim to that helper.
         """
         box_shape = tuple(self.box_size)
-        multipoles_static = tuple(multipoles) if isinstance(
-            multipoles, (list, tuple)) else multipoles
-        los_tuple = None if multipoles_static == 0 else tuple(
-            np.asarray(los, dtype=float))
+        multipoles_static = tuple(multipoles) if isinstance(multipoles, (list, tuple)) else multipoles
+        los_tuple = None if multipoles_static == 0 else tuple(np.asarray(los, dtype=float))
 
         data1 = self.array
         data2 = mesh2.array if mesh2 is not None else None
 
         if data1.ndim == 3:
             data1 = jnp.expand_dims(data1, axis=0)
-            data2 = jnp.expand_dims(data2,
-                                    axis=0) if data2 is not None else None
+            data2 = jnp.expand_dims(data2, axis=0) if data2 is not None else None
         elif data1.ndim != 4:
-            raise ValueError(
-                "DensityField.power expects array shape (X,Y,Z) or (B,X,Y,Z)")
+            raise ValueError("DensityField.power expects array shape (X,Y,Z) or (B,X,Y,Z)")
 
         if data2 is not None and data2.shape != data1.shape:
             raise ValueError("mesh2 must match mesh shape for power")
@@ -305,8 +315,7 @@ class DensityField(AbstractField):
     ):
         """Project along z and plot via :class:`FlatDensity` utilities (batch supported)."""
         if not jax.core.is_concrete(self.array):
-            raise ValueError(
-                "Cannot plot traced arrays. Use outside of jit context.")
+            raise ValueError("Cannot plot traced arrays. Use outside of jit context.")
 
         flat = self.project(nz_slices=nz_slices)
         fig, axes = flat.plot(
@@ -375,9 +384,7 @@ class DensityField(AbstractField):
             data1 = data1[None, ...]
             data2 = data2[None, ...]
         elif data1.ndim != 4:
-            raise ValueError(
-                "DensityField.transfer expects array shape (X,Y,Z) or (B,X,Y,Z)"
-            )
+            raise ValueError("DensityField.transfer expects array shape (X,Y,Z) or (B,X,Y,Z)")
 
         if data2.shape != data1.shape:
             raise ValueError("other array must match shape for transfer")
@@ -385,9 +392,7 @@ class DensityField(AbstractField):
         k_stack, spectra_stack = jax.lax.map(_compute, (data1, data2))
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
-        return PowerSpectrum(wavenumber=wavenumber,
-                             spectra=spectra,
-                             name="transfer")
+        return PowerSpectrum(wavenumber=wavenumber, spectra=spectra, name="transfer")
 
     def coherence(
         self,
@@ -413,9 +418,7 @@ class DensityField(AbstractField):
             data1 = data1[None, ...]
             data2 = data2[None, ...]
         elif data1.ndim != 4:
-            raise ValueError(
-                "DensityField.coherence expects array shape (X,Y,Z) or (B,X,Y,Z)"
-            )
+            raise ValueError("DensityField.coherence expects array shape (X,Y,Z) or (B,X,Y,Z)")
 
         if data2.shape != data1.shape:
             raise ValueError("other array must match shape for coherence")
@@ -423,9 +426,7 @@ class DensityField(AbstractField):
         k_stack, spectra_stack = jax.lax.map(_compute, (data1, data2))
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
-        return PowerSpectrum(wavenumber=wavenumber,
-                             spectra=spectra,
-                             name="coherence")
+        return PowerSpectrum(wavenumber=wavenumber, spectra=spectra, name="coherence")
 
     def block_until_ready(self) -> DensityField:
         """
@@ -441,13 +442,12 @@ class DensityField(AbstractField):
 
     def __repr__(self) -> str:
         classname = str(self.__class__.__name__)
-        return (
-            f"{classname}("
-            f"array=Array{tuple(self.array.shape)}, "
-            f"mesh_size={self.mesh_size}, "
-            f"box_size={self.box_size}, "
-            f"status={self.status.value}, "
-            f"scale_factors_shape={jnp.atleast_1d(self.scale_factors).shape})")
+        return (f"{classname}("
+                f"array=Array{tuple(self.array.shape)}, "
+                f"mesh_size={self.mesh_size}, "
+                f"box_size={self.box_size}, "
+                f"status={self.status.value}, "
+                f"scale_factors_shape={jnp.atleast_1d(self.scale_factors).shape})")
 
     @partial(jax.jit, static_argnames=['nz_slices'])
     def project(self, nz_slices: int = 10) -> "FlatDensity":
@@ -467,17 +467,14 @@ class DensityField(AbstractField):
         data = jnp.asarray(self.array)
 
         if data.ndim not in (3, 4):
-            raise ValueError(
-                f"project() expects 3D array or batch of 3D arrays, got shape {data.shape}"
-            )
+            raise ValueError(f"project() expects 3D array or batch of 3D arrays, got shape {data.shape}")
 
         # Vectorized: sum over last nz_slices along z-axis (last dimension)
         projection = jnp.sum(data[..., -nz_slices:], axis=-1)
 
         # Update flatsky_npix to match projected shape
         # For 3D: shape is (X, Y), for 4D: shape is (N, X, Y) - take last 2 dims
-        flatsky_npix = projection.shape[
-            -2:] if data.ndim == 4 else projection.shape
+        flatsky_npix = projection.shape[-2:] if data.ndim == 4 else projection.shape
         projected_field = self.replace(flatsky_npix=flatsky_npix)
 
         return FlatDensity.FromDensityMetadata(
@@ -516,9 +513,8 @@ class DensityField(AbstractField):
         >>> reversed_lightcone.array.shape  # (10, 256, 256, 256)
         """
         if self.array.ndim < 4:
-            raise ValueError(
-                f"Indexing only supported for batched DensityField (4D array), "
-                f"got array with {self.array.ndim} dimensions")
+            raise ValueError(f"Indexing only supported for batched DensityField (4D array), "
+                             f"got array with {self.array.ndim} dimensions")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -577,11 +573,8 @@ class ParticleField(DensityField):
         scale_factors: float = 1.0,
     ):
         if isinstance(array, Array):
-            if not ((array.ndim == 4 and array.shape[-1] == 3) or
-                    (array.ndim == 5 and array.shape[-1] == 3)):
-                raise ValueError(
-                    "ParticleField array must have shape (X, Y, Z, 3) or (N, X, Y, Z, 3)"
-                )
+            if not ((array.ndim == 4 and array.shape[-1] == 3) or (array.ndim == 5 and array.shape[-1] == 3)):
+                raise ValueError("ParticleField array must have shape (X, Y, Z, 3) or (N, X, Y, Z, 3)")
 
         super().__init__(
             array=array,
@@ -625,8 +618,7 @@ class ParticleField(DensityField):
             halo_size=reference.halo_size,
             z_source=reference.z_source,
             status=status if status is not None else reference.status,
-            scale_factors=(scale_factors if scale_factors is not None else
-                           reference.scale_factors),
+            scale_factors=(scale_factors if scale_factors is not None else reference.scale_factors),
         )
 
     def __getitem__(self, key) -> "ParticleField":
@@ -652,8 +644,7 @@ class ParticleField(DensityField):
         >>> dx_single.array.shape  # (256, 256, 256, 3)
         """
         if self.array.ndim != 5:
-            raise ValueError(
-                "Indexing only supported for batched ParticleField (5D array)")
+            raise ValueError("Indexing only supported for batched ParticleField (5D array)")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -665,8 +656,7 @@ class ParticleField(DensityField):
             scale_factors=indexed_scale_factors,
         )
 
-    @partial(jax.jit,
-             static_argnames=['mode', 'weights', 'chunk_size', 'batch_size'])
+    @partial(jax.jit, static_argnames=['mode', 'weights', 'chunk_size', 'batch_size'])
     def paint(
         self,
         mode: PaintMode = "relative",
@@ -720,8 +710,7 @@ class ParticleField(DensityField):
             # Single shell: add leading axis, map, then squeeze
             data = data[None, ...]
         elif data.ndim != 5:
-            raise ValueError(
-                f"paint() expects 4D or 5D array, got shape {data.shape}")
+            raise ValueError(f"paint() expects 4D or 5D array, got shape {data.shape}")
 
         # Batched input: map over batch dimension
         painted = jax.lax.map(paint_fn, data, batch_size=batch_size)
@@ -751,8 +740,7 @@ class ParticleField(DensityField):
         Interpolate displacements/positions back from a 3D density mesh.
         """
         mode = mode.lower()
-        mesh = density_mesh.array if isinstance(density_mesh,
-                                                DensityField) else density_mesh
+        mesh = density_mesh.array if isinstance(density_mesh, DensityField) else density_mesh
         if mode == "relative":
             read_data = cic_read_dx(
                 mesh,
@@ -783,10 +771,7 @@ class ParticleField(DensityField):
             scale_factors=self.scale_factors,
         )
 
-    @partial(jax.jit,
-             static_argnames=[
-                 'mode', 'weights', 'density_plane_width', 'batch_size'
-             ])
+    @partial(jax.jit, static_argnames=['mode', 'weights', 'density_plane_width', 'batch_size'])
     def paint_2d(
         self,
         center: Float | Array,
@@ -822,8 +807,7 @@ class ParticleField(DensityField):
             2D flat-sky density map(s).
         """
         if self.flatsky_npix is None:
-            raise ValueError(
-                "ParticleField requires `flatsky_npix` for paint_2d.")
+            raise ValueError("ParticleField requires `flatsky_npix` for paint_2d.")
 
         data = jnp.asarray(self.array)
         center_arr = jnp.atleast_1d(center)
@@ -832,21 +816,15 @@ class ParticleField(DensityField):
             # Batched input
             nb_shells = data.shape[0]
             if center_arr.size != nb_shells:
-                raise ValueError(
-                    f"Batched input: center must have {nb_shells} elements, got {center_arr.size}"
-                )
-            density_plane_width = self.density_width(
-                nb_shells
-            ) if density_plane_width is None else density_plane_width
+                raise ValueError(f"Batched input: center must have {nb_shells} elements, got {center_arr.size}")
+            density_plane_width = self.density_width(nb_shells) if density_plane_width is None else density_plane_width
         elif data.ndim == 4:
             data = data[None, ...]
             center_arr = center_arr[None, ...]
             if density_plane_width is None:
-                raise ValueError(
-                    "density_plane_width must be specified for single shell")
+                raise ValueError("density_plane_width must be specified for single shell")
         else:
-            raise ValueError(
-                f"paint_2d() expects 4D or 5D array, got shape {data.shape}")
+            raise ValueError(f"paint_2d() expects 4D or 5D array, got shape {data.shape}")
 
         # Create partial function with all fixed parameters
         paint_fn = jax.tree_util.Partial(
@@ -863,8 +841,7 @@ class ParticleField(DensityField):
             max_comoving_radius=self.max_comoving_radius,
         )
 
-        painted = jax.lax.map(paint_fn, (data, center_arr),
-                              batch_size=batch_size)
+        painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
         painted = painted.squeeze()
 
         return FlatDensity.FromDensityMetadata(
@@ -875,10 +852,9 @@ class ParticleField(DensityField):
 
     @partial(jax.jit,
              static_argnames=[
-                 'mode', 'scheme', 'weights', 'density_plane_width',
-                 'kernel_width_arcmin', 'smoothing_interpretation',
-                 'paint_nside', 'ud_grade_power', 'ud_grade_order_in',
-                 'ud_grade_order_out', 'ud_grade_pess', 'batch_size'
+                 'mode', 'scheme', 'weights', 'density_plane_width', 'kernel_width_arcmin', 'smoothing_interpretation',
+                 'paint_nside', 'ud_grade_power', 'ud_grade_order_in', 'ud_grade_order_out', 'ud_grade_pess',
+                 'batch_size'
              ])
     def paint_spherical(
         self,
@@ -948,22 +924,15 @@ class ParticleField(DensityField):
             # Batched input
             nb_shells = data.shape[0]
             if center_arr.size != nb_shells:
-                raise ValueError(
-                    f"Batched input: center must have {nb_shells} elements, got {center_arr.size}"
-                )
-            density_plane_width = self.density_width(
-                nb_shells
-            ) if density_plane_width is None else density_plane_width
+                raise ValueError(f"Batched input: center must have {nb_shells} elements, got {center_arr.size}")
+            density_plane_width = self.density_width(nb_shells) if density_plane_width is None else density_plane_width
         elif data.ndim == 4:
             data = data[None, ...]
             center_arr = center_arr[None, ...]
             if density_plane_width is None:
-                raise ValueError(
-                    "density_plane_width must be specified for single shell")
+                raise ValueError("density_plane_width must be specified for single shell")
         else:
-            raise ValueError(
-                f"paint_spherical() expects 4D or 5D array, got shape {data.shape}"
-            )
+            raise ValueError(f"paint_spherical() expects 4D or 5D array, got shape {data.shape}")
 
         # Create partial function with all fixed parameters
         paint_fn = jax.tree_util.Partial(
@@ -988,8 +957,7 @@ class ParticleField(DensityField):
             max_comoving_radius=self.max_comoving_radius,
         )
 
-        painted = jax.lax.map(paint_fn, (data, center_arr),
-                              batch_size=batch_size)
+        painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
         painted = painted.squeeze()
 
         return SphericalDensity.FromDensityMetadata(
@@ -1076,14 +1044,11 @@ class FlatDensity(DensityField):
         elif arr.ndim == 3:
             spatial_shape = arr.shape[-2:]
         else:
-            raise ValueError(
-                "FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx)."
-            )
+            raise ValueError("FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx).")
 
         if spatial_shape != tuple(flatsky_npix):
-            raise ValueError(
-                f"Array spatial shape {spatial_shape} does not match "
-                f"flatsky_npix {flatsky_npix}.")
+            raise ValueError(f"Array spatial shape {spatial_shape} does not match "
+                             f"flatsky_npix {flatsky_npix}.")
 
         super().__init__(
             array=arr,
@@ -1117,9 +1082,7 @@ class FlatDensity(DensityField):
         accepted a `density_field` argument.
         """
         if density_field.flatsky_npix is None:
-            raise ValueError(
-                "FlatDensity requires `flatsky_npix` in the source DensityField."
-            )
+            raise ValueError("FlatDensity requires `flatsky_npix` in the source DensityField.")
 
         arr = jnp.asarray(array)
         if arr.ndim == 2:
@@ -1127,14 +1090,11 @@ class FlatDensity(DensityField):
         elif arr.ndim == 3:
             spatial_shape = arr.shape[-2:]
         else:
-            raise ValueError(
-                "FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx)."
-            )
+            raise ValueError("FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx).")
 
         if spatial_shape != tuple(density_field.flatsky_npix):
-            raise ValueError(
-                f"Array spatial shape {spatial_shape} does not match "
-                f"flatsky_npix {density_field.flatsky_npix}.")
+            raise ValueError(f"Array spatial shape {spatial_shape} does not match "
+                             f"flatsky_npix {density_field.flatsky_npix}.")
 
         return cls(
             array=arr,
@@ -1146,11 +1106,9 @@ class FlatDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
-            z_source=(z_source
-                      if z_source is not None else density_field.z_source),
+            z_source=(z_source if z_source is not None else density_field.z_source),
             status=status,
-            scale_factors=(scale_factors if scale_factors is not None else
-                           density_field.scale_factors),
+            scale_factors=(scale_factors if scale_factors is not None else density_field.scale_factors),
         )
 
     def angular_cl(
@@ -1171,9 +1129,7 @@ class FlatDensity(DensityField):
             data1 = data1[None, ...]
             data2 = data2[None, ...] if data2 is not None else None
         elif data1.ndim != 3:
-            raise ValueError(
-                "FlatDensity.angular_cl expects array shape (ny,nx) or (B,ny,nx)"
-            )
+            raise ValueError("FlatDensity.angular_cl expects array shape (ny,nx) or (B,ny,nx)")
 
         if data2 is not None and data2.shape != data1.shape:
             raise ValueError("mesh2 must match shape for cross Cl")
@@ -1239,16 +1195,13 @@ class FlatDensity(DensityField):
             Whether to keep axis ticks/labels. Set to False for cleaner grids.
         """
         if not jax.core.is_concrete(self.array):
-            raise ValueError(
-                "Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
 
         data = jnp.asarray(self.array)
         if data.ndim == 2:
             data = data[None, ...]
         elif data.ndim != 3:
-            raise ValueError(
-                "FlatDensity.plot expects array shape (ny, nx) or (n, ny, nx)."
-            )
+            raise ValueError("FlatDensity.plot expects array shape (ny, nx) or (n, ny, nx).")
 
         n_maps = data.shape[0]
 
@@ -1268,16 +1221,12 @@ class FlatDensity(DensityField):
             nrows = ceil(n_maps / ncols_eff)
             if figsize is None:
                 figsize = (5 * ncols_eff, 5 * nrows)
-            fig, axes_created = plt.subplots(nrows,
-                                             ncols_eff,
-                                             figsize=figsize,
-                                             squeeze=False)
+            fig, axes_created = plt.subplots(nrows, ncols_eff, figsize=figsize, squeeze=False)
             axes_flat = axes_created.ravel()
         else:
             # Derive grid from provided axes shape if possible
             if axes_flat.size < n_maps:
-                raise ValueError(
-                    "Provided axes array is too small for number of maps")
+                raise ValueError("Provided axes array is too small for number of maps")
             fig = axes_flat[0].get_figure()
             # infer columns: if original was ndarray with 2 dims, respect that
             if isinstance(ax, np.ndarray) and ax.ndim == 2:
@@ -1343,9 +1292,8 @@ class FlatDensity(DensityField):
         >>> reversed_lightcone.array.shape  # (10, 256, 256)
         """
         if self.array.ndim < 3:
-            raise ValueError(
-                f"Indexing only supported for batched FlatDensity (3D array), "
-                f"got array with {self.array.ndim} dimensions")
+            raise ValueError(f"Indexing only supported for batched FlatDensity (3D array), "
+                             f"got array with {self.array.ndim} dimensions")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -1382,8 +1330,7 @@ class FlatDensity(DensityField):
             If called within a jit context (i.e., array is traced).
         """
         if not jax.core.is_concrete(self.array):
-            raise ValueError(
-                "Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
 
         self.plot(
             ax=ax,
@@ -1468,9 +1415,8 @@ class SphericalDensity(DensityField):
         arr = jnp.asarray(array)
         npix = jhp.nside2npix(nside)
         if arr.shape[-1] != npix:
-            raise ValueError(
-                f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
-                f"{npix} for nside {nside}.")
+            raise ValueError(f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
+                             f"{npix} for nside {nside}.")
 
         super().__init__(
             array=arr,
@@ -1509,9 +1455,8 @@ class SphericalDensity(DensityField):
         arr = jnp.asarray(array)
         npix = jhp.nside2npix(density_field.nside)
         if arr.shape[-1] != npix:
-            raise ValueError(
-                f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
-                f"{npix} for nside {density_field.nside}.")
+            raise ValueError(f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
+                             f"{npix} for nside {density_field.nside}.")
 
         return cls(
             array=arr,
@@ -1523,11 +1468,9 @@ class SphericalDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
-            z_source=(z_source
-                      if z_source is not None else density_field.z_source),
+            z_source=(z_source if z_source is not None else density_field.z_source),
             status=status,
-            scale_factors=(scale_factors if scale_factors is not None else
-                           density_field.scale_factors),
+            scale_factors=(scale_factors if scale_factors is not None else density_field.scale_factors),
         )
 
     def angular_cl(
@@ -1545,9 +1488,7 @@ class SphericalDensity(DensityField):
             data1 = data1[None, ...]
             data2 = data2[None, ...] if data2 is not None else None
         elif data1.ndim != 2:
-            raise ValueError(
-                "SphericalDensity.angular_cl expects array shape (npix) or (B,npix)"
-            )
+            raise ValueError("SphericalDensity.angular_cl expects array shape (npix) or (B,npix)")
 
         if data2 is not None and data2.shape != data1.shape:
             raise ValueError("mesh2 must match shape for cross Cl")
@@ -1605,9 +1546,8 @@ class SphericalDensity(DensityField):
         >>> reversed_lightcone.array.shape  # (10, 49152)
         """
         if self.array.ndim < 2:
-            raise ValueError(
-                f"Indexing only supported for batched SphericalDensity (2D array), "
-                f"got array with {self.array.ndim} dimensions")
+            raise ValueError(f"Indexing only supported for batched SphericalDensity (2D array), "
+                             f"got array with {self.array.ndim} dimensions")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -1655,8 +1595,7 @@ class SphericalDensity(DensityField):
             If called within a jit context (i.e., array is traced).
         """
         if not jax.core.is_concrete(self.array):
-            raise ValueError(
-                "Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
 
         data = jnp.asarray(self.array)
         if data.ndim == 1:
@@ -1685,15 +1624,11 @@ class SphericalDensity(DensityField):
             nrows_eff = ceil(n_maps / ncols_eff)
             if figsize is None:
                 figsize = (4 * ncols_eff, 4 * nrows_eff)
-            fig, axes_created = plt.subplots(nrows_eff,
-                                             ncols_eff,
-                                             figsize=figsize,
-                                             squeeze=False)
+            fig, axes_created = plt.subplots(nrows_eff, ncols_eff, figsize=figsize, squeeze=False)
             axes_flat = axes_created.ravel()
         else:
             if axes_flat.size < n_maps:
-                raise ValueError(
-                    "Provided axes array is too small for number of maps")
+                raise ValueError("Provided axes array is too small for number of maps")
             fig = axes_flat[0].get_figure()
             axes_created = None  # using provided axes; keep their existing grid
 
@@ -1726,18 +1661,15 @@ class SphericalDensity(DensityField):
                     bgcolor=(0.0, ) * 4,
                     cbar=show_colorbar,
                     min=0,
-                    max=np.percentile(map_np[map_np > 0], 95) if np.any(
-                        map_np > 0) else np.max(map_np),
+                    max=np.percentile(map_np[map_np > 0], 95) if np.any(map_np > 0) else np.max(map_np),
                 )
                 if delegate is None:
                     delegate = next(
-                        (ax for ax in fig.axes
-                         if isinstance(ax, hp.projaxes.HpxMollweideAxes)),
+                        (ax for ax in fig.axes if isinstance(ax, hp.projaxes.HpxMollweideAxes)),
                         None,
                     )
                 if delegate is None:
-                    raise RuntimeError(
-                        "healpy.mollview did not return a Mollweide axes.")
+                    raise RuntimeError("healpy.mollview did not return a Mollweide axes.")
                 _attach_delegate(ax_i, delegate)
             else:
                 ax_i.axis("off")
@@ -1766,8 +1698,7 @@ class SphericalDensity(DensityField):
             If called within a jit context (i.e., array is traced).
         """
         if not jax.core.is_concrete(self.array):
-            raise ValueError(
-                "Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
 
         self.plot(
             ax=ax,
@@ -1818,8 +1749,7 @@ class SphericalDensity(DensityField):
         """
         field_list = tuple(fields)
         if not field_list:
-            raise ValueError(
-                "SphericalDensity.stack requires at least one field.")
+            raise ValueError("SphericalDensity.stack requires at least one field.")
         return jax.tree.map(
             lambda *arrays: jnp.stack(arrays, axis=0),
             *field_list,
@@ -1840,5 +1770,4 @@ def stack(fields: Sequence[DensityField]) -> DensityField:
         return SphericalDensity.stack(field_list)  # type: ignore[arg-type]
     if isinstance(first, DensityField):
         return DensityField.stack(field_list)  # type: ignore[arg-type]
-    raise TypeError(
-        "stack currently supports FlatDensity or SphericalDensity inputs.")
+    raise TypeError("stack currently supports FlatDensity or SphericalDensity inputs.")

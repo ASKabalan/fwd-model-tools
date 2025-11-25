@@ -9,13 +9,13 @@ from getdist import plots as gdplots
 
 
 def plot_ic(
-    true_ic,
-    mean_ic,
-    std_ic,
-    outdir,
-    titles=("True", "Mean", "Std", "Diff"),
-    output_format: str = "png",
-    dpi: int = 600,
+        true_ic,
+        mean_ic,
+        std_ic,
+        outdir,
+        titles=("True", "Mean", "Std", "Diff"),
+        output_format: str = "png",
+        dpi: int = 600,
 ):
     """Plot initial conditions: true, posterior mean, and posterior std.
 
@@ -123,9 +123,7 @@ def plot_posterior(
     else:
         labels_list = [labels.get(p, p) for p in params]
 
-    mc_samples = MCSamples(samples=samples_array,
-                           names=names,
-                           labels=labels_list)
+    mc_samples = MCSamples(samples=samples_array, names=names, labels=labels_list)
 
     markers_dict = None
     if true_values is not None:

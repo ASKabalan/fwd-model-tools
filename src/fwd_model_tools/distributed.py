@@ -46,16 +46,12 @@ def get_pdims_from_sharding(sharding: NamedSharding):
     tuple
         A tuple of processor dimensions.
     """
-    return tuple(
-        [get_axis_size(sharding, i) for i in range(len(sharding.spec))])
+    return tuple([get_axis_size(sharding, i) for i in range(len(sharding.spec))])
 
 
 def save_sharded(pytree, path, overwrite=True, dump_structure=True):
     """Shim around fwd_model_tools.sampling.persistency.save_sharded."""
-    return _save_sharded(pytree,
-                         path,
-                         overwrite=overwrite,
-                         dump_structure=dump_structure)
+    return _save_sharded(pytree, path, overwrite=overwrite, dump_structure=dump_structure)
 
 
 def load_sharded(path, abstract_pytree=None):

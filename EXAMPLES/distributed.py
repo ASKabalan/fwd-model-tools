@@ -14,13 +14,12 @@ from jax.sharding import AbstractMesh, Mesh
 from jax.sharding import PartitionSpec as P
 
 
-def autoshmap(
-    f: Callable,
-    gpu_mesh: Mesh | AbstractMesh | None,
-    in_specs: Specs,
-    out_specs: Specs,
-    check_vma: bool = False,
-    axis_names: Set[AxisName] = frozenset()) -> Callable:
+def autoshmap(f: Callable,
+              gpu_mesh: Mesh | AbstractMesh | None,
+              in_specs: Specs,
+              out_specs: Specs,
+              check_vma: bool = False,
+              axis_names: Set[AxisName] = frozenset()) -> Callable:
     """Helper function to wrap the provided function in a shard map if
     the code is being executed in a mesh context."""
     if gpu_mesh is None or gpu_mesh.empty:
@@ -87,28 +86,20 @@ def slice_unpad_impl(x, pad_width):
 
 def slice_pad(x, pad_width, sharding):
     gpu_mesh = sharding.mesh if sharding is not None else None
-    if gpu_mesh is not None and not (gpu_mesh.empty) and (
-            pad_width[0][0] > 0 or pad_width[1][0] > 0):
+    if gpu_mesh is not None and not (gpu_mesh.empty) and (pad_width[0][0] > 0 or pad_width[1][0] > 0):
         assert sharding is not None
         spec = sharding.spec
-        return shard_map((partial(jnp.pad, pad_width=pad_width)),
-                         mesh=gpu_mesh,
-                         in_specs=spec,
-                         out_specs=spec)(x)
+        return shard_map((partial(jnp.pad, pad_width=pad_width)), mesh=gpu_mesh, in_specs=spec, out_specs=spec)(x)
     else:
         return x
 
 
 def slice_unpad(x, pad_width, sharding):
     mesh = sharding.mesh if sharding is not None else None
-    if mesh is not None and not (mesh.empty) and (pad_width[0][0] > 0
-                                                  or pad_width[1][0] > 0):
+    if mesh is not None and not (mesh.empty) and (pad_width[0][0] > 0 or pad_width[1][0] > 0):
         assert sharding is not None
         spec = sharding.spec
-        return shard_map(partial(slice_unpad_impl, pad_width=pad_width),
-                         mesh=mesh,
-                         in_specs=spec,
-                         out_specs=spec)(x)
+        return shard_map(partial(slice_unpad_impl, pad_width=pad_width), mesh=mesh, in_specs=spec, out_specs=spec)(x)
     else:
         return x
 
@@ -121,10 +112,7 @@ def get_local_shape(mesh_shape, sharding=None):
         return mesh_shape
     else:
         pdims = gpu_mesh.devices.shape
-        return [
-            mesh_shape[0] // pdims[0], mesh_shape[1] // pdims[1],
-            *mesh_shape[2:]
-        ]
+        return [mesh_shape[0] // pdims[0], mesh_shape[1] // pdims[1], *mesh_shape[2:]]
 
 
 def _axis_names(spec):
@@ -163,12 +151,9 @@ def uniform_particles(mesh_shape, sharding=None):
             z = jnp.arange(local_mesh_shape[2])
             return jnp.stack(jnp.meshgrid(x, y, z, indexing='ij'), axis=-1)
 
-        return shard_map(particles, mesh=gpu_mesh, in_specs=(),
-                         out_specs=spec)()
+        return shard_map(particles, mesh=gpu_mesh, in_specs=(), out_specs=spec)()
     else:
-        return jnp.stack(jnp.meshgrid(*[jnp.arange(s) for s in mesh_shape],
-                                      indexing='ij'),
-                         axis=-1)
+        return jnp.stack(jnp.meshgrid(*[jnp.arange(s) for s in mesh_shape], indexing='ij'), axis=-1)
 
 
 def normal_field(seed, shape, sharding=None, dtype=float):

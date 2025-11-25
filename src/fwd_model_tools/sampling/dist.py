@@ -34,18 +34,11 @@ class DistributedNormal(Normal):
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self,
-                 loc=0.0,
-                 scale=1.0,
-                 sharding=None,
-                 *,
-                 validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, sharding=None, *, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         self.sharding = sharding
-        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc),
-                                               jnp.shape(scale))
-        super(Normal, self).__init__(batch_shape=batch_shape,
-                                     validate_args=validate_args)
+        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key: Key, sample_shape=()):
         """

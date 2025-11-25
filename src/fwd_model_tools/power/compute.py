@@ -4,18 +4,17 @@ from typing import Iterable
 
 import jax.numpy as jnp
 
-from fwd_model_tools._src.power._compute import (_coherence, _flat_cl, _power,
-                                                 _spherical_cl, _transfer)
+from fwd_model_tools._src.power._compute import _coherence, _flat_cl, _power, _spherical_cl, _transfer
 
 
 def power(
-    mesh,
-    mesh2=None,
-    *,
-    box_shape: tuple[float, float, float],
-    kedges: int | float | Iterable[float] | None = None,
-    multipoles: int | Iterable[int] = 0,
-    los: jnp.ndarray | Iterable[float] = jnp.array([0.0, 0.0, 1.0]),
+        mesh,
+        mesh2=None,
+        *,
+        box_shape: tuple[float, float, float],
+        kedges: int | float | Iterable[float] | None = None,
+        multipoles: int | Iterable[int] = 0,
+        los: jnp.ndarray | Iterable[float] = jnp.array([0.0, 0.0, 1.0]),
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Array-only 3D power spectrum. Returns (wavenumber, spectra)."""
     box_shape = tuple(box_shape)
@@ -95,6 +94,4 @@ def angular_cl_spherical(
     return ell_out, spectra
 
 
-__all__ = [
-    "power", "transfer", "coherence", "angular_cl_flat", "angular_cl_spherical"
-]
+__all__ = ["power", "transfer", "coherence", "angular_cl_flat", "angular_cl_spherical"]

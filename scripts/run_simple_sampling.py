@@ -35,8 +35,7 @@ import numpyro.distributions as dist
 from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 
-from fwd_model_tools.sampling import (DistributedNormal, batched_sampling,
-                                      load_samples)
+from fwd_model_tools.sampling import DistributedNormal, batched_sampling, load_samples
 from fwd_model_tools.sampling.plot import plot_posterior
 
 FIELD_SHAPE = (4, 4)
@@ -90,11 +89,8 @@ def forward_model_components(ic, alpha, beta):
 
 
 def field_model(log_ic=False, sharding=None):
-    ic_raw = numpyro.sample(
-        "initial_conditions",
-        DistributedNormal(jnp.zeros(FIELD_SHAPE),
-                          jnp.ones(FIELD_SHAPE),
-                          sharding=sharding))
+    ic_raw = numpyro.sample("initial_conditions",
+                            DistributedNormal(jnp.zeros(FIELD_SHAPE), jnp.ones(FIELD_SHAPE), sharding=sharding))
 
     ic, ic_scale = normalize_field(ic_raw)
     # TODO: Sharding should be checked here in a test using some sort of a hook or debug tool
@@ -106,8 +102,7 @@ def field_model(log_ic=False, sharding=None):
     alpha = numpyro.sample("alpha", dist.Uniform(0.5, 3.5))
     beta = numpyro.sample("beta", dist.Uniform(-1.0, 1.5))
 
-    linear_term, quadratic_term, combined_term = forward_model_components(
-        ic, alpha, beta)
+    linear_term, quadratic_term, combined_term = forward_model_components(ic, alpha, beta)
 
     if log_ic:
         numpyro.deterministic("ic", ic)
@@ -129,19 +124,11 @@ def plot_field_comparison(true_field, mean_field, std_field, plots_dir):
 
     vmin_ic, vmax_ic = np.percentile(true_field, [2, 98])
 
-    im0 = axes[0].imshow(true_field,
-                         origin="lower",
-                         cmap="viridis",
-                         vmin=vmin_ic,
-                         vmax=vmax_ic)
+    im0 = axes[0].imshow(true_field, origin="lower", cmap="viridis", vmin=vmin_ic, vmax=vmax_ic)
     axes[0].set_title("True IC")
     plt.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].imshow(mean_field,
-                         origin="lower",
-                         cmap="viridis",
-                         vmin=vmin_ic,
-                         vmax=vmax_ic)
+    im1 = axes[1].imshow(mean_field, origin="lower", cmap="viridis", vmin=vmin_ic, vmax=vmax_ic)
     axes[1].set_title("Posterior Mean IC")
     plt.colorbar(im1, ax=axes[1])
 
@@ -163,10 +150,7 @@ def plot_field_comparison(true_field, mean_field, std_field, plots_dir):
     print(f"  Mean std: {std_field.mean():.4f}")
 
 
-def generate_synthetic_observations(data_dir,
-                                    plots_dir,
-                                    sharding=None,
-                                    magic_seed=42):
+def generate_synthetic_observations(data_dir, plots_dir, sharding=None, magic_seed=42):
     print("\n" + "=" * 60)
     print("Step 1: Generating synthetic observations")
     print("=" * 60)
@@ -208,24 +192,18 @@ def generate_synthetic_observations(data_dir,
         obs_combined=np.asarray(true_obs_combined),
     )
     print(f"Saved true data to {data_dir / 'true_data.npz'}")
-    print(
-        f"  True IC scale (std before normalization): {float(true_ic_scale):.4f}"
-    )
+    print(f"  True IC scale (std before normalization): {float(true_ic_scale):.4f}")
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     im0 = axes[0].imshow(np.asarray(true_ic), origin="lower", cmap="viridis")
     axes[0].set_title("True IC (unit std)")
     plt.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].imshow(np.asarray(true_obs_linear),
-                         origin="lower",
-                         cmap="magma")
+    im1 = axes[1].imshow(np.asarray(true_obs_linear), origin="lower", cmap="magma")
     axes[1].set_title("Linear observable")
     plt.colorbar(im1, ax=axes[1])
 
-    im2 = axes[2].imshow(np.asarray(true_obs_quadratic),
-                         origin="lower",
-                         cmap="magma")
+    im2 = axes[2].imshow(np.asarray(true_obs_quadratic), origin="lower", cmap="magma")
     axes[2].set_title("Quadratic observable")
     plt.colorbar(im2, ax=axes[2])
 
@@ -258,11 +236,7 @@ def generate_synthetic_observations(data_dir,
     )
 
 
-def run_mcmc_inference(true_obs,
-                       samples_dir,
-                       args,
-                       sharding=None,
-                       init_params=None):
+def run_mcmc_inference(true_obs, samples_dir, args, sharding=None, init_params=None):
     print("\n" + "=" * 60)
     print("Step 2: Running MCMC inference")
     print("=" * 60)
@@ -281,9 +255,7 @@ def run_mcmc_inference(true_obs,
     )
 
     print(f"Sampling with {args.sampler} using {args.backend} backend")
-    print(
-        f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}"
-    )
+    print(f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}")
 
     start_time = time.time()
     batched_sampling(
@@ -307,13 +279,11 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
     print("Step 3: Loading samples and plotting results")
     print("=" * 60)
 
-    scalar_samples = load_samples(
-        str(samples_dir),
-        param_names=["alpha", "beta"],
-        last_n_batches=None if n_samples_plot <= 0 else None)
+    scalar_samples = load_samples(str(samples_dir),
+                                  param_names=["alpha", "beta"],
+                                  last_n_batches=None if n_samples_plot <= 0 else None)
     if n_samples_plot > 0:
-        scalar_samples = jax.tree.map(lambda x: x[-n_samples_plot:],
-                                      scalar_samples)
+        scalar_samples = jax.tree.map(lambda x: x[-n_samples_plot:], scalar_samples)
         print(f"Using last {n_samples_plot} samples for scalar parameters")
     else:
         print("Using all samples for scalar parameters")
@@ -325,38 +295,25 @@ def analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=-1):
 
     print("\nPosterior Statistics:")
     print(f"True alpha: {true_alpha:.4f}")
-    print(
-        f"Inferred alpha: {scalar_samples['alpha'].mean():.4f} ± {scalar_samples['alpha'].std():.4f}"
-    )
+    print(f"Inferred alpha: {scalar_samples['alpha'].mean():.4f} ± {scalar_samples['alpha'].std():.4f}")
     print(f"True beta: {true_beta:.4f}")
-    print(
-        f"Inferred beta: {scalar_samples['beta'].mean():.4f} ± {scalar_samples['beta'].std():.4f}"
-    )
+    print(f"Inferred beta: {scalar_samples['beta'].mean():.4f} ± {scalar_samples['beta'].std():.4f}")
 
     print("\nLoading IC field statistics...")
-    ic_mean, ic_std = load_samples(str(samples_dir),
-                                   param_names=["ic"],
-                                   transform=("mean", "std"))
+    ic_mean, ic_std = load_samples(str(samples_dir), param_names=["ic"], transform=("mean", "std"))
     if "ic" in ic_mean:
         print("\nPlotting IC comparison...")
         plot_field_comparison(true_ic, ic_mean["ic"], ic_std["ic"], plots_dir)
         print(f"Plotted IC comparison to {plots_dir / 'ic_comparison.png'}")
 
-    param_samples = {
-        "alpha": scalar_samples["alpha"],
-        "beta": scalar_samples["beta"]
-    }
+    param_samples = {"alpha": scalar_samples["alpha"], "beta": scalar_samples["beta"]}
     true_param_values = {"alpha": true_alpha, "beta": true_beta}
-    plot_posterior(param_samples,
-                   plots_dir,
-                   params=("alpha", "beta"),
-                   true_values=true_param_values)
+    plot_posterior(param_samples, plots_dir, params=("alpha", "beta"), true_values=true_param_values)
     print(f"Plotted posteriors to {plots_dir / 'posterior.png'}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run simple field-based Bayesian inference workflow")
+    parser = argparse.ArgumentParser(description="Run simple field-based Bayesian inference workflow")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -404,21 +361,18 @@ def main():
     parser.add_argument(
         "--plot-only",
         action="store_true",
-        help=
-        "Only analyze existing samples (skip data generation and sampling)",
+        help="Only analyze existing samples (skip data generation and sampling)",
     )
     parser.add_argument(
         "--n-samples-plot",
         type=int,
         default=-1,
-        help=
-        "Number of last samples to use for plotting (default: -1 for all samples)",
+        help="Number of last samples to use for plotting (default: -1 for all samples)",
     )
 
     args = parser.parse_args()
 
-    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(
-        args.output_dir)
+    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(args.output_dir)
 
     print("=" * 60)
     print("Simple Field-Based Bayesian Inference Workflow")
@@ -431,26 +385,18 @@ def main():
 
     if args.plot_only:
         print("\n⚠ Plot-only mode: skipping data generation and sampling")
-        analyze_results(samples_dir,
-                        data_dir,
-                        plots_dir,
-                        n_samples_plot=args.n_samples_plot)
+        analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=args.n_samples_plot)
     else:
         sharding = setup_sharding()
         print("")
 
-        true_obs, init_params = generate_synthetic_observations(
-            data_dir, plots_dir, sharding=sharding, magic_seed=args.seed)
+        true_obs, init_params = generate_synthetic_observations(data_dir,
+                                                                plots_dir,
+                                                                sharding=sharding,
+                                                                magic_seed=args.seed)
 
-        run_mcmc_inference(true_obs,
-                           samples_dir,
-                           args,
-                           sharding=sharding,
-                           init_params=init_params)
-        analyze_results(samples_dir,
-                        data_dir,
-                        plots_dir,
-                        n_samples_plot=args.n_samples_plot)
+        run_mcmc_inference(true_obs, samples_dir, args, sharding=sharding, init_params=init_params)
+        analyze_results(samples_dir, data_dir, plots_dir, n_samples_plot=args.n_samples_plot)
 
     print("\n" + "=" * 60)
     print("Workflow completed successfully!")

@@ -21,10 +21,8 @@ from fwd_model_tools.fields import DensityField, FieldStatus
 from fwd_model_tools.initial import interpolate_initial_conditions
 from fwd_model_tools.pm import lpt
 from fwd_model_tools.sampling.persistency import save_sharded
-from fwd_model_tools.solvers.reversible_efficient_fastpm import \
-    ReversibleEfficientFastPM
-from fwd_model_tools.utils import (compute_box_size_from_redshift,
-                                   compute_snapshot_scale_factors)
+from fwd_model_tools.solvers.reversible_efficient_fastpm import ReversibleEfficientFastPM
+from fwd_model_tools.utils import compute_box_size_from_redshift, compute_snapshot_scale_factors
 
 
 def parse_args():
@@ -66,10 +64,7 @@ def parse_args():
         default=0.3097,
         help="Total matter density Omega_m",
     )
-    parser.add_argument("--omega-b",
-                        type=float,
-                        default=0.049,
-                        help="Baryon density Omega_b")
+    parser.add_argument("--omega-b", type=float, default=0.049, help="Baryon density Omega_b")
     parser.add_argument(
         "--h",
         type=float,
@@ -82,10 +77,7 @@ def parse_args():
         default=0.8102,
         help="Amplitude of matter fluctuations sigma_8",
     )
-    parser.add_argument("--n-s",
-                        type=float,
-                        default=0.9665,
-                        help="Scalar spectral index n_s")
+    parser.add_argument("--n-s", type=float, default=0.9665, help="Scalar spectral index n_s")
     parser.add_argument(
         "--w0",
         type=float,
@@ -122,18 +114,9 @@ def parse_args():
         help="Number of shells (uses compute_snapshot_scale_factors)",
     )
 
-    parser.add_argument("--t0",
-                        type=float,
-                        default=0.1,
-                        help="Initial scale factor")
-    parser.add_argument("--t1",
-                        type=float,
-                        default=1.0,
-                        help="Final scale factor")
-    parser.add_argument("--dt0",
-                        type=float,
-                        default=0.05,
-                        help="Initial time step")
+    parser.add_argument("--t0", type=float, default=0.1, help="Initial scale factor")
+    parser.add_argument("--t1", type=float, default=1.0, help="Final scale factor")
+    parser.add_argument("--dt0", type=float, default=0.05, help="Initial time step")
 
     # Geometry (can specify multiple)
     parser.add_argument(
@@ -185,10 +168,7 @@ def parse_args():
         choices=[1, 2],
         help="LPT order for initial conditions",
     )
-    parser.add_argument("--seed",
-                        type=int,
-                        default=42,
-                        help="Random seed for initial conditions")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for initial conditions")
 
     # Output
     parser.add_argument(
@@ -217,14 +197,11 @@ def compute_snapshot_times(args, cosmo, temp_field):
 
     elif args.nb_shells is not None:
         # Use the function from utils.py
-        a_center = compute_snapshot_scale_factors(cosmo,
-                                                  temp_field,
-                                                  nb_shells=args.nb_shells)
+        a_center = compute_snapshot_scale_factors(cosmo, temp_field, nb_shells=args.nb_shells)
         return a_center[::-1]  # Reverse for backward integration
 
     else:
-        raise ValueError(
-            "Must specify one of: redshifts, scale_factors, nb_shells")
+        raise ValueError("Must specify one of: redshifts, scale_factors, nb_shells")
 
 
 def compute_z_near_z_far(scale_factors, cosmo):
@@ -244,15 +221,9 @@ def compute_z_near_z_far(scale_factors, cosmo):
     # Compute bin edges (midpoints between adjacent scale factors)
     if len(a_sorted) > 1:
         a_edges = jnp.concatenate([
-            jnp.array([
-                0.5 * (a_sorted[0] + a_sorted[1]) -
-                (a_sorted[1] - a_sorted[0]) / 2
-            ]),
+            jnp.array([0.5 * (a_sorted[0] + a_sorted[1]) - (a_sorted[1] - a_sorted[0]) / 2]),
             0.5 * (a_sorted[1:] + a_sorted[:-1]),
-            jnp.array([
-                0.5 * (a_sorted[-1] + a_sorted[-2]) +
-                (a_sorted[-1] - a_sorted[-2]) / 2
-            ]),
+            jnp.array([0.5 * (a_sorted[-1] + a_sorted[-2]) + (a_sorted[-1] - a_sorted[-2]) / 2]),
         ])
     else:
         # Single shell - use reasonable bounds
@@ -344,8 +315,7 @@ def main():
     # Validate geometry-specific requirements
     if "flat" in args.geometry:
         if args.flatsky_npix is None or args.field_size is None:
-            raise ValueError(
-                "--flatsky-npix and --field-size required for flat geometry")
+            raise ValueError("--flatsky-npix and --field-size required for flat geometry")
 
     if "spherical" in args.geometry:
         if args.nside is None:
@@ -384,8 +354,7 @@ def main():
         box_size = tuple(args.box_size)
     else:
         print(f"\nComputing box size from max_redshift={args.max_redshift}...")
-        box_size = compute_box_size_from_redshift(cosmo, args.max_redshift,
-                                                  observer_position)
+        box_size = compute_box_size_from_redshift(cosmo, args.max_redshift, observer_position)
         box_size = tuple([float(b) for b in box_size])
 
     print(f"Box size: {box_size} Mpc/h")
@@ -406,9 +375,7 @@ def main():
     print(f"\nComputing snapshot times...")
     snapshot_times = compute_snapshot_times(args, cosmo, temp_field)
     print(f"Number of snapshots: {len(snapshot_times)}")
-    print(
-        f"Scale factor range: [{snapshot_times.min():.4f}, {snapshot_times.max():.4f}]"
-    )
+    print(f"Scale factor range: [{snapshot_times.min():.4f}, {snapshot_times.max():.4f}]")
 
     # Compute z_near and z_far
     z_near, z_far = compute_z_near_z_far(snapshot_times, cosmo)
@@ -424,8 +391,7 @@ def main():
     cosmo._workspace = {}
 
     def pk_fn(x):
-        return jc.scipy.interpolate.interp(x.reshape([-1]), k,
-                                           pk).reshape(x.shape)
+        return jc.scipy.interpolate.interp(x.reshape([-1]), k, pk).reshape(x.shape)
 
     lin_field = interpolate_initial_conditions(
         jax.random.normal(key, mesh_size),
@@ -453,10 +419,7 @@ def main():
 
     # Run LPT
     print(f"\nRunning LPT (order={args.lpt_order})...")
-    dx_field, p_field = lpt(cosmo,
-                            lin_density,
-                            a=args.t0,
-                            order=args.lpt_order)
+    dx_field, p_field = lpt(cosmo, lin_density, a=args.t0, order=args.lpt_order)
     cosmo._workspace = {}
 
     print(f"Displacement field shape: {dx_field.array.shape}")
@@ -464,10 +427,7 @@ def main():
 
     # Setup ODE integration
     print(f"\nSetting up N-body integration...")
-    drift, kick = symplectic_ode(mesh_size,
-                                 paint_absolute_pos=False,
-                                 halo_size=0,
-                                 sharding=None)
+    drift, kick = symplectic_ode(mesh_size, paint_absolute_pos=False, halo_size=0, sharding=None)
     ode_fn = (ODETerm(kick), ODETerm(drift))
 
     # Compute observer position in physical coordinates
@@ -504,9 +464,7 @@ def main():
 
     y0 = (p_field.array, dx_field.array)
 
-    print(
-        f"\nRunning simulation (t0={args.t0}, t1={args.t1}, dt0={args.dt0})..."
-    )
+    print(f"\nRunning simulation (t0={args.t0}, t1={args.t1}, dt0={args.dt0})...")
     print(f"Geometries: {', '.join(args.geometry)}")
 
     solution = diffeqsolve(
@@ -561,8 +519,7 @@ def main():
             output["lightcone_flat"] = solution.ys[::-1]
     else:
         # Multiple geometries - solution.ys is tuple
-        results = solution.ys if isinstance(solution.ys,
-                                            tuple) else (solution.ys, )
+        results = solution.ys if isinstance(solution.ys, tuple) else (solution.ys, )
         for i, geom in enumerate(args.geometry):
             if geom == "spherical":
                 output["lightcone_spherical"] = results[i][::-1]

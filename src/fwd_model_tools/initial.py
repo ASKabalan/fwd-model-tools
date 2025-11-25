@@ -18,8 +18,8 @@ from .fields import DensityField, FieldStatus
 
 @partial(jax.jit,
          static_argnames=[
-             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position',
-             'flatsky_npix', 'nside', 'halo_size', 'sharding'
+             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size',
+             'sharding'
          ])
 def gaussian_initial_conditions(
     key: PRNGKeyArray,
@@ -62,6 +62,20 @@ def gaussian_initial_conditions(
     -------
     DensityField
         Field PyTree populated with the linear density field.
+
+    Examples
+    --------
+    >>> import jax.numpy as jnp
+    >>> import jax.random as jr
+    >>> pk = lambda k: 1.0 / (1.0 + k**2)
+    >>> field = gaussian_initial_conditions(
+    ...     jr.PRNGKey(0),
+    ...     mesh_size=(16, 16, 16),
+    ...     box_size=(200.0, 200.0, 200.0),
+    ...     pk_fn=pk,
+    ... )
+    >>> field.array.shape
+    (16, 16, 16)
     """
     if not is_prng_key(key):
         raise ValueError("key must be a jax.random.PRNGKey")
@@ -83,8 +97,8 @@ def gaussian_initial_conditions(
 
 @partial(jax.jit,
          static_argnames=[
-             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position',
-             'flatsky_npix', 'nside', 'halo_size', 'sharding'
+             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size',
+             'sharding'
          ])
 def interpolate_initial_conditions(
     initial_field: Array,
@@ -130,9 +144,7 @@ def interpolate_initial_conditions(
     """
     if pk_fn is None:
         if cosmo is None:
-            raise ValueError(
-                "Either pk_fn or cosmo must be provided to compute the power spectrum."
-            )
+            raise ValueError("Either pk_fn or cosmo must be provided to compute the power spectrum.")
         else:
             k = jnp.logspace(-4, 1, 256)
             pk = jc.power.linear_matter_power(cosmo, k)
@@ -141,10 +153,8 @@ def interpolate_initial_conditions(
 
     field = fft3d(initial_field)
     kvec = fftk(field)
-    kmesh = sum(
-        (kk / box_size[i] * mesh_size[i])**2 for i, kk in enumerate(kvec))**0.5
-    pkmesh = pk_fn(kmesh) * (mesh_size[0] * mesh_size[1] * mesh_size[2]) / (
-        box_size[0] * box_size[1] * box_size[2])
+    kmesh = sum((kk / box_size[i] * mesh_size[i])**2 for i, kk in enumerate(kvec))**0.5
+    pkmesh = pk_fn(kmesh) * (mesh_size[0] * mesh_size[1] * mesh_size[2]) / (box_size[0] * box_size[1] * box_size[2])
 
     field = field * jnp.sqrt(pkmesh)
     field = ifft3d(field)

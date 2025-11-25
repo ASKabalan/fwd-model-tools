@@ -6,8 +6,7 @@ from jax.scipy.stats import norm
 from scipy.special import legendre
 
 __all__ = [
-    'power_spectrum', 'transfer', 'coherence', 'pktranscoh',
-    'cross_correlation_coefficients', 'gaussian_smoothing'
+    'power_spectrum', 'transfer', 'coherence', 'pktranscoh', 'cross_correlation_coefficients', 'gaussian_smoothing'
 ]
 
 
@@ -41,8 +40,7 @@ def _initialize_pk(mesh_shape, box_shape, kedges, los):
 
     if isinstance(kedges, None | int | float):
         if kedges is None:
-            dk = 2 * np.pi / np.min(
-                box_shape) * 2  # twice the minimum wavenumber
+            dk = 2 * np.pi / np.min(box_shape) * 2  # twice the minimum wavenumber
         if isinstance(kedges, int):
             dk = kmax / (kedges + 1)  # final number of bins will be kedges-1
         elif isinstance(kedges, float):
@@ -59,8 +57,7 @@ def _initialize_pk(mesh_shape, box_shape, kedges, los):
 
     # Central value of each bin
     # kavg = (kedges[1:] + kedges[:-1]) / 2
-    kavg = np.bincount(
-        dig, weights=kmesh.reshape(-1), minlength=len(kedges) + 1) / kcount
+    kavg = np.bincount(dig, weights=kmesh.reshape(-1), minlength=len(kedges) + 1) / kcount
     kavg = kavg[1:-1]
 
     if los is None:
@@ -73,12 +70,7 @@ def _initialize_pk(mesh_shape, box_shape, kedges, los):
     return dig, kcount, kavg, mumesh
 
 
-def power_spectrum(mesh,
-                   mesh2=None,
-                   box_shape=None,
-                   kedges: int | float | list = None,
-                   multipoles=0,
-                   los=[0., 0., 1.]):
+def power_spectrum(mesh, mesh2=None, box_shape=None, kedges: int | float | list = None, multipoles=0, los=[0., 0., 1.]):
     """
     Compute the auto and cross spectrum of 3D fields, with multipoles.
     """
@@ -95,8 +87,7 @@ def power_spectrum(mesh,
         los = np.asarray(los)
         los = los / np.linalg.norm(los)
     poles = np.atleast_1d(multipoles)
-    dig, kcount, kavg, mumesh = _initialize_pk(mesh_shape, box_shape, kedges,
-                                               los)
+    dig, kcount, kavg, mumesh = _initialize_pk(mesh_shape, box_shape, kedges, los)
     n_bins = len(kavg) + 2
 
     # FFTs
@@ -151,11 +142,7 @@ def pktranscoh(mesh0, mesh1, box_shape, kedges: int | float | list = None):
     return ks, pk0, pk1, (pk1 / pk0)**.5, pk01 / (pk0 * pk1)**.5
 
 
-def cross_correlation_coefficients(field_a,
-                                   field_b,
-                                   kmin=5,
-                                   dk=0.5,
-                                   boxsize=False):
+def cross_correlation_coefficients(field_a, field_b, kmin=5, dk=0.5, boxsize=False):
     """
     Calculate the cross correlation coefficients given two real space field
 
@@ -190,8 +177,7 @@ def cross_correlation_coefficients(field_a,
     real = jnp.real(pk).reshape([-1])
     imag = jnp.imag(pk).reshape([-1])
 
-    Psum = jnp.bincount(dig, weights=(W.flatten() * imag),
-                        length=xsum.size) * 1j
+    Psum = jnp.bincount(dig, weights=(W.flatten() * imag), length=xsum.size) * 1j
     Psum += jnp.bincount(dig, weights=(W.flatten() * real), length=xsum.size)
 
     P = ((Psum / Nsum)[1:-1] * boxsize.prod()).astype('float32')
@@ -211,9 +197,7 @@ def gaussian_smoothing(im, sigma):
   sigma: smoothing scale in px
   """
     # Compute k vector
-    kvec = jnp.stack(jnp.meshgrid(jnp.fft.fftfreq(im.shape[0]),
-                                  jnp.fft.fftfreq(im.shape[1])),
-                     axis=-1)
+    kvec = jnp.stack(jnp.meshgrid(jnp.fft.fftfreq(im.shape[0]), jnp.fft.fftfreq(im.shape[1])), axis=-1)
     k = jnp.linalg.norm(kvec, axis=-1)
     # We compute the value of the filter at frequency k
     filter = norm.pdf(k, 0, 1. / (2. * np.pi * sigma))

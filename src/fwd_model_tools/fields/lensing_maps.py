@@ -10,8 +10,7 @@ from typing import Optional
 
 import jax.numpy as jnp
 
-from fwd_model_tools.power import (PowerSpectrum, angular_cl_flat,
-                                   angular_cl_spherical)
+from fwd_model_tools.power import PowerSpectrum, angular_cl_flat, angular_cl_spherical
 
 from .density import DensityField, DensityStatus, FlatDensity, SphericalDensity
 

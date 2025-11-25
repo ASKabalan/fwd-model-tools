@@ -26,14 +26,12 @@ def _normalize_sources(nz_shear: Any) -> Tuple[str, List[Any]]:
         raise ValueError("nz_shear must contain at least one entry")
 
     first = entries[0]
-    first_is_distribution = isinstance(first,
-                                       jc.redshift.redshift_distribution)
+    first_is_distribution = isinstance(first, jc.redshift.redshift_distribution)
 
     if first_is_distribution:
         for entry in entries:
             if not isinstance(entry, jc.redshift.redshift_distribution):
-                raise ValueError(
-                    "Cannot mix redshift distributions with scalar sources")
+                raise ValueError("Cannot mix redshift distributions with scalar sources")
         return "distribution", entries
 
     z_array = jnp.array(entries).squeeze()
@@ -57,8 +55,7 @@ def _born_core_impl(
     field_size=None,
 ):
     constant_factor = 3 / 2 * cosmo.Omega_m * (constants.H0 / constants.c)**2
-    chi_s = jc.background.radial_comoving_distance(cosmo,
-                                                   jc.utils.z2a(z_source))
+    chi_s = jc.background.radial_comoving_distance(cosmo, jc.utils.z2a(z_source))
     n_planes = len(r)
 
     is_spherical = density_planes.ndim == 2
@@ -70,8 +67,7 @@ def _born_core_impl(
 
         if coords is None:
             if field_size is None:
-                raise AssertionError(
-                    "field_size is required when coords not provided")
+                raise AssertionError("field_size is required when coords not provided")
             ny, nx = density_planes.shape[-2:]
             if isinstance(field_size, (tuple, list, jnp.ndarray)):
                 fx, fy = field_size
@@ -99,13 +95,9 @@ def _born_core_impl(
 
         def interpolate_plane(delta_plane, chi_plane):
             physical_coords = coords * chi_plane / pixel_size[:, None, None]
-            return map_coordinates(delta_plane,
-                                   physical_coords - 0.5,
-                                   order=1,
-                                   mode="wrap")
+            return map_coordinates(delta_plane, physical_coords - 0.5, order=1, mode="wrap")
 
-        kappa_contributions = jax.vmap(interpolate_plane)(kappa_contributions,
-                                                          r)
+        kappa_contributions = jax.vmap(interpolate_plane)(kappa_contributions, r)
 
     if jnp.ndim(z_source) > 0 and not is_spherical:
         chi_s = jnp.expand_dims(chi_s, axis=1)
@@ -171,9 +163,7 @@ def _born_spherical(
         #    for nz in sources
         #]
     else:
-        kappa_maps = _born_core_impl(cosmo, lightcone.array, r_center,
-                                     scale_factors, sources,
-                                     density_plane_width)
+        kappa_maps = _born_core_impl(cosmo, lightcone.array, r_center, scale_factors, sources, density_plane_width)
         print(f"shape of kappa_maps: {kappa_maps.shape}")
 
     return kappa_maps
@@ -191,8 +181,7 @@ def _born_flat(
     n_integrate,
 ):
     if lightcone.field_size is None:
-        raise ValueError(
-            "field_size is required on lightcone for flat-sky convergence")
+        raise ValueError("field_size is required on lightcone for flat-sky convergence")
 
     source_kind, sources = _normalize_sources(nz_shear)
 
@@ -203,8 +192,7 @@ def _born_flat(
         field_size_tuple = (field_size, field_size)
 
     if lightcone.flatsky_npix is None:
-        raise ValueError(
-            "flatsky_npix must be set on lightcone for flat geometry")
+        raise ValueError("flatsky_npix must be set on lightcone for flat geometry")
     ny, nx = lightcone.flatsky_npix
     pixel_size = (
         lightcone.box_size[1] / ny,

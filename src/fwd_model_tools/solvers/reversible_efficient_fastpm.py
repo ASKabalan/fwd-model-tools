@@ -2,8 +2,7 @@ from collections.abc import Callable
 from typing import ClassVar, TypeAlias
 
 from diffrax import AbstractSolver
-from diffrax._custom_types import (VF, Args, BoolScalarLike, DenseInfo,
-                                   RealScalarLike)
+from diffrax._custom_types import VF, Args, BoolScalarLike, DenseInfo, RealScalarLike
 from diffrax._local_interpolation import LocalLinearInterpolation
 from diffrax._solution import RESULTS
 from diffrax._term import AbstractTerm
@@ -27,8 +26,7 @@ class ReversibleEfficientFastPM(AbstractSolver):
     """
 
     term_structure: ClassVar = (AbstractTerm, AbstractTerm)
-    interpolation_cls: ClassVar[Callable[
-        ..., LocalLinearInterpolation]] = LocalLinearInterpolation
+    interpolation_cls: ClassVar[Callable[..., LocalLinearInterpolation]] = LocalLinearInterpolation
 
     def order(self, terms):
         return 1
@@ -61,8 +59,7 @@ class ReversibleEfficientFastPM(AbstractSolver):
         args: Args,
         solver_state: _SolverState,
         made_jump: BoolScalarLike,
-    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState,
-               RESULTS]:
+    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del solver_state, made_jump
 
         term_1, term_2 = terms
@@ -87,8 +84,7 @@ class ReversibleEfficientFastPM(AbstractSolver):
         args: Args,
         solver_state: _SolverState,
         made_jump: BoolScalarLike,
-    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState,
-               RESULTS]:
+    ) -> tuple[tuple[Ya, Yb], _ErrorEstimate, DenseInfo, _SolverState, RESULTS]:
         del solver_state, made_jump
 
         term_1, term_2 = terms

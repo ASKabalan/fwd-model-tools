@@ -59,8 +59,7 @@ def compute_box_size_from_redshift(cosmo, max_redshift, observer_position):
     >>> box_size = compute_box_size_from_redshift(cosmo, 1.0, (0.5, 0.5, 0.5))
     >>> # Returns symmetric box sized to contain lightcone to z=1.0
     """
-    r_comoving = jc.background.radial_comoving_distance(
-        cosmo, jc.utils.z2a(max_redshift)).squeeze()
+    r_comoving = jc.background.radial_comoving_distance(cosmo, jc.utils.z2a(max_redshift)).squeeze()
 
     observer_position = jnp.asarray(observer_position)
     factors = jnp.clip(observer_position, 0.0, 1.0)
@@ -116,8 +115,7 @@ def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
 
     r_effective = jnp.min(box_size / factors)
 
-    max_redshift = jc.utils.a2z(jc.background.a_of_chi(cosmo,
-                                                       r_effective)).squeeze()
+    max_redshift = jc.utils.a2z(jc.background.a_of_chi(cosmo, r_effective)).squeeze()
 
     return max_redshift
 
@@ -168,16 +166,14 @@ def compute_lightcone_shells(
 
 
 @partial(jax.jit, static_argnames=['nb_shells'])
-def compute_snapshot_scale_factors(cosmo, field: DensityField,
-                                   nb_shells) -> jax.Array:
+def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax.Array:
     """Compute only the shell scale factors (wrapper around ``compute_lightcone_shells``)."""
     _, a_center = compute_lightcone_shells(cosmo, field, nb_shells)
     return a_center
 
 
 @jax.jit
-def compute_lpt_lightcone_scale_factors(cosmo,
-                                        field: DensityField) -> jax.Array:
+def compute_lpt_lightcone_scale_factors(cosmo, field: DensityField) -> jax.Array:
     """
     Compute scale factors for LPT lightcone from a DensityField.
 
@@ -205,8 +201,7 @@ def compute_lpt_lightcone_scale_factors(cosmo,
     >>> # Returns a single scale factor value
     """
     # compute comoving distance for every slate along the z-axis
-    r_centers = ((jnp.arange(field.mesh_size[-1]) + 0.5) * field.box_size[-1] /
-                 field.mesh_size[-1])[::-1]
+    r_centers = ((jnp.arange(field.mesh_size[-1]) + 0.5) * field.box_size[-1] / field.mesh_size[-1])[::-1]
     a_centers = jc.background.a_of_chi(cosmo, r_centers)
     return a_centers
 
@@ -218,10 +213,8 @@ __all__.append("reconstruct_full_sphere")
 
 def reconstruct_full_sphere(visible_kappa, nside, observer_position):
     npix = 12 * nside**2
-    full_kappa = jax.tree.map(lambda x: jnp.zeros(npix, dtype=x.dtype),
-                              visible_kappa)
+    full_kappa = jax.tree.map(lambda x: jnp.zeros(npix, dtype=x.dtype), visible_kappa)
     visibility_mask = spherical_visibility_mask(nside, observer_position)
     visible_indices, = jnp.where(visibility_mask > 0)
-    full_kappa = jax.tree.map(lambda fk, vk: fk.at[visible_indices].set(vk),
-                              full_kappa, visible_kappa)
+    full_kappa = jax.tree.map(lambda fk, vk: fk.at[visible_indices].set(vk), full_kappa, visible_kappa)
     return full_kappa

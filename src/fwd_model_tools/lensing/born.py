@@ -4,8 +4,7 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 
 from fwd_model_tools._src.lensing._born import _born_flat, _born_spherical
-from fwd_model_tools.fields import (DensityStatus, FlatKappaField,
-                                    SphericalDensity, SphericalKappaField)
+from fwd_model_tools.fields import DensityStatus, FlatKappaField, SphericalDensity, SphericalKappaField
 
 __all__ = ["born"]
 
@@ -22,17 +21,13 @@ def born(
         raise ValueError("nz_shear must be provided for lensing")
 
     if lightcone.status != DensityStatus.LIGHTCONE:
-        raise ValueError(
-            f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}"
-        )
+        raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
 
     scale_factors = jnp.atleast_1d(lightcone.scale_factors)
     n_planes = scale_factors.size
 
     if lightcone.array.ndim not in [2, 3]:
-        raise ValueError(
-            f"Lightcone array must be 2D (spherical) or 3D (flat), got {lightcone.array.ndim}D"
-        )
+        raise ValueError(f"Lightcone array must be 2D (spherical) or 3D (flat), got {lightcone.array.ndim}D")
 
     r_center = jc.background.radial_comoving_distance(cosmo, scale_factors)
     cosmo._workspace = {}

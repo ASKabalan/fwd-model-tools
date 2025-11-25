@@ -19,8 +19,7 @@ from ..fields import FieldStatus, ParticleField
 __all__ = ["symplectic_ode", "symplectic_fpm_ode"]
 
 
-def symplectic_ode(reference_field: ParticleField,
-                   paint_mode: str = "relative"):
+def symplectic_ode(reference_field: ParticleField, paint_mode: str = "relative"):
     """
     Create drift and kick functions for standard symplectic N-body integration.
 

@@ -6,8 +6,7 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 os.environ["EQX_ON_ERROR"] = "nan"
 os.environ["JAX_ENABLE_X64"] = "False"
 
-if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(
-        os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1:
+if int(os.environ.get("SLURM_NTASKS", 0)) > 1 or int(os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1:
     os.environ["VSCODE_PROXY_URI"] = ""
     os.environ["no_proxy"] = ""
     os.environ["NO_PROXY"] = ""
@@ -42,8 +41,7 @@ from fwd_model_tools import Configurations, Planck18, full_field_probmodel
 from fwd_model_tools.plotting import plot_ic, plot_kappa, plot_lightcone
 from fwd_model_tools.sampling import batched_sampling, load_samples
 from fwd_model_tools.sampling.plot import plot_posterior
-from fwd_model_tools.utils import (compute_box_size_from_redshift,
-                                   reconstruct_full_sphere)
+from fwd_model_tools.utils import compute_box_size_from_redshift, reconstruct_full_sphere
 
 
 def setup_output_dir(output_dir):
@@ -94,8 +92,7 @@ def create_redshift_distribution(max_redshift):
     return nz_shear, nbins
 
 
-def generate_synthetic_observations(config, fiducial_cosmology,
-                                    initial_conditions, data_dir, plots_dir):
+def generate_synthetic_observations(config, fiducial_cosmology, initial_conditions, data_dir, plots_dir):
     print("\nGenerating synthetic observations")
 
     # TODO: update to new API full_field_probmodel(template_field, config)
@@ -118,15 +115,10 @@ def generate_synthetic_observations(config, fiducial_cosmology,
 
     nbins = len(config.nz_shear)
     kappa_keys = [f"kappa_{i}" for i in range(nbins)]
-    true_kappas_visible = {
-        key: model_trace[key]["value"]
-        for key in kappa_keys
-    }
+    true_kappas_visible = {key: model_trace[key]["value"] for key in kappa_keys}
 
     if config.geometry == "spherical":
-        true_kappas_full = reconstruct_full_sphere(true_kappas_visible,
-                                                   config.nside,
-                                                   config.observer_position)
+        true_kappas_full = reconstruct_full_sphere(true_kappas_visible, config.nside, config.observer_position)
     else:
         true_kappas_full = true_kappas_visible
 
@@ -145,22 +137,17 @@ def generate_synthetic_observations(config, fiducial_cosmology,
 
     print("Saved observations to disk")
 
-    plot_lightcone(true_lightcone,
-                   plots_dir,
-                   spherical=(config.geometry == "spherical"))
+    plot_lightcone(true_lightcone, plots_dir, spherical=(config.geometry == "spherical"))
     print("Plotted lightcone")
 
     kappa_array = np.stack([true_kappas_full[k] for k in kappa_keys])
-    plot_kappa(kappa_array,
-               plots_dir,
-               spherical=(config.geometry == "spherical"))
+    plot_kappa(kappa_array, plots_dir, spherical=(config.geometry == "spherical"))
     print("Plotted kappa maps")
 
     return true_kappas_visible
 
 
-def run_mcmc_inference(config, true_kappas_visible, samples_dir, args,
-                       init_params):
+def run_mcmc_inference(config, true_kappas_visible, samples_dir, args, init_params):
     print("\nSetting up MCMC inference")
 
     config_inference = Configurations(
@@ -189,16 +176,12 @@ def run_mcmc_inference(config, true_kappas_visible, samples_dir, args,
     nbins = len(config.nz_shear)
     observed_model = condition(
         full_field_basemodel,
-        {
-            f"kappa_{i}": true_kappas_visible[f"kappa_{i}"]
-            for i in range(nbins)
-        },
+        {f"kappa_{i}": true_kappas_visible[f"kappa_{i}"]
+         for i in range(nbins)},
     )
 
     print(f"Sampling with {args.sampler} using {args.backend} backend")
-    print(
-        f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}"
-    )
+    print(f"Warmup: {args.num_warmup}, Samples: {args.num_samples}, Batches: {args.batch_count}")
 
     batched_sampling(
         model=observed_model,
@@ -220,8 +203,7 @@ def run_mcmc_inference(config, true_kappas_visible, samples_dir, args,
 def analyze_results(samples_dir, data_dir, plots_dir):
     print("\nLoading samples and analyzing results")
 
-    scalar_samples = load_samples(str(samples_dir),
-                                  param_names=["Omega_c", "sigma8"])
+    scalar_samples = load_samples(str(samples_dir), param_names=["Omega_c", "sigma8"])
     print(f"Loaded {len(scalar_samples['Omega_c'])} samples")
     print(f"Parameters: {list(scalar_samples.keys())}")
 
@@ -231,18 +213,12 @@ def analyze_results(samples_dir, data_dir, plots_dir):
 
     print("\nPosterior Statistics:")
     print(f"True Omega_c: {true_Omega_c:.4f}")
-    print(
-        f"Inferred Omega_c: {scalar_samples['Omega_c'].mean():.4f} ± {scalar_samples['Omega_c'].std():.4f}"
-    )
+    print(f"Inferred Omega_c: {scalar_samples['Omega_c'].mean():.4f} ± {scalar_samples['Omega_c'].std():.4f}")
     print(f"True sigma8: {true_sigma8:.4f}")
-    print(
-        f"Inferred sigma8: {scalar_samples['sigma8'].mean():.4f} ± {scalar_samples['sigma8'].std():.4f}"
-    )
+    print(f"Inferred sigma8: {scalar_samples['sigma8'].mean():.4f} ± {scalar_samples['sigma8'].std():.4f}")
 
     print("Loading IC field statistics...")
-    ic_mean, ic_std = load_samples(str(samples_dir),
-                                   param_names=["ic"],
-                                   transform=("mean", "std"))
+    ic_mean, ic_std = load_samples(str(samples_dir), param_names=["ic"], transform=("mean", "std"))
     if "ic" in ic_mean:
         true_ic = np.load(data_dir / "true_ic.npy")
         plot_ic(
@@ -254,10 +230,7 @@ def analyze_results(samples_dir, data_dir, plots_dir):
         )
         print("Plotted IC comparison")
 
-    param_samples = {
-        "Omega_c": scalar_samples["Omega_c"],
-        "sigma8": scalar_samples["sigma8"]
-    }
+    param_samples = {"Omega_c": scalar_samples["Omega_c"], "sigma8": scalar_samples["sigma8"]}
     true_param_values = {"Omega_c": true_Omega_c, "sigma8": true_sigma8}
 
     labels = {"Omega_c": r"\Omega_c", "sigma8": r"\sigma_8"}
@@ -276,8 +249,7 @@ def analyze_results(samples_dir, data_dir, plots_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Distributed Full-Field Inference")
+    parser = argparse.ArgumentParser(description="Distributed Full-Field Inference")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -379,13 +351,10 @@ def main():
     print(f"JAX devices: {jax.device_count()}")
     print(f"JAX backend: {jax.default_backend()}")
 
-    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(
-        args.output_dir)
+    output_dir, plots_dir, samples_dir, data_dir = setup_output_dir(args.output_dir)
 
     if args.plot_only:
-        print(
-            "\nPlot-only mode: Loading existing samples and generating plots..."
-        )
+        print("\nPlot-only mode: Loading existing samples and generating plots...")
         analyze_results(samples_dir, data_dir, plots_dir)
         return
 
@@ -394,9 +363,7 @@ def main():
     fiducial_cosmology = Planck18()
     observer_position = tuple(args.observer_position)
     # Physical box size inferred from max redshift and observer position
-    box_size = compute_box_size_from_redshift(fiducial_cosmology,
-                                              args.max_redshift,
-                                              observer_position)
+    box_size = compute_box_size_from_redshift(fiducial_cosmology, args.max_redshift, observer_position)
 
     print(f"Box size: {box_size} Mpc/h")
     print(f"Max redshift: {args.max_redshift}")
@@ -432,13 +399,11 @@ def main():
 
     print("Configuration created")
 
-    initial_conditions = normal_field(jax.random.key(args.seed),
-                                      box_size,
-                                      sharding=sharding)
+    initial_conditions = normal_field(jax.random.key(args.seed), box_size, sharding=sharding)
     print("Initial conditions generated")
 
-    true_kappas_visible = generate_synthetic_observations(
-        config, fiducial_cosmology, initial_conditions, data_dir, plots_dir)
+    true_kappas_visible = generate_synthetic_observations(config, fiducial_cosmology, initial_conditions, data_dir,
+                                                          plots_dir)
 
     init_params = {
         "Omega_c": fiducial_cosmology.Omega_c,
@@ -447,8 +412,7 @@ def main():
     }
     init_params = jax.tree.map(jnp.asarray, init_params)
 
-    run_mcmc_inference(config, true_kappas_visible, samples_dir, args,
-                       init_params)
+    run_mcmc_inference(config, true_kappas_visible, samples_dir, args, init_params)
 
     analyze_results(samples_dir, data_dir, plots_dir)
 

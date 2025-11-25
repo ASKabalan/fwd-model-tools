@@ -9,12 +9,7 @@ from getdist import MCSamples
 from getdist import plots as gdplots
 
 
-def plot_kappa(kappa,
-               outdir,
-               spherical=False,
-               titles=None,
-               output_format="png",
-               dpi=600):
+def plot_kappa(kappa, outdir, spherical=False, titles=None, output_format="png", dpi=600):
     """Plot convergence maps (legacy wrapper).
 
     This helper operates directly on numpy arrays and is kept for backward
@@ -72,11 +67,7 @@ def plot_kappa(kappa,
         if n_kappa == 1:
             axes = [axes]
         for i, ax in enumerate(axes):
-            im = ax.imshow(kappa[i],
-                           origin="lower",
-                           cmap="viridis",
-                           vmin=vmin,
-                           vmax=vmax)
+            im = ax.imshow(kappa[i], origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
             ax.set_title(titles[i])
             plt.colorbar(im, ax=ax)
         plt.tight_layout()
@@ -88,12 +79,7 @@ def plot_kappa(kappa,
         plt.close()
 
 
-def plot_lightcone(lightcone,
-                   outdir,
-                   spherical=False,
-                   titles=None,
-                   output_format="png",
-                   dpi=600):
+def plot_lightcone(lightcone, outdir, spherical=False, titles=None, output_format="png", dpi=600):
     """Plot lightcone density planes (legacy wrapper).
 
     This helper operates directly on numpy arrays and is kept for backward
@@ -153,11 +139,7 @@ def plot_lightcone(lightcone,
         fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
         axes = np.atleast_1d(axes).ravel()
         for i in range(n_planes):
-            im = axes[i].imshow(lightcone[i],
-                                origin="lower",
-                                cmap="viridis",
-                                vmin=vmin,
-                                vmax=vmax)
+            im = axes[i].imshow(lightcone[i], origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
             axes[i].set_title(titles[i])
             plt.colorbar(im, ax=axes[i])
         for j in range(n_planes, len(axes)):
@@ -171,13 +153,7 @@ def plot_lightcone(lightcone,
         plt.close()
 
 
-def plot_ic(true_ic,
-            mean_ic,
-            std_ic,
-            outdir,
-            titles=("True", "Mean", "Std", "Diff"),
-            output_format="png",
-            dpi=600):
+def plot_ic(true_ic, mean_ic, std_ic, outdir, titles=("True", "Mean", "Std", "Diff"), output_format="png", dpi=600):
     """Shim for backwards-compatibility; use fwd_model_tools.sampling.plot.plot_ic instead."""
     from fwd_model_tools.sampling.plot import plot_ic as _plot_ic
 
@@ -236,11 +212,7 @@ def plot_gradient_analysis(
 
         ax_loss = axes[i, 0]
         ax_loss.plot(offsets, losses, "o-", linewidth=2, markersize=8)
-        ax_loss.axvline(0,
-                        color="red",
-                        linestyle="--",
-                        alpha=0.5,
-                        label="Fiducial")
+        ax_loss.axvline(0, color="red", linestyle="--", alpha=0.5, label="Fiducial")
         ax_loss.set_xlabel(f"{param_name} offset")
         ax_loss.set_ylabel("MSE Loss")
         ax_loss.set_title(f"Loss vs {param_name} offset")
@@ -248,18 +220,9 @@ def plot_gradient_analysis(
         ax_loss.legend()
 
         ax_grad = axes[i, 1]
-        ax_grad.plot(offsets,
-                     gradients,
-                     "s-",
-                     linewidth=2,
-                     markersize=8,
-                     color="orange")
+        ax_grad.plot(offsets, gradients, "s-", linewidth=2, markersize=8, color="orange")
         ax_grad.axhline(0, color="black", linestyle="-", alpha=0.3)
-        ax_grad.axvline(0,
-                        color="red",
-                        linestyle="--",
-                        alpha=0.5,
-                        label="Fiducial")
+        ax_grad.axvline(0, color="red", linestyle="--", alpha=0.5, label="Fiducial")
         ax_grad.set_xlabel(f"{param_name} offset")
         ax_grad.set_ylabel("d(MSE)/d(" + param_name + ")")
         ax_grad.set_title(f"Gradient vs {param_name} offset")

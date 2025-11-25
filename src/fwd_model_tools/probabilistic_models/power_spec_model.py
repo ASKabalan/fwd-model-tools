@@ -50,10 +50,7 @@ def pixel_window_function(l, pixel_size_arcmin):
     return W_l
 
 
-def make_2pt_model(pixel_scale,
-                   ell,
-                   sigma_e=0.3,
-                   nonlinear_fn=jc.power.halofit):
+def make_2pt_model(pixel_scale, ell, sigma_e=0.3, nonlinear_fn=jc.power.halofit):
     """
     Create a function that computes the theoretical 2-point correlation function for a given cosmology and redshift distribution.
 
@@ -74,9 +71,7 @@ def make_2pt_model(pixel_scale,
 
     def forward_model(cosmo, nz_shear):
         tracer = jc.probes.WeakLensing(nz_shear, sigma_e=sigma_e)
-        cell_theory = jc.angular_cl.angular_cl(cosmo,
-                                               ell, [tracer],
-                                               nonlinear_fn=nonlinear_fn)
+        cell_theory = jc.angular_cl.angular_cl(cosmo, ell, [tracer], nonlinear_fn=nonlinear_fn)
         cell_theory = cell_theory * pixel_window_function(ell, pixel_scale)
         cell_noise = jc.angular_cl.noise_cl(ell, [tracer])
         return cell_theory, cell_noise
@@ -131,36 +126,29 @@ def powerspec_probmodel(
 
         if config.geometry == "flat":
             if pixel_size_arcmin is None:
-                raise ValueError(
-                    "pixel_size_arcmin must be provided for flat geometry")
+                raise ValueError("pixel_size_arcmin must be provided for flat geometry")
             pixel_scale = pixel_size_arcmin
         else:
             if nside is None:
-                raise ValueError(
-                    "nside must be provided for spherical geometry")
-            pixel_scale = jnp.sqrt(4 * jnp.pi /
-                                   (12 * (nside**2))) * (180.0 * 60.0 / jnp.pi)
+                raise ValueError("nside must be provided for spherical geometry")
+            pixel_scale = jnp.sqrt(4 * jnp.pi / (12 * (nside**2))) * (180.0 * 60.0 / jnp.pi)
 
-        forward_model = make_2pt_model(pixel_scale,
-                                       config.ells,
-                                       sigma_e=config.sigma_e)
+        forward_model = make_2pt_model(pixel_scale, config.ells, sigma_e=config.sigma_e)
 
         cell_theory, cell_noise = forward_model(cosmo, config.nz_shear)
 
         observed_spectra = []
         for idx, (i, j) in enumerate(pair_order):
             if i == j:
-                kappa_obs_spectra = numpyro.sample(
-                    f"C_ell_auto_{i}",
-                    dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
+                kappa_obs_spectra = numpyro.sample(f"C_ell_auto_{i}",
+                                                   dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
 
                 observed_spectra.append(kappa_obs_spectra)
             # Deactivate cross-spectra for now
             # Because the noise is equal to 0 And I don't know what to sample
             elif False:
-                kappa_obs_spectra = numpyro.sample(
-                    f"C_ell_cross_{i}_{j}",
-                    dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
+                kappa_obs_spectra = numpyro.sample(f"C_ell_cross_{i}_{j}",
+                                                   dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
                 observed_spectra.append(kappa_obs_spectra)
 
         return observed_spectra
