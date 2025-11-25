@@ -2,9 +2,9 @@ import jax
 import pytest
 
 from fwd_model_tools.fields import FlatDensity, SphericalDensity
-from fwd_model_tools.probabilistic_models.full_field_model import Planck18
 from fwd_model_tools.initial import gaussian_initial_conditions
 from fwd_model_tools.pm import lpt, nbody
+from fwd_model_tools.probabilistic_models.full_field_model import Planck18
 from fwd_model_tools.utils import compute_snapshot_scale_factors
 
 

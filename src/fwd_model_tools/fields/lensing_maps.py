@@ -10,7 +10,8 @@ from typing import Optional
 
 import jax.numpy as jnp
 
-from fwd_model_tools.power import compute_flat_cl, compute_spherical_cl
+from fwd_model_tools.power import (PowerSpectrum, angular_cl_flat,
+                                   angular_cl_spherical)
 
 from .density import DensityField, DensityStatus, FlatDensity, SphericalDensity
 
@@ -92,21 +93,22 @@ class FlatKappaField(FlatDensity):
             scale_factors=scale_factors,
         )
 
-    def compute_power_spectrum(
+    def angular_cl(
         self,
         *,
         field_size: Optional[float] = None,
         pixel_size: Optional[float] = None,
-        **kwargs,
-    ):
+        ell_edges: Optional[jnp.ndarray] = None,
+    ) -> PowerSpectrum:
         """Compute a flat-sky angular power spectrum C_ℓ for convergence maps."""
         effective_field_size = field_size or self.field_size
-        return compute_flat_cl(
-            self,
-            field_size=effective_field_size,
+        ell, spectra = angular_cl_flat(
+            self.array,
             pixel_size=pixel_size,
-            **kwargs,
+            field_size=effective_field_size,
+            ell_edges=ell_edges,
         )
+        return PowerSpectrum(wavenumber=ell, spectra=spectra, name="cl")
 
     def get_shear(self, cosmo=None):
         """
@@ -205,9 +207,10 @@ class SphericalKappaField(SphericalDensity):
             scale_factors=scale_factors,
         )
 
-    def compute_power_spectrum(self, *, lmax: Optional[int] = None, **kwargs):
+    def angular_cl(self, *, lmax: Optional[int] = None) -> PowerSpectrum:
         """Compute a spherical angular power spectrum C_ℓ for convergence maps."""
-        return compute_spherical_cl(self, lmax=lmax, **kwargs)
+        ell_out, spectra = angular_cl_spherical(self.array, lmax=lmax)
+        return PowerSpectrum(wavenumber=ell_out, spectra=spectra, name="cl")
 
     def get_shear(self, cosmo=None):
         """
@@ -293,21 +296,22 @@ class FlatShearField(FlatDensity):
             scale_factors=scale_factors,
         )
 
-    def compute_power_spectrum(
+    def angular_cl(
         self,
         *,
         field_size: Optional[float] = None,
         pixel_size: Optional[float] = None,
-        **kwargs,
-    ):
+        ell_edges: Optional[jnp.ndarray] = None,
+    ) -> PowerSpectrum:
         """Compute the shear flat-sky power spectrum (same as density maps)."""
         effective_field_size = field_size or self.field_size
-        return compute_flat_cl(
-            self,
-            field_size=effective_field_size,
+        ell, spectra = angular_cl_flat(
+            self.array,
             pixel_size=pixel_size,
-            **kwargs,
+            field_size=effective_field_size,
+            ell_edges=ell_edges,
         )
+        return PowerSpectrum(wavenumber=ell, spectra=spectra, name="cl")
 
 
 class SphericalShearField(SphericalDensity):
@@ -367,6 +371,7 @@ class SphericalShearField(SphericalDensity):
             scale_factors=scale_factors,
         )
 
-    def compute_power_spectrum(self, *, lmax: Optional[int] = None, **kwargs):
+    def angular_cl(self, *, lmax: Optional[int] = None) -> PowerSpectrum:
         """Compute the shear spherical power spectrum."""
-        return compute_spherical_cl(self, lmax=lmax, **kwargs)
+        ell_out, spectra = angular_cl_spherical(self.array, lmax=lmax)
+        return PowerSpectrum(wavenumber=ell_out, spectra=spectra, name="cl")

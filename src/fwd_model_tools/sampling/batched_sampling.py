@@ -391,9 +391,7 @@ def load_samples(
             std_result[param] = jnp.sqrt(Ex2 - Ex**2)
 
     if isinstance(transform, tuple):
-        print(
-            f"Computed mean and std for {len(params_to_load)} parameter(s)"
-        )
+        print(f"Computed mean and std for {len(params_to_load)} parameter(s)")
         return (mean_result, std_result)
     if transform == "mean":
         print(f"Computed mean for {len(params_to_load)} parameter(s)")
@@ -401,4 +399,3 @@ def load_samples(
     if transform == "std":
         print(f"Computed std for {len(params_to_load)} parameter(s)")
         return std_result
-

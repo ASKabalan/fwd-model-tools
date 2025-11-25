@@ -1,7 +1,7 @@
 """Sampling utilities and distributed persistency helpers."""
 
-from .dist import DistributedNormal
 from .batched_sampling import batched_sampling, load_samples
+from .dist import DistributedNormal
 from .persistency import load_sharded, save_sharded
 from .plot import plot_ic, plot_posterior
 

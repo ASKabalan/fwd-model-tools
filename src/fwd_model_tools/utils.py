@@ -168,7 +168,8 @@ def compute_lightcone_shells(
 
 
 @partial(jax.jit, static_argnames=['nb_shells'])
-def compute_snapshot_scale_factors(cosmo, field: DensityField, nb_shells) -> jax.Array:
+def compute_snapshot_scale_factors(cosmo, field: DensityField,
+                                   nb_shells) -> jax.Array:
     """Compute only the shell scale factors (wrapper around ``compute_lightcone_shells``)."""
     _, a_center = compute_lightcone_shells(cosmo, field, nb_shells)
     return a_center
@@ -208,15 +209,19 @@ def compute_lpt_lightcone_scale_factors(cosmo,
                  field.mesh_size[-1])[::-1]
     a_centers = jc.background.a_of_chi(cosmo, r_centers)
     return a_centers
+
+
 from jaxpm.spherical import spherical_visibility_mask
 
 __all__.append("reconstruct_full_sphere")
 
 
 def reconstruct_full_sphere(visible_kappa, nside, observer_position):
-    npix = 12 * nside ** 2
-    full_kappa = jax.tree.map(lambda x: jnp.zeros(npix, dtype=x.dtype), visible_kappa)
+    npix = 12 * nside**2
+    full_kappa = jax.tree.map(lambda x: jnp.zeros(npix, dtype=x.dtype),
+                              visible_kappa)
     visibility_mask = spherical_visibility_mask(nside, observer_position)
     visible_indices, = jnp.where(visibility_mask > 0)
-    full_kappa = jax.tree.map(lambda fk, vk: fk.at[visible_indices].set(vk), full_kappa, visible_kappa)
+    full_kappa = jax.tree.map(lambda fk, vk: fk.at[visible_indices].set(vk),
+                              full_kappa, visible_kappa)
     return full_kappa

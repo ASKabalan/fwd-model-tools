@@ -24,8 +24,7 @@ class Configurations:
     dt0: float
     t1: float
     adjoint: RecursiveCheckpointAdjoint = field(
-        default_factory=lambda: RecursiveCheckpointAdjoint(5)
-    )
+        default_factory=lambda: RecursiveCheckpointAdjoint(5))
     min_redshift: float = 0.01
     max_redshift: float = 3.0
     geometry: str = "spherical"
@@ -35,4 +34,3 @@ class Configurations:
     number_of_shells: int = 8
     lensing: str = "born"
     lpt_order: int = 2
-

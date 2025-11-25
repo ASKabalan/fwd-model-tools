@@ -7,32 +7,30 @@ from typing import Any, Iterable, Literal, Optional, Sequence, Tuple
 
 import healpy as hp
 import jax
+import jax.core
 import jax.numpy as jnp
 import jax_healpy as jhp
-from jaxtyping import Array
-from jax.image import resize
 import matplotlib.pyplot as plt
 import numpy as np
+from jax.image import resize
 from jaxpm.distributed import uniform_particles
 from jaxpm.painting import (cic_paint, cic_paint_2d, cic_paint_dx, cic_read,
                             cic_read_dx)
 from jaxpm.spherical import paint_particles_spherical
+from jaxtyping import Array
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from fwd_model_tools._src._checks import (_ensure_tuple2, _ensure_tuple3,
+                                          _normalize_halo_size,
+                                          _optional_positive_int,
+                                          _optional_tuple2_positive)
 from fwd_model_tools._src._painting import (_single_paint, _single_paint_2d,
                                             _single_paint_spherical)
-from fwd_model_tools._src._checks import (
-    _ensure_tuple2,
-    _ensure_tuple3,
-    _normalize_halo_size,
-    _optional_positive_int,
-    _optional_tuple2_positive,
-)
 from fwd_model_tools._src.core import AbstractField
-from fwd_model_tools.power import (compute_flat_cl, compute_pk,
-                                   compute_spherical_cl)
-from jaxtyping import Array
-
+from fwd_model_tools.power import (PowerSpectrum, angular_cl_flat,
+                                   angular_cl_spherical, coherence)
+from fwd_model_tools.power import power as power_fn
+from fwd_model_tools.power import transfer
 
 __all__ = [
     "FieldStatus",
@@ -243,18 +241,191 @@ class DensityField(AbstractField):
         self.scale_factors = scale_factors
 
     # -------------------------------------------------------- power-spectrum API
-    def compute_power_spectrum(
-        self,
-        *,
-        kedges: Optional[Array | jnp.ndarray] = None,
-        **kwargs: Any,
+    def power(
+            self,
+            mesh2: Optional[DensityField] = None,
+            *,
+            kedges: Optional[Array | jnp.ndarray] = None,
+            multipoles: Optional[Iterable[int]] = 0,
+            los: Array | Iterable[float] = (0.0, 0.0, 1.0),
     ) -> "PowerSpectrum":
         """Compute the 3D matter power spectrum P(k).
 
-        Parameters mirror :func:`fwd_model_tools.power.compute_pk`. Any keyword
+        Parameters mirror :func:`fwd_model_tools.power.power`. Any keyword
         arguments are forwarded verbatim to that helper.
         """
-        return compute_pk(self, kedges=kedges, **kwargs)
+        box_shape = tuple(self.box_size)
+        multipoles_static = tuple(multipoles) if isinstance(
+            multipoles, (list, tuple)) else multipoles
+        los_tuple = None if multipoles_static == 0 else tuple(
+            np.asarray(los, dtype=float))
+
+        data1 = self.array
+        data2 = mesh2.array if mesh2 is not None else None
+
+        if data1.ndim == 3:
+            data1 = jnp.expand_dims(data1, axis=0)
+            data2 = jnp.expand_dims(data2,
+                                    axis=0) if data2 is not None else None
+        elif data1.ndim != 4:
+            raise ValueError(
+                "DensityField.power expects array shape (X,Y,Z) or (B,X,Y,Z)")
+
+        if data2 is not None and data2.shape != data1.shape:
+            raise ValueError("mesh2 must match mesh shape for power")
+
+        def _power_fn(pair):
+            arr1, arr2 = pair
+            return power_fn(
+                arr1,
+                arr2,
+                box_shape=box_shape,
+                kedges=kedges,
+                multipoles=multipoles_static,
+                los=los_tuple,
+            )
+
+        k, pk = jax.lax.map(_power_fn, (data1, data2))
+        k, pk = k[0], pk.squeeze()
+        return PowerSpectrum(wavenumber=k, spectra=pk, name="pk")
+
+    def plot(
+        self,
+        *,
+        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        nz_slices: int = 10,
+        cmap: str = "magma",
+        figsize: Optional[Tuple[float, float]] = None,
+        ncols: int = 3,
+        titles: Optional[Sequence[str]] = None,
+        show_colorbar: bool = True,
+        show_ticks: bool = True,
+        apply_log: bool = True,
+        **kwargs,
+    ):
+        """Project along z and plot via :class:`FlatDensity` utilities (batch supported)."""
+        if not jax.core.is_concrete(self.array):
+            raise ValueError(
+                "Cannot plot traced arrays. Use outside of jit context.")
+
+        flat = self.project(nz_slices=nz_slices)
+        fig, axes = flat.plot(
+            ax=ax,
+            cmap=cmap,
+            figsize=figsize,
+            ncols=ncols,
+            titles=titles,
+            show_colorbar=show_colorbar,
+            show_ticks=show_ticks,
+            apply_log=apply_log,
+            **kwargs,
+        )
+        return fig, axes
+
+    def show(
+        self,
+        *,
+        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        nz_slices: int = 10,
+        cmap: str = "magma",
+        figsize: Optional[Tuple[float, float]] = None,
+        ncols: int = 3,
+        titles: Optional[Sequence[str]] = None,
+        show_colorbar: bool = True,
+        show_ticks: bool = True,
+        apply_log: bool = True,
+        **kwargs,
+    ) -> None:
+        """Display projected density using :meth:`plot`."""
+        self.plot(
+            ax=ax,
+            nz_slices=nz_slices,
+            cmap=cmap,
+            figsize=figsize,
+            ncols=ncols,
+            titles=titles,
+            show_colorbar=show_colorbar,
+            show_ticks=show_ticks,
+            apply_log=apply_log,
+            **kwargs,
+        )
+        plt.show()
+
+    def transfer(
+        self,
+        other: "DensityField",
+        *,
+        kedges: Optional[Array | jnp.ndarray] = None,
+    ) -> "PowerSpectrum":
+        """Monopole transfer function sqrt(P_other / P_self)."""
+
+        def _compute(pair):
+            arr1, arr2 = pair
+            return transfer(
+                arr1,
+                arr2,
+                box_shape=self.box_size,
+                kedges=kedges,
+            )
+
+        data1 = self.array
+        data2 = other.array
+
+        if data1.ndim == 3:
+            data1 = data1[None, ...]
+            data2 = data2[None, ...]
+        elif data1.ndim != 4:
+            raise ValueError(
+                "DensityField.transfer expects array shape (X,Y,Z) or (B,X,Y,Z)"
+            )
+
+        if data2.shape != data1.shape:
+            raise ValueError("other array must match shape for transfer")
+
+        k_stack, spectra_stack = jax.lax.map(_compute, (data1, data2))
+        wavenumber = k_stack[0]
+        spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
+        return PowerSpectrum(wavenumber=wavenumber,
+                             spectra=spectra,
+                             name="transfer")
+
+    def coherence(
+        self,
+        other: "DensityField",
+        *,
+        kedges: Optional[Array | jnp.ndarray] = None,
+    ) -> "PowerSpectrum":
+        """Monopole coherence pk01 / sqrt(pk0 pk1)."""
+
+        def _compute(pair):
+            arr1, arr2 = pair
+            return coherence(
+                arr1,
+                arr2,
+                box_shape=self.box_size,
+                kedges=kedges,
+            )
+
+        data1 = self.array
+        data2 = other.array
+
+        if data1.ndim == 3:
+            data1 = data1[None, ...]
+            data2 = data2[None, ...]
+        elif data1.ndim != 4:
+            raise ValueError(
+                "DensityField.coherence expects array shape (X,Y,Z) or (B,X,Y,Z)"
+            )
+
+        if data2.shape != data1.shape:
+            raise ValueError("other array must match shape for coherence")
+
+        k_stack, spectra_stack = jax.lax.map(_compute, (data1, data2))
+        wavenumber = k_stack[0]
+        spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
+        return PowerSpectrum(wavenumber=wavenumber,
+                             spectra=spectra,
+                             name="coherence")
 
     def block_until_ready(self) -> DensityField:
         """
@@ -315,52 +486,6 @@ class DensityField(AbstractField):
             status=DensityStatus.PROJECTED_DENSITY,
         )
 
-    def show(
-        self,
-        nz_slices: int = 10,
-        *,
-        cmap: str = "magma",
-        figsize: Optional[Tuple[float, float]] = None,
-        title: Optional[str] = None,
-        show_colorbar: bool = True,
-        show_ticks: bool = True,
-    ) -> None:
-        """
-        Paint and display a 2D projection of the density field.
-
-        Raises
-        ------
-        ValueError
-            If called within a jit context (i.e., array is traced).
-
-        Parameters
-        ----------
-        nz_slices : int, default=10
-            Number of z-slices to sum.
-        cmap : str, default="magma"
-            Colormap for visualization.
-        figsize : tuple, optional
-            Figure size (width, height).
-        title : str, optional
-            Plot title.
-        show_colorbar : bool, default=True
-            Whether to add a colorbar to each subplot.
-        show_ticks : bool, default=True
-            Whether to display axis ticks.
-        """
-        import jax.core
-        if not jax.core.is_concrete(self.array):
-            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
-
-        flat = self.project(nz_slices=nz_slices)
-        flat.show(
-            cmap=cmap,
-            figsize=figsize,
-            titles=[title] if title else None,
-            show_colorbar=show_colorbar,
-            show_ticks=show_ticks,
-        )
-
     def __getitem__(self, key) -> "DensityField":
         """
         Index into batched DensityField.
@@ -393,8 +518,7 @@ class DensityField(AbstractField):
         if self.array.ndim < 4:
             raise ValueError(
                 f"Indexing only supported for batched DensityField (4D array), "
-                f"got array with {self.array.ndim} dimensions"
-            )
+                f"got array with {self.array.ndim} dimensions")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -411,6 +535,19 @@ class DensityField(AbstractField):
             halo_size=self.halo_size,
             status=self.status,
             scale_factors=indexed_scale_factors,
+        )
+
+    @classmethod
+    def stack(cls, fields: Sequence["DensityField"]) -> "DensityField":
+        """
+        Stack multiple FlatDensity instances along axis 0.
+        """
+        field_list = tuple(fields)
+        if not field_list:
+            raise ValueError("FlatDensity.stack requires at least one field.")
+        return jax.tree.map(
+            lambda *arrays: jnp.stack(arrays, axis=0),
+            *field_list,
         )
 
 
@@ -488,11 +625,8 @@ class ParticleField(DensityField):
             halo_size=reference.halo_size,
             z_source=reference.z_source,
             status=status if status is not None else reference.status,
-            scale_factors=(
-                scale_factors
-                if scale_factors is not None
-                else reference.scale_factors
-            ),
+            scale_factors=(scale_factors if scale_factors is not None else
+                           reference.scale_factors),
         )
 
     def __getitem__(self, key) -> "ParticleField":
@@ -531,7 +665,8 @@ class ParticleField(DensityField):
             scale_factors=indexed_scale_factors,
         )
 
-    @partial(jax.jit, static_argnames=['mode', 'weights', 'chunk_size', 'batch_size'])
+    @partial(jax.jit,
+             static_argnames=['mode', 'weights', 'chunk_size', 'batch_size'])
     def paint(
         self,
         mode: PaintMode = "relative",
@@ -648,7 +783,10 @@ class ParticleField(DensityField):
             scale_factors=self.scale_factors,
         )
 
-    @partial(jax.jit, static_argnames=['mode', 'weights', 'density_plane_width', 'batch_size'])
+    @partial(jax.jit,
+             static_argnames=[
+                 'mode', 'weights', 'density_plane_width', 'batch_size'
+             ])
     def paint_2d(
         self,
         center: Float | Array,
@@ -697,12 +835,15 @@ class ParticleField(DensityField):
                 raise ValueError(
                     f"Batched input: center must have {nb_shells} elements, got {center_arr.size}"
                 )
-            density_plane_width = self.density_width(nb_shells) if density_plane_width is None else density_plane_width
+            density_plane_width = self.density_width(
+                nb_shells
+            ) if density_plane_width is None else density_plane_width
         elif data.ndim == 4:
             data = data[None, ...]
             center_arr = center_arr[None, ...]
             if density_plane_width is None:
-                raise ValueError("density_plane_width must be specified for single shell")
+                raise ValueError(
+                    "density_plane_width must be specified for single shell")
         else:
             raise ValueError(
                 f"paint_2d() expects 4D or 5D array, got shape {data.shape}")
@@ -722,7 +863,8 @@ class ParticleField(DensityField):
             max_comoving_radius=self.max_comoving_radius,
         )
 
-        painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
+        painted = jax.lax.map(paint_fn, (data, center_arr),
+                              batch_size=batch_size)
         painted = painted.squeeze()
 
         return FlatDensity.FromDensityMetadata(
@@ -731,7 +873,13 @@ class ParticleField(DensityField):
             status=DensityStatus.LIGHTCONE,
         )
 
-    @partial(jax.jit, static_argnames=['mode', 'scheme', 'weights', 'density_plane_width', 'kernel_width_arcmin', 'smoothing_interpretation', 'paint_nside', 'ud_grade_power', 'ud_grade_order_in', 'ud_grade_order_out', 'ud_grade_pess', 'batch_size'])
+    @partial(jax.jit,
+             static_argnames=[
+                 'mode', 'scheme', 'weights', 'density_plane_width',
+                 'kernel_width_arcmin', 'smoothing_interpretation',
+                 'paint_nside', 'ud_grade_power', 'ud_grade_order_in',
+                 'ud_grade_order_out', 'ud_grade_pess', 'batch_size'
+             ])
     def paint_spherical(
         self,
         center: Float | Array,
@@ -803,12 +951,15 @@ class ParticleField(DensityField):
                 raise ValueError(
                     f"Batched input: center must have {nb_shells} elements, got {center_arr.size}"
                 )
-            density_plane_width = self.density_width(nb_shells) if density_plane_width is None else density_plane_width
+            density_plane_width = self.density_width(
+                nb_shells
+            ) if density_plane_width is None else density_plane_width
         elif data.ndim == 4:
             data = data[None, ...]
             center_arr = center_arr[None, ...]
             if density_plane_width is None:
-                raise ValueError("density_plane_width must be specified for single shell")
+                raise ValueError(
+                    "density_plane_width must be specified for single shell")
         else:
             raise ValueError(
                 f"paint_spherical() expects 4D or 5D array, got shape {data.shape}"
@@ -837,7 +988,8 @@ class ParticleField(DensityField):
             max_comoving_radius=self.max_comoving_radius,
         )
 
-        painted = jax.lax.map(paint_fn, (data, center_arr), batch_size=batch_size)
+        painted = jax.lax.map(paint_fn, (data, center_arr),
+                              batch_size=batch_size)
         painted = painted.squeeze()
 
         return SphericalDensity.FromDensityMetadata(
@@ -931,8 +1083,7 @@ class FlatDensity(DensityField):
         if spatial_shape != tuple(flatsky_npix):
             raise ValueError(
                 f"Array spatial shape {spatial_shape} does not match "
-                f"flatsky_npix {flatsky_npix}."
-            )
+                f"flatsky_npix {flatsky_npix}.")
 
         super().__init__(
             array=arr,
@@ -983,8 +1134,7 @@ class FlatDensity(DensityField):
         if spatial_shape != tuple(density_field.flatsky_npix):
             raise ValueError(
                 f"Array spatial shape {spatial_shape} does not match "
-                f"flatsky_npix {density_field.flatsky_npix}."
-            )
+                f"flatsky_npix {density_field.flatsky_npix}.")
 
         return cls(
             array=arr,
@@ -996,40 +1146,67 @@ class FlatDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
-            z_source=(
-                z_source if z_source is not None else density_field.z_source
-            ),
+            z_source=(z_source
+                      if z_source is not None else density_field.z_source),
             status=status,
-            scale_factors=(
-                scale_factors
-                if scale_factors is not None
-                else density_field.scale_factors
-            ),
+            scale_factors=(scale_factors if scale_factors is not None else
+                           density_field.scale_factors),
         )
 
-    def compute_power_spectrum(
+    def angular_cl(
         self,
+        mesh2: Optional["FlatDensity"] = None,
         *,
         field_size: Optional[float] = None,
         pixel_size: Optional[float] = None,
-        **kwargs: Any,
+        ell_edges: Iterable[float] | None = None,
     ) -> "PowerSpectrum":
-        """Compute a flat-sky angular power spectrum C_ell.
+        """Compute a flat-sky angular power spectrum C_ell (auto or cross)."""
 
-        Parameters mirror :func:`fwd_model_tools.power.compute_flat_cl`. Geometry
-        metadata is inferred from the current instance unless overridden.
-        """
         effective_field_size = field_size or self.field_size
-        return compute_flat_cl(
-            self,
-            field_size=effective_field_size,
-            pixel_size=pixel_size,
-            **kwargs,
-        )
+        data1 = self.array
+        data2 = mesh2.array if mesh2 is not None else None
+
+        if data1.ndim == 2:
+            data1 = data1[None, ...]
+            data2 = data2[None, ...] if data2 is not None else None
+        elif data1.ndim != 3:
+            raise ValueError(
+                "FlatDensity.angular_cl expects array shape (ny,nx) or (B,ny,nx)"
+            )
+
+        if data2 is not None and data2.shape != data1.shape:
+            raise ValueError("mesh2 must match shape for cross Cl")
+
+        def _compute(pair):
+            m1, m2 = pair
+            return angular_cl_flat(
+                m1,
+                m2,
+                pixel_size=pixel_size,
+                field_size=effective_field_size,
+                ell_edges=ell_edges,
+            )
+
+        if data2 is None:
+            ell_stack, spectra_stack = jax.lax.map(
+                lambda m: _compute((m, None)),
+                data1,
+            )
+        else:
+            ell_stack, spectra_stack = jax.lax.map(
+                lambda pair: _compute(pair),
+                (data1, data2),
+            )
+
+        wavenumber = ell_stack[0]
+        spectra = spectra_stack if self.array.ndim == 3 else spectra_stack[0]
+        return PowerSpectrum(wavenumber=wavenumber, spectra=spectra, name="cl")
 
     def plot(
         self,
         *,
+        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
         cmap: str = "magma",
         figsize: Optional[Tuple[float, float]] = None,
         ncols: int = 3,
@@ -1061,9 +1238,9 @@ class FlatDensity(DensityField):
         show_ticks : bool, default=True
             Whether to keep axis ticks/labels. Set to False for cleaner grids.
         """
-        import jax.core
         if not jax.core.is_concrete(self.array):
-            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError(
+                "Cannot plot/show traced arrays. Use outside of jit context.")
 
         data = jnp.asarray(self.array)
         if data.ndim == 2:
@@ -1074,32 +1251,67 @@ class FlatDensity(DensityField):
             )
 
         n_maps = data.shape[0]
-        requested_cols = ncols or 3
-        ncols = max(1, min(requested_cols, n_maps))
-        nrows = ceil(n_maps / ncols)
-        if figsize is None:
-            figsize = (5 * ncols, 5 * nrows)
 
-        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
-        for idx in range(nrows * ncols):
-            ax = axes[idx // ncols, idx % ncols]
+        def _flatten_axes(axes_obj):
+            if axes_obj is None:
+                return None
+            if isinstance(axes_obj, np.ndarray):
+                return axes_obj.ravel()
+            if isinstance(axes_obj, Sequence):
+                return np.array(axes_obj, dtype=object).ravel()
+            return np.array([axes_obj], dtype=object)
+
+        axes_flat = _flatten_axes(ax)
+
+        if axes_flat is None:
+            ncols_eff = max(1, min(ncols, n_maps))
+            nrows = ceil(n_maps / ncols_eff)
+            if figsize is None:
+                figsize = (5 * ncols_eff, 5 * nrows)
+            fig, axes_created = plt.subplots(nrows,
+                                             ncols_eff,
+                                             figsize=figsize,
+                                             squeeze=False)
+            axes_flat = axes_created.ravel()
+        else:
+            # Derive grid from provided axes shape if possible
+            if axes_flat.size < n_maps:
+                raise ValueError(
+                    "Provided axes array is too small for number of maps")
+            fig = axes_flat[0].get_figure()
+            # infer columns: if original was ndarray with 2 dims, respect that
+            if isinstance(ax, np.ndarray) and ax.ndim == 2:
+                nrows, ncols_eff = ax.shape[:2]
+            else:
+                ncols_eff = min(ncols or axes_flat.size, axes_flat.size)
+                nrows = ceil(n_maps / ncols_eff)
+            axes_flat = axes_flat[:nrows * ncols_eff]
+            axes_created = axes_flat.reshape(nrows, ncols_eff)
+
+        for idx, ax_i in enumerate(axes_flat):
             if idx < n_maps:
                 to_plot = jnp.log10(data[idx] + 1) if apply_log else data[idx]
-                im = ax.imshow(to_plot, origin="lower", cmap=cmap)
+                im = ax_i.imshow(to_plot, origin="lower", cmap=cmap)
                 if show_colorbar:
-                    # Keep colorbars narrow so they do not fill the figure.
-                    divider = make_axes_locatable(ax)
+                    divider = make_axes_locatable(ax_i)
                     cax = divider.append_axes("right", size="3%", pad=0.03)
                     fig.colorbar(im, cax=cax)
                 if not show_ticks:
-                    ax.set_xticks([])
-                    ax.set_yticks([])
+                    ax_i.set_xticks([])
+                    ax_i.set_yticks([])
                 if titles and idx < len(titles):
-                    ax.set_title(titles[idx])
+                    ax_i.set_title(titles[idx])
             else:
-                ax.axis("off")
+                ax_i.axis("off")
+
         fig.tight_layout()
-        return fig, axes
+
+        if ax is not None:
+            axes_out = axes_flat.reshape(axes_created.shape)
+        else:
+            axes_out = axes_created
+
+        return fig, axes_out
 
     def __getitem__(self, key) -> "FlatDensity":
         """
@@ -1133,8 +1345,7 @@ class FlatDensity(DensityField):
         if self.array.ndim < 3:
             raise ValueError(
                 f"Indexing only supported for batched FlatDensity (3D array), "
-                f"got array with {self.array.ndim} dimensions"
-            )
+                f"got array with {self.array.ndim} dimensions")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -1151,6 +1362,7 @@ class FlatDensity(DensityField):
     def show(
         self,
         *,
+        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
         cmap: str = "magma",
         figsize: Optional[Tuple[float, float]] = None,
         ncols: int = 3,
@@ -1169,18 +1381,19 @@ class FlatDensity(DensityField):
         ValueError
             If called within a jit context (i.e., array is traced).
         """
-        import jax.core
         if not jax.core.is_concrete(self.array):
-            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError(
+                "Cannot plot/show traced arrays. Use outside of jit context.")
 
         self.plot(
+            ax=ax,
             cmap=cmap,
             figsize=figsize,
             ncols=ncols,
             titles=titles,
             show_colorbar=show_colorbar,
             show_ticks=show_ticks,
-            apply_log=apply_log
+            apply_log=apply_log,
         )
         plt.show()
 
@@ -1225,6 +1438,7 @@ class FlatDensity(DensityField):
             *field_list,
         )
 
+
 @jax.tree_util.register_pytree_node_class
 class SphericalDensity(DensityField):
     """Spherical (HEALPix) density or shear maps produced from simulations."""
@@ -1256,8 +1470,7 @@ class SphericalDensity(DensityField):
         if arr.shape[-1] != npix:
             raise ValueError(
                 f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
-                f"{npix} for nside {nside}."
-            )
+                f"{npix} for nside {nside}.")
 
         super().__init__(
             array=arr,
@@ -1298,8 +1511,7 @@ class SphericalDensity(DensityField):
         if arr.shape[-1] != npix:
             raise ValueError(
                 f"Array last dimension {arr.shape[-1]} does not match HEALPix npix "
-                f"{npix} for nside {density_field.nside}."
-            )
+                f"{npix} for nside {density_field.nside}.")
 
         return cls(
             array=arr,
@@ -1311,29 +1523,57 @@ class SphericalDensity(DensityField):
             flatsky_npix=density_field.flatsky_npix,
             field_size=density_field.field_size,
             halo_size=density_field.halo_size,
-            z_source=(
-                z_source if z_source is not None else density_field.z_source
-            ),
+            z_source=(z_source
+                      if z_source is not None else density_field.z_source),
             status=status,
-            scale_factors=(
-                scale_factors
-                if scale_factors is not None
-                else density_field.scale_factors
-            ),
+            scale_factors=(scale_factors if scale_factors is not None else
+                           density_field.scale_factors),
         )
 
-    def compute_power_spectrum(
+    def angular_cl(
         self,
+        mesh2: Optional["SphericalDensity"] = None,
         *,
         lmax: Optional[int] = None,
-        **kwargs: Any,
     ) -> "PowerSpectrum":
-        """Compute a spherical (HEALPix) angular power spectrum C_ell."""
-        return compute_spherical_cl(
-            self,
-            lmax=lmax,
-            **kwargs,
-        )
+        """Compute a spherical (HEALPix) angular power spectrum C_ell (auto or cross)."""
+
+        data1 = self.array
+        data2 = mesh2.array if mesh2 is not None else None
+
+        if data1.ndim == 1:
+            data1 = data1[None, ...]
+            data2 = data2[None, ...] if data2 is not None else None
+        elif data1.ndim != 2:
+            raise ValueError(
+                "SphericalDensity.angular_cl expects array shape (npix) or (B,npix)"
+            )
+
+        if data2 is not None and data2.shape != data1.shape:
+            raise ValueError("mesh2 must match shape for cross Cl")
+
+        def _compute(pair):
+            m1, m2 = pair
+            return angular_cl_spherical(
+                m1,
+                m2,
+                lmax=lmax,
+            )
+
+        if data2 is None:
+            ell_stack, spectra_stack = jax.lax.map(
+                lambda m: _compute((m, None)),
+                data1,
+            )
+        else:
+            ell_stack, spectra_stack = jax.lax.map(
+                lambda pair: _compute(pair),
+                (data1, data2),
+            )
+
+        wavenumber = ell_stack[0]
+        spectra = spectra_stack if self.array.ndim == 2 else spectra_stack[0]
+        return PowerSpectrum(wavenumber=wavenumber, spectra=spectra, name="cl")
 
     def __getitem__(self, key) -> "SphericalDensity":
         """
@@ -1367,8 +1607,7 @@ class SphericalDensity(DensityField):
         if self.array.ndim < 2:
             raise ValueError(
                 f"Indexing only supported for batched SphericalDensity (2D array), "
-                f"got array with {self.array.ndim} dimensions"
-            )
+                f"got array with {self.array.ndim} dimensions")
 
         indexed_array = self.array[key]
         indexed_scale_factors = self.scale_factors[key]
@@ -1399,11 +1638,13 @@ class SphericalDensity(DensityField):
     def plot(
         self,
         *,
+        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
         cmap: str = "magma",
         figsize: Tuple[float, float] | None = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
         apply_log: bool = True,
+        show_colorbar: bool = True,
     ):
         """
         Visualize one or more spherical maps using ``healpy.mollview``.
@@ -1413,9 +1654,9 @@ class SphericalDensity(DensityField):
         ValueError
             If called within a jit context (i.e., array is traced).
         """
-        import jax.core
         if not jax.core.is_concrete(self.array):
-            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError(
+                "Cannot plot/show traced arrays. Use outside of jit context.")
 
         data = jnp.asarray(self.array)
         if data.ndim == 1:
@@ -1426,38 +1667,95 @@ class SphericalDensity(DensityField):
             data = data.reshape((-1, data.shape[-1]))
 
         n_maps = data.shape[0]
-        requested_cols = ncols or 3
-        ncols = max(1, min(requested_cols, n_maps))
-        nrows = ceil(n_maps / ncols)
-        if figsize is None:
-            figsize = (4 * ncols, 4 * nrows)
 
-        fig = plt.figure(figsize=figsize)
-        for idx in range(n_maps):
-            title = titles[idx] if titles and idx < len(titles) else ""
-            map_np = np.asarray(data[idx])
-            map_np = np.log10(map_np + 1) if apply_log else map_np
-            hp.mollview(map_np,
-                        fig=fig,
-                        sub=(nrows, ncols, idx + 1),
-                        cmap=cmap,
-                        title=title,
-                        bgcolor=(0.0, ) * 4,
-                        cbar=True,
-                        min=0,
-                        max=np.percentile(map_np[map_np > 0], 95) if np.any(
-                            map_np > 0) else np.max(map_np))
+        def _flatten_axes(axes_obj):
+            if axes_obj is None:
+                return None
+            if isinstance(axes_obj, np.ndarray):
+                return axes_obj.ravel()
+            if isinstance(axes_obj, Sequence):
+                return np.array(axes_obj, dtype=object).ravel()
+            return np.array([axes_obj], dtype=object)
 
+        axes_flat = _flatten_axes(ax)
+
+        if axes_flat is None:
+            requested_cols = ncols or 3
+            ncols_eff = max(1, min(requested_cols, n_maps))
+            nrows_eff = ceil(n_maps / ncols_eff)
+            if figsize is None:
+                figsize = (4 * ncols_eff, 4 * nrows_eff)
+            fig, axes_created = plt.subplots(nrows_eff,
+                                             ncols_eff,
+                                             figsize=figsize,
+                                             squeeze=False)
+            axes_flat = axes_created.ravel()
+        else:
+            if axes_flat.size < n_maps:
+                raise ValueError(
+                    "Provided axes array is too small for number of maps")
+            fig = axes_flat[0].get_figure()
+            axes_created = None  # using provided axes; keep their existing grid
+
+        def _sub_from_ax(ax_obj):
+            sp = ax_obj.get_subplotspec()
+            gs = sp.get_gridspec()
+            row = sp.rowspan.start
+            col = sp.colspan.start
+            return gs.nrows, gs.ncols, row * gs.ncols + col + 1
+
+        def _attach_delegate(ax_obj, delegate):
+            ax_obj._healpy_delegate = delegate  # type: ignore[attr-defined]
+            ax_obj.set_title = delegate.set_title  # type: ignore[assignment]
+            ax_obj.get_title = delegate.get_title  # type: ignore[assignment]
+
+        for idx, ax_i in enumerate(axes_flat):
+            if idx < n_maps:
+                title = titles[idx] if titles and idx < len(titles) else ""
+                map_np = np.asarray(data[idx])
+                map_np = np.log10(map_np + 1) if apply_log else map_np
+
+                ax_i.axis("off")
+                sub = _sub_from_ax(ax_i)
+                delegate = hp.mollview(
+                    map_np,
+                    fig=fig,
+                    sub=sub,
+                    cmap=cmap,
+                    title=title,
+                    bgcolor=(0.0, ) * 4,
+                    cbar=show_colorbar,
+                    min=0,
+                    max=np.percentile(map_np[map_np > 0], 95) if np.any(
+                        map_np > 0) else np.max(map_np),
+                )
+                if delegate is None:
+                    delegate = next(
+                        (ax for ax in fig.axes
+                         if isinstance(ax, hp.projaxes.HpxMollweideAxes)),
+                        None,
+                    )
+                if delegate is None:
+                    raise RuntimeError(
+                        "healpy.mollview did not return a Mollweide axes.")
+                _attach_delegate(ax_i, delegate)
+            else:
+                ax_i.axis("off")
+
+        axes_out = axes_created
         return fig
 
     def show(
         self,
         *,
+        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
         cmap: str = "magma",
         figsize: Tuple[float, float] | None = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
         apply_log: bool = True,
+        show_colorbar: bool = True,
+        **kwargs,
     ) -> None:
         """
         Plot and display spherical maps using healpy.
@@ -1467,11 +1765,20 @@ class SphericalDensity(DensityField):
         ValueError
             If called within a jit context (i.e., array is traced).
         """
-        import jax.core
         if not jax.core.is_concrete(self.array):
-            raise ValueError("Cannot plot/show traced arrays. Use outside of jit context.")
+            raise ValueError(
+                "Cannot plot/show traced arrays. Use outside of jit context.")
 
-        self.plot(cmap=cmap, figsize=figsize, ncols=ncols, titles=titles, apply_log=apply_log)
+        self.plot(
+            ax=ax,
+            cmap=cmap,
+            figsize=figsize,
+            ncols=ncols,
+            titles=titles,
+            apply_log=apply_log,
+            show_colorbar=show_colorbar,
+            **kwargs,
+        )
         plt.show()
 
     def ud_sample(self, new_nside):
@@ -1531,5 +1838,7 @@ def stack(fields: Sequence[DensityField]) -> DensityField:
         return FlatDensity.stack(field_list)  # type: ignore[arg-type]
     if isinstance(first, SphericalDensity):
         return SphericalDensity.stack(field_list)  # type: ignore[arg-type]
+    if isinstance(first, DensityField):
+        return DensityField.stack(field_list)  # type: ignore[arg-type]
     raise TypeError(
         "stack currently supports FlatDensity or SphericalDensity inputs.")

@@ -3,7 +3,6 @@ import numpy as np
 from jax.lax import FftType
 from jax.sharding import PartitionSpec as P
 from jaxdecomp import fftfreq3d, get_output_specs
-
 from jaxpm.distributed import autoshmap
 
 

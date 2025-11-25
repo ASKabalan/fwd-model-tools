@@ -35,7 +35,8 @@ import numpyro.distributions as dist
 from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 
-from fwd_model_tools.sampling import DistributedNormal, batched_sampling, load_samples
+from fwd_model_tools.sampling import (DistributedNormal, batched_sampling,
+                                      load_samples)
 from fwd_model_tools.sampling.plot import plot_posterior
 
 FIELD_SHAPE = (4, 4)

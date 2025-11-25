@@ -5,10 +5,8 @@ import jax
 import orbax.checkpoint as ocp
 from jax.sharding import NamedSharding
 
-from fwd_model_tools.sampling.persistency import (
-    load_sharded as _load_sharded,
-    save_sharded as _save_sharded,
-)
+from fwd_model_tools.sampling.persistency import load_sharded as _load_sharded
+from fwd_model_tools.sampling.persistency import save_sharded as _save_sharded
 
 
 def get_axis_size(sharding: NamedSharding, index: int) -> int:
@@ -54,7 +52,10 @@ def get_pdims_from_sharding(sharding: NamedSharding):
 
 def save_sharded(pytree, path, overwrite=True, dump_structure=True):
     """Shim around fwd_model_tools.sampling.persistency.save_sharded."""
-    return _save_sharded(pytree, path, overwrite=overwrite, dump_structure=dump_structure)
+    return _save_sharded(pytree,
+                         path,
+                         overwrite=overwrite,
+                         dump_structure=dump_structure)
 
 
 def load_sharded(path, abstract_pytree=None):

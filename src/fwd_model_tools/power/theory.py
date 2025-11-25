@@ -18,7 +18,8 @@ def compute_theory_cl(
     """
     nz = _normalize_z_source(z_source)
     tracer = jc.probes.WeakLensing([nz], sigma_e=0.0)
-    cl_matrix = jnp.asarray(jc.angular_cl.angular_cl(cosmo, jnp.asarray(ell), [tracer]))
+    cl_matrix = jnp.asarray(
+        jc.angular_cl.angular_cl(cosmo, jnp.asarray(ell), [tracer]))
 
     if cl_matrix.ndim == 1:
         return cl_matrix

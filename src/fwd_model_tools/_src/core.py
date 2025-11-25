@@ -20,7 +20,7 @@ class AbstractField(ABC):
     Minimal base class capturing the array payload shared by all field objects.
     """
 
-    __slots__ = ("array",)
+    __slots__ = ("array", )
     __array_priority__ = 1000
 
     def __init__(self, *, array: jax.Array):

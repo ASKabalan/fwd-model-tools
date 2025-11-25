@@ -8,9 +8,8 @@ adjoint integration, and symplectic integrators for N-body simulations.
 
 from fwd_model_tools.solvers.integrate import integrate, scan_integrate
 from fwd_model_tools.solvers.ode import symplectic_fpm_ode, symplectic_ode
-from fwd_model_tools.solvers.reversible_efficient_fastpm import (
-    ReversibleEfficientFastPM,
-)
+from fwd_model_tools.solvers.reversible_efficient_fastpm import \
+    ReversibleEfficientFastPM
 
 __all__ = [
     "integrate",

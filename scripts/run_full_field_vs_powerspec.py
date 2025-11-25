@@ -43,15 +43,13 @@ from jaxpm.distributed import normal_field
 from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
-from fwd_model_tools import (Configurations, Planck18, full_field_probmodel)
-from fwd_model_tools.utils import reconstruct_full_sphere
+from fwd_model_tools import Configurations, Planck18, full_field_probmodel
 from fwd_model_tools.plotting import plot_kappa, plot_lightcone
 from fwd_model_tools.probabilistic_models.power_spec_model import (
-    compute_cl_from_convergence_map,
-    powerspec_probmodel,
-)
+    compute_cl_from_convergence_map, powerspec_probmodel)
 from fwd_model_tools.sampling import batched_sampling, load_samples
-from fwd_model_tools.utils import compute_box_size_from_redshift
+from fwd_model_tools.utils import (compute_box_size_from_redshift,
+                                   reconstruct_full_sphere)
 
 
 def setup_output_dir(output_dir):
@@ -134,9 +132,9 @@ def generate_synthetic_observations(config, fiducial_cosmology,
         for key in kappa_keys
     }
 
-    true_kappas_full = reconstruct_full_sphere(
-        true_kappas_visible, config.nside, config.observer_position
-    )
+    true_kappas_full = reconstruct_full_sphere(true_kappas_visible,
+                                               config.nside,
+                                               config.observer_position)
 
     np.savez(
         data_dir / "true_kappas.npz",

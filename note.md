@@ -36,13 +36,12 @@ preconditionner prior : gaussian à gaussan (sigma * X + mu)
 preconditionner prior : gaussian à flat (CDF d'une gaussienne inverse)
 inverse cdf d'une gaussienne applique à uniforme(0,1) => gaussian(0,1)
 
-gaussian(0,1) => CDF d'une gaussienne => uniforme(0,1) => uniform(0.2 , 0.3) 
+gaussian(0,1) => CDF d'une gaussienne => uniforme(0,1) => uniform(0.2 , 0.3)
 gaussian(0,1) => init_mesh
 
-posterior preconditionning : 
+posterior preconditionning :
 
-gaussian(0,1) * rescale => CDF d'une gaussienne => uniforme(0,1) => uniform(0.2 , 0.3) 
+gaussian(0,1) * rescale => CDF d'une gaussienne => uniforme(0,1) => uniform(0.2 , 0.3)
 gaussian(0,1) * rescale => init_mesh => gaussian(0,1)
 
 ce rescale il faut le determiner apres un first pass avec precondionner
-

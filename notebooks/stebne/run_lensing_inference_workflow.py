@@ -27,8 +27,7 @@ from jaxpm.spherical import spherical_visibility_mask
 from numpyro.handlers import condition, seed, trace
 from scipy.stats import norm
 
-from fwd_model_tools import (Configurations, Planck18, full_field_probmodel)
-from fwd_model_tools.utils import reconstruct_full_sphere
+from fwd_model_tools import Configurations, Planck18, full_field_probmodel
 from fwd_model_tools.lensing_model import (compute_box_size_from_redshift,
                                            compute_max_redshift_from_box_size,
                                            make_full_field_model)
@@ -36,6 +35,7 @@ from fwd_model_tools.plotting import (plot_gradient_analysis, plot_ic,
                                       plot_kappa, plot_lightcone,
                                       plot_posterior)
 from fwd_model_tools.sampling import batched_sampling, load_samples
+from fwd_model_tools.utils import reconstruct_full_sphere
 
 
 def setup_output_dir(output_dir):

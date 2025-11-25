@@ -9,9 +9,9 @@ from typing import Literal, Tuple
 
 import jax
 import jax.numpy as jnp
+from jaxpm.distributed import uniform_particles
 from jaxpm.painting import cic_paint, cic_paint_2d, cic_paint_dx
 from jaxpm.spherical import paint_particles_spherical
-from jaxpm.distributed import uniform_particles
 
 PaintMode = Literal["relative", "absolute"]
 SphericalScheme = Literal["ngp", "bilinear", "rbf_neighbor"]
@@ -71,9 +71,8 @@ def _single_paint(
             chunk_size=chunk_size,
         )
     elif mode == "absolute":
-        grid_mesh = (
-            mesh if mesh is not None else jnp.zeros(mesh_size, dtype=array.dtype)
-        )
+        grid_mesh = (mesh if mesh is not None else jnp.zeros(
+            mesh_size, dtype=array.dtype))
         density = cic_paint(
             grid_mesh,
             array,
@@ -88,7 +87,7 @@ def _single_paint(
 
 
 def _single_paint_2d(
-    array_center : Tuple[jax.Array, float],
+    array_center: Tuple[jax.Array, float],
     mesh_size: Tuple[int, int, int],
     box_size: Tuple[float, float, float],
     observer_position: Tuple[float, float, float],
@@ -164,8 +163,8 @@ def _single_paint_2d(
 
     # Compute weights based on z-position and user-defined weights
     weights_dz = jnp.where(
-        (dz > (center_grid - width / 2)) & (dz <= (center_grid + width / 2)), 1.0, 0.0
-    )
+        (dz > (center_grid - width / 2)) & (dz <= (center_grid + width / 2)),
+        1.0, 0.0)
     painting_weights = weights_dz if weights is None else weights * weights_dz
 
     # Prepare the output flat-sky grid
@@ -260,7 +259,7 @@ def _single_paint_spherical(
     jax.Array
         Painted HEALPix map, shape (npix,).
     """
-    array , center = array_center
+    array, center = array_center
     if mode == "relative":
         positions = uniform_particles(mesh_size, sharding=sharding) + array
     else:
@@ -272,20 +271,16 @@ def _single_paint_spherical(
 
     # Observer position in Mpc
     observer_position_mpc = tuple(
-        frac * length for frac, length in zip(observer_position, box_size)
-    )
+        frac * length for frac, length in zip(observer_position, box_size))
 
     def error_message(rmin, rmax, density_plane_width, max_comoving_radius):
-        if (
-            rmin < density_plane_width / 2
-            or rmax > max_comoving_radius - density_plane_width / 2
-        ):
+        if (rmin < density_plane_width / 2
+                or rmax > max_comoving_radius - density_plane_width / 2):
             return (
                 f"Requested spherical shell (rmin={rmin}, rmax={rmax}) "
                 f"lies outside the box limits [0, {max_comoving_radius}]. "
                 "Adjust center to be between {density_plane_width / 2} and "
-                f"{max_comoving_radius - density_plane_width / 2}."
-            )
+                f"{max_comoving_radius - density_plane_width / 2}.")
 
     jax.debug.callback(
         error_message,

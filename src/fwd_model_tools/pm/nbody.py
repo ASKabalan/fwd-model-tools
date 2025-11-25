@@ -16,18 +16,22 @@ from ..utils import compute_snapshot_scale_factors
 
 __all__ = ["nbody"]
 
-@partial(jax.jit, static_argnames=['t1', 'dt0', 'nb_shells', 'geometry', 'solver', 'adjoint'])
+
+@partial(jax.jit,
+         static_argnames=[
+             't1', 'dt0', 'nb_shells', 'geometry', 'solver', 'adjoint'
+         ])
 def nbody(
-    cosmo,
-    dx_field: ParticleField,
-    p_field: ParticleField,
-    t1: float = 1.0,
-    dt0: float = 0.05,
-    ts: jnp.ndarray | None = None,
-    nb_shells: int | None = None,
-    geometry: str = "spherical",
-    solver=ReversibleEfficientFastPM(),
-    adjoint: str | object = RecursiveCheckpointAdjoint(),
+        cosmo,
+        dx_field: ParticleField,
+        p_field: ParticleField,
+        t1: float = 1.0,
+        dt0: float = 0.05,
+        ts: jnp.ndarray | None = None,
+        nb_shells: int | None = None,
+        geometry: str = "spherical",
+        solver=ReversibleEfficientFastPM(),
+        adjoint: str | object = RecursiveCheckpointAdjoint(),
 ) -> jax.Array:
     """
     Evolve particles forward in time and save lightcone density planes.
@@ -84,7 +88,8 @@ def nbody(
     # Validate inputs
     if geometry not in ["spherical", "flat", "density", "particles"]:
         raise ValueError(
-            f"geometry must be 'spherical' or 'flat' or 'density' or 'particles', got {geometry}")
+            f"geometry must be 'spherical' or 'flat' or 'density' or 'particles', got {geometry}"
+        )
     if ts is None and nb_shells is None:
         raise ValueError("Either ts or nb_shells must be provided.")
 
@@ -109,7 +114,9 @@ def nbody(
 
     # Compute shell centers using field properties
     if ts is None:
-        ts = compute_snapshot_scale_factors(cosmo, dx_field, nb_shells=nb_shells)
+        ts = compute_snapshot_scale_factors(cosmo,
+                                            dx_field,
+                                            nb_shells=nb_shells)
 
     density_plane_width = dx_field.density_width(nb_shells=ts.shape[0])
     # Create ODE terms using local symplectic_ode with ParticleField
@@ -158,6 +165,7 @@ def nbody(
             )
 
     elif geometry == "density":
+
         def snapshot_fn(t, y, args):
             # Create temporary ParticleField from displacement array
             particle_field = y[1]
@@ -167,6 +175,7 @@ def nbody(
             return particle_field.paint(mode="relative")
 
     elif geometry == "particles":
+
         def snapshot_fn(t, y, args):
             # Return ParticleField with displacements directly
             particle_field = y[1]

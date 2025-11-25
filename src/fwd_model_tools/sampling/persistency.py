@@ -7,7 +7,10 @@ import jax
 import orbax.checkpoint as ocp
 
 
-def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = True):
+def save_sharded(pytree,
+                 path,
+                 overwrite: bool = True,
+                 dump_structure: bool = True):
     """
     Saves a (possibly sharded) PyTree to disk using Orbax Checkpoint.
 
@@ -79,4 +82,3 @@ def load_sharded(path, abstract_pytree=None):
         path, args=ocp.args.StandardRestore(abstract_pytree))
     checkpointer.wait_until_finished()
     return restored
-

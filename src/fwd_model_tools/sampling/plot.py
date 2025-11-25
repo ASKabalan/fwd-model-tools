@@ -123,7 +123,9 @@ def plot_posterior(
     else:
         labels_list = [labels.get(p, p) for p in params]
 
-    mc_samples = MCSamples(samples=samples_array, names=names, labels=labels_list)
+    mc_samples = MCSamples(samples=samples_array,
+                           names=names,
+                           labels=labels_list)
 
     markers_dict = None
     if true_values is not None:
@@ -150,4 +152,3 @@ def plot_posterior(
         filename = f"posterior.{output_format}"
         plt.savefig(outdir / filename, dpi=dpi, bbox_inches="tight")
     plt.close()
-

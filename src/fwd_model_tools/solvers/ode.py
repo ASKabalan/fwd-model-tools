@@ -8,11 +8,11 @@ like sharding, observer position, and field status throughout integration.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 from jaxpm.growth import E, Gf, dGfa
 from jaxpm.growth import growth_factor as Gp
 from jaxpm.pm import pm_forces
-import jax
 
 from ..fields import FieldStatus, ParticleField
 

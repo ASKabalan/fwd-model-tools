@@ -132,17 +132,14 @@ def powerspec_probmodel(
         if config.geometry == "flat":
             if pixel_size_arcmin is None:
                 raise ValueError(
-                    "pixel_size_arcmin must be provided for flat geometry"
-                )
+                    "pixel_size_arcmin must be provided for flat geometry")
             pixel_scale = pixel_size_arcmin
         else:
             if nside is None:
                 raise ValueError(
-                    "nside must be provided for spherical geometry"
-                )
-            pixel_scale = jnp.sqrt(
-                4 * jnp.pi / (12 * (nside**2))
-            ) * (180.0 * 60.0 / jnp.pi)
+                    "nside must be provided for spherical geometry")
+            pixel_scale = jnp.sqrt(4 * jnp.pi /
+                                   (12 * (nside**2))) * (180.0 * 60.0 / jnp.pi)
 
         forward_model = make_2pt_model(pixel_scale,
                                        config.ells,

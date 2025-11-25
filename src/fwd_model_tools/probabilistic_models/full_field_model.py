@@ -6,10 +6,10 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-from .config import Configurations
 from fwd_model_tools.fields import DensityField
 from fwd_model_tools.sampling import DistributedNormal
 
+from .config import Configurations
 from .forward_model import Planck18, make_full_field_model
 
 __all__ = ["Planck18", "make_full_field_model", "full_field_probmodel"]
@@ -48,9 +48,10 @@ def full_field_probmodel(
     forward_model = make_full_field_model(template_field, config=config)
 
     def model():
-        cosmo = config.fiducial_cosmology(
-            **{k: numpyro.sample(k, prior) for k, prior in config.priors.items()}
-        )
+        cosmo = config.fiducial_cosmology(**{
+            k: numpyro.sample(k, prior)
+            for k, prior in config.priors.items()
+        })
 
         initial_conditions = numpyro.sample(
             "initial_conditions",
@@ -61,7 +62,8 @@ def full_field_probmodel(
             ),
         )
 
-        kappa_fields, lightcone, lin_field = forward_model(cosmo, initial_conditions)
+        kappa_fields, lightcone, lin_field = forward_model(
+            cosmo, initial_conditions)
 
         if config.log_lightcone:
             numpyro.deterministic("lightcone", lightcone.array)
@@ -73,36 +75,27 @@ def full_field_probmodel(
 
         if len(kappa_fields) != len(config.nz_shear):
             raise ValueError(
-                "Number of convergence maps does not match nz_shear entries"
-            )
+                "Number of convergence maps does not match nz_shear entries")
 
         observed_maps = []
         if geometry == "spherical":
             pixel_area_arcmin2 = _spherical_pixel_area_arcmin2(lightcone)
-            for idx, (kappa_field, nz) in enumerate(
-                zip(kappa_fields, config.nz_shear)
-            ):
+            for idx, (kappa_field,
+                      nz) in enumerate(zip(kappa_fields, config.nz_shear)):
                 sigma = config.sigma_e / jnp.sqrt(
-                    nz.gals_per_arcmin2 * pixel_area_arcmin2
-                )
+                    nz.gals_per_arcmin2 * pixel_area_arcmin2)
                 observed_maps.append(
-                    numpyro.sample(
-                        f"kappa_{idx}", dist.Normal(kappa_field.array, sigma)
-                    )
-                )
+                    numpyro.sample(f"kappa_{idx}",
+                                   dist.Normal(kappa_field.array, sigma)))
         elif geometry == "flat":
             pixel_area_arcmin2 = _flat_pixel_area_arcmin2(lightcone)
-            for idx, (kappa_field, nz) in enumerate(
-                zip(kappa_fields, config.nz_shear)
-            ):
+            for idx, (kappa_field,
+                      nz) in enumerate(zip(kappa_fields, config.nz_shear)):
                 sigma = config.sigma_e / jnp.sqrt(
-                    nz.gals_per_arcmin2 * pixel_area_arcmin2
-                )
+                    nz.gals_per_arcmin2 * pixel_area_arcmin2)
                 observed_maps.append(
-                    numpyro.sample(
-                        f"kappa_{idx}", dist.Normal(kappa_field.array, sigma)
-                    )
-                )
+                    numpyro.sample(f"kappa_{idx}",
+                                   dist.Normal(kappa_field.array, sigma)))
         else:
             raise ValueError("geometry must be 'flat' or 'spherical'")
 

@@ -4,12 +4,11 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+from jaxpm.distributed import normal_field
 from jaxtyping import Key
 from numpyro.distributions import Normal, constraints
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key
-
-from jaxpm.distributed import normal_field
 
 
 class DistributedNormal(Normal):
@@ -73,4 +72,3 @@ class DistributedNormal(Normal):
         )
 
         return self.loc + eps * self.scale
-

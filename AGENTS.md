@@ -34,6 +34,7 @@
 - Naming: `snake_case` for funcs/modules, `PascalCase` for dataclasses, `ALL_CAPS` for constants (e.g., `Planck18`).
 - Ruff config: `line-length = 120`, double quotes; silence with targeted `# noqa` only.
 - Pure JAX: pass explicit `jax.random.PRNGKey`, avoid hidden globals, keep static shapes, no side effects.
+- For batched vs non-batched code paths, avoid branching; normalize inputs (e.g., add a leading batch dimension) and use a single `lax.map`/`vmap` path so behavior stays consistent.
 
 ## Testing Guidelines
 - Pytest discovers `tests/test_*.py`, classes `Test*`, functions `test_*` (see `pyproject.toml`).

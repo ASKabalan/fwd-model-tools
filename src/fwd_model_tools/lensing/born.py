@@ -3,13 +3,9 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax_cosmo as jc
 
-from fwd_model_tools.fields import (
-    DensityStatus,
-    FlatKappaField,
-    SphericalDensity,
-    SphericalKappaField,
-)
 from fwd_model_tools._src.lensing._born import _born_flat, _born_spherical
+from fwd_model_tools.fields import (DensityStatus, FlatKappaField,
+                                    SphericalDensity, SphericalKappaField)
 
 __all__ = ["born"]
 
@@ -75,17 +71,17 @@ def born(
 
     if is_spherical:
         kappas = SphericalKappaField.FromDensityMetadata(
-                array=source_map,
-                density_field=base_field,
-                status=DensityStatus.KAPPA,
-                z_source=nz_shear,
-            )
+            array=source_map,
+            density_field=base_field,
+            status=DensityStatus.KAPPA,
+            z_source=nz_shear,
+        )
     else:
         kappas = FlatKappaField.FromDensityMetadata(
-                array=source_map,
-                density_field=base_field,
-                status=DensityStatus.KAPPA,
-                z_source=nz_shear,
-            )
+            array=source_map,
+            density_field=base_field,
+            status=DensityStatus.KAPPA,
+            z_source=nz_shear,
+        )
 
     return kappas

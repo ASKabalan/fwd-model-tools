@@ -6,16 +6,10 @@ from typing import Tuple
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-
 from jaxpm.pm import lpt as jaxpm_lpt
 
-from ..fields import (
-    DensityField,
-    DensityStatus,
-    FieldStatus,
-    FlatDensity,
-    ParticleField,
-)
+from ..fields import (DensityField, DensityStatus, FieldStatus, FlatDensity,
+                      ParticleField)
 
 __all__ = ["lpt"]
 
@@ -68,8 +62,7 @@ def lpt(
         raise ValueError("order must be either 1 or 2.")
     if initial_field.status != FieldStatus.INITIAL_FIELD:
         raise ValueError(
-            "initial_field must have status FieldStatus.INITIAL_FIELD."
-        )
+            "initial_field must have status FieldStatus.INITIAL_FIELD.")
 
     a = jnp.atleast_1d(a)
     is_lightcone = a.size > 1
@@ -82,8 +75,7 @@ def lpt(
         if a_for_solver.shape[2] != initial_field.mesh_size[2]:
             raise ValueError(
                 "When passing multiple scale factors, the number of scale "
-                "factors must match the size of the z-axis in the mesh."
-            )
+                "factors must match the size of the z-axis in the mesh.")
 
     dx, p, _ = jaxpm_lpt(
         cosmo,
@@ -133,8 +125,7 @@ def lpt(
     if density_array.ndim != 3:
         raise ValueError(
             "LPT lightcone painting expects a 3D density field "
-            f"(nx, ny, nz); got array with shape {density_array.shape}."
-        )
+            f"(nx, ny, nz); got array with shape {density_array.shape}.")
     flat_array = jnp.transpose(density_array, (2, 1, 0))  # (nz, ny, nx)
 
     # Convert the scale factors used into comoving distances to serve as

@@ -1,21 +1,26 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-from functools import partial
-from jaxtyping import Array, PRNGKeyArray
 from jaxpm.distributed import fft3d, ifft3d, normal_field
 from jaxpm.kernels import fftk, interpolate_power_spectrum
+from jaxtyping import Array, PRNGKeyArray
 from numpyro.distributions import Normal, constraints
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key
 
 from .fields import DensityField, FieldStatus
 
-@partial(jax.jit, static_argnames=['mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size', 'sharding'])
+
+@partial(jax.jit,
+         static_argnames=[
+             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position',
+             'flatsky_npix', 'nside', 'halo_size', 'sharding'
+         ])
 def gaussian_initial_conditions(
     key: PRNGKeyArray,
     mesh_size: Tuple[int, int, int],
@@ -75,7 +80,12 @@ def gaussian_initial_conditions(
         sharding=sharding,
     )
 
-@partial(jax.jit, static_argnames=['mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position', 'flatsky_npix', 'nside', 'halo_size', 'sharding'])
+
+@partial(jax.jit,
+         static_argnames=[
+             'mesh_size', 'box_size', 'cosmo', 'pk_fn', 'observer_position',
+             'flatsky_npix', 'nside', 'halo_size', 'sharding'
+         ])
 def interpolate_initial_conditions(
     initial_field: Array,
     mesh_size: Tuple[int, int, int],
