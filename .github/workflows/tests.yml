@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        env:
+          # Prefer CPU JAX on CI
+          JAX_PLATFORM_NAME: cpu
+          XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+        run: |
+          python -m pip install --upgrade pip
+          pip install "jax[cpu]"
+          pip install -e .[dev]
+
+      - name: Run tests
+        env:
+          JAX_PLATFORM_NAME: cpu
+          # Give JAX multiple host devices for pmap/sharding shims
+          XLA_FLAGS: --xla_force_host_platform_device_count=8
+        run: |
+          pytest
