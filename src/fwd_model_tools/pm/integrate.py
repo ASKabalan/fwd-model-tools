@@ -41,8 +41,7 @@ def handle_saveat(save_at: SaveAt, t0: float, t1: float) -> SaveAt:
         save_at = eqx.tree_at(
             _where_subs_ts,
             save_at,
-            replace_fn=lambda x: jnp.concatenate(
-                (jnp.array([t0]), x, jnp.array([t1]))),
+            replace_fn=lambda x: jnp.concatenate((jnp.array([t0]), x, jnp.array([t1]))),
         )
     # If only t0 is True, prepend t0
     elif save_at.subs.t0:
@@ -101,14 +100,14 @@ def _clip_to_start(tprev, tnext, t0):
 
 
 def integrate(
-        terms: tuple[ODETerm, ...],
-        solver: AbstractSolver,
-        t0: float,
-        t1: float,
-        dt0: float,
-        y0: Any,
-        args: Any,
-        saveat: SaveAt | None = SaveAt(t1=True),
+    terms: tuple[ODETerm, ...],
+    solver: AbstractSolver,
+    t0: float,
+    t1: float,
+    dt0: float,
+    y0: Any,
+    args: Any | None = None,
+    saveat: SaveAt | None = SaveAt(t1=True),
 ) -> Any:
     """
     Integrates an ODE system from time t0 to t1 using a specified solver, returning solution snapshots
@@ -134,15 +133,9 @@ def integrate(
     saveat = handle_saveat(saveat, t0, t1)
     save_y = saveat.subs.fn
     ts = saveat.subs.ts
-    (ts, ) = promote_dtypes_inexact(ts)
+    (ts,) = promote_dtypes_inexact(ts)
     y0_args_ts = (y0, args, ts)
-    return integrate_impl(y0_args_ts,
-                          terms=terms,
-                          solver=solver,
-                          t0=t0,
-                          t1=t1,
-                          dt0=dt0,
-                          save_y=save_y)
+    return integrate_impl(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
 
 
 def _fwd_loop(
@@ -178,20 +171,17 @@ def _fwd_loop(
           - The final state achieved after integration.
     """
     y0, args, ts = y0_args_ts
-    args = jax.tree.map(jnp.asarray, args)
+    if args is None:
+        args = ()
+    else:
+        args = jax.tree.map(jnp.asarray, args)
 
     def inner_forward_step(carry):
         y, args_, tc, t1 = carry
         t_next = tc + dt0
         t_next = _clip_to_end(tc, t_next, t1)
         # The solver call returns (y_next, solver_state, new_t, result, made_jump)
-        y_next, _, _, _, _ = solver.step(terms,
-                                         tc,
-                                         t_next,
-                                         y,
-                                         args_,
-                                         solver_state=None,
-                                         made_jump=False)
+        y_next, _, _, _, _ = solver.step(terms, tc, t_next, y, args_, solver_state=None, made_jump=False)
         return (y_next, args_, t_next, t1)
 
     def inner_forward_cond(carry):
@@ -215,8 +205,7 @@ def _fwd_loop(
         """
         y, args_, t0 = outer_carry
         inner_carry = (y, args_, t0, t1)
-        y, _, _, _ = jax.lax.while_loop(inner_forward_cond, inner_forward_step,
-                                        inner_carry)
+        y, _, _, _ = jax.lax.while_loop(inner_forward_cond, inner_forward_step, inner_carry)
 
         outer_carry = (y, args_, t1)
         # Apply the user-defined function at this "snapshot" time
@@ -226,8 +215,7 @@ def _fwd_loop(
     init_carry = (y0, args, t0)
 
     # The outer scan runs over each requested snapshot time
-    (y_final, _, _), ys_final = jax.lax.scan(outer_forward_step, init_carry,
-                                             ts)
+    (y_final, _, _), ys_final = jax.lax.scan(outer_forward_step, init_carry, ts)
 
     # Return snapshots plus final state+args
     return ys_final, y_final
@@ -259,13 +247,7 @@ def integrate_impl(
     Returns:
         The collection of solution snapshots obtained from the forward integration loop.
     """
-    ys_final, _ = _fwd_loop(y0_args_ts,
-                            terms=terms,
-                            solver=solver,
-                            t0=t0,
-                            t1=t1,
-                            dt0=dt0,
-                            save_y=save_y)
+    ys_final, _ = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
     return ys_final
 
 
@@ -298,13 +280,7 @@ def integrate_fwd(
           - The snapshots from the forward integration.
           - A residual tuple (final state, parameters, and snapshot times) for use in the backward pass.
     """
-    ys_final, y_final = _fwd_loop(y0_args_ts,
-                                  terms=terms,
-                                  solver=solver,
-                                  t0=t0,
-                                  t1=t1,
-                                  dt0=dt0,
-                                  save_y=save_y)
+    ys_final, y_final = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
     _, args, ts = y0_args_ts
     return ys_final, (y_final, args, ts)
 
@@ -368,24 +344,12 @@ def integrate_bwd(
         t_prev = tc - dt0
         t_prev = _clip_to_start(t_prev, tc, t0_)
         # Reverse the forward step
-        y_prev = solver.reverse(terms,
-                                t_prev,
-                                tc,
-                                y,
-                                args,
-                                solver_state=None,
-                                made_jump=False)
+        y_prev = solver.reverse(terms, t_prev, tc, y, args, solver_state=None, made_jump=False)
 
         # Differentiate with respect to the "forward step" to obtain partial derivatives.
         def _to_vjp(y, diff_args):
             args_ = eqx.combine(diff_args, nondiff_args)
-            y_next, _, _, _, _ = solver.step(terms,
-                                             t_prev,
-                                             tc,
-                                             y,
-                                             args_,
-                                             solver_state=None,
-                                             made_jump=False)
+            y_next, _, _, _, _ = solver.step(terms, t_prev, tc, y, args_, solver_state=None, made_jump=False)
             return y_next
 
         _, f_vjp = jax.vjp(_to_vjp, y_prev, diff_args)
@@ -433,13 +397,7 @@ def integrate_bwd(
         t_prev = _clip_to_start(t_prev, tc, t0_)
 
         # Reverse the forward step
-        y_prev = solver.reverse(terms,
-                                t_prev,
-                                tc,
-                                y,
-                                args,
-                                solver_state=None,
-                                made_jump=False)
+        y_prev = solver.reverse(terms, t_prev, tc, y, args, solver_state=None, made_jump=False)
 
         # Differentiate the "save function" at snapshot time tc:
         def _to_vjp_snap(tc_, y_, diff_args_):
@@ -450,13 +408,7 @@ def integrate_bwd(
             t_prev = tc - dt0
             t_prev = _clip_to_start(t_prev, tc, t0_)
             args_ = eqx.combine(diff_args, nondiff_args)
-            y_next, _, _, _, _ = solver.step(terms,
-                                             t_prev,
-                                             tc_,
-                                             y,
-                                             args_,
-                                             solver_state=None,
-                                             made_jump=False)
+            y_next, _, _, _, _ = solver.step(terms, t_prev, tc_, y, args_, solver_state=None, made_jump=False)
             return y_next
 
         # Compute the adjoints with respect to the snapshot function
@@ -470,15 +422,15 @@ def integrate_bwd(
         _, f_vjp_step = jax.vjp(_to_vjp_step, tc, y_prev, diff_args)
         step_adj_ts, adj_y, new_adj_args = f_vjp_step(adj_y)
         # If we are at the initial time, set the gradient w.r.t. the time step to zero
-        step_adj_ts = jnp.where(tc == t_prev, jnp.zeros_like(step_adj_ts),
-                                step_adj_ts)
+        step_adj_ts = jnp.where(tc == t_prev, jnp.zeros_like(step_adj_ts), step_adj_ts)
         # Accumulate the adjoint for the forward step
         adj_args = jax.tree.map(jnp.add, adj_args, new_adj_args)
         f_adj_ts = jax.tree.map(jnp.add, snap_adj_ts, step_adj_ts)
 
         inner_carry = (y_prev, diff_args, adj_y, adj_args, t0_, t_prev)
         y_prev, diff_args, adj_y, adj_args, tc, _ = jax.lax.while_loop(
-            inner_backward_cond, inner_backward_step, inner_carry)
+            inner_backward_cond, inner_backward_step, inner_carry
+        )
 
         # The gradient w.r.t. the snapshot time is the sum of adjoints at this time minus the adjoint at the previous step
         adj_subs = jax.tree.map(jnp.subtract, f_adj_ts, adj_ts)
@@ -500,15 +452,12 @@ def integrate_bwd(
     # Pair the cotangents with the corresponding snapshot times
     vals = (ys_ct, t_steps)
     # Perform the reverse scan over the snapshots
-    (_, _, adj_y, adj_args, _, _), adj_ts = jax.lax.scan(outer_backward_step,
-                                                         init_carry,
-                                                         vals,
-                                                         reverse=True)
+    (_, _, adj_y, adj_args, _, _), adj_ts = jax.lax.scan(outer_backward_step, init_carry, vals, reverse=True)
     zero_nondiff = jax.tree.map(jnp.zeros_like, nondiff_args)
     adj_args = eqx.combine(adj_args, zero_nondiff)
 
     # Return the adjoints for the initial state and parameters (others are placeholders).
-    return ((adj_y, adj_args, adj_ts), )
+    return ((adj_y, adj_args, adj_ts),)
 
 
 integrate_impl.defvjp(integrate_fwd, integrate_bwd)
@@ -549,13 +498,7 @@ def scan_integrate(
     saveat = handle_saveat(saveat, t0, t1)
     save_y = saveat.subs.fn
     ts = saveat.subs.ts
-    (ts, ) = promote_dtypes_inexact(ts)
+    (ts,) = promote_dtypes_inexact(ts)
     y0_args_ts = (y0, args, ts)
-    ys_final, _ = _fwd_loop(y0_args_ts,
-                            terms=terms,
-                            solver=solver,
-                            t0=t0,
-                            t1=t1,
-                            dt0=dt0,
-                            save_y=save_y)
+    ys_final, _ = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
     return ys_final

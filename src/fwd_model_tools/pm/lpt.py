@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+from functools import partial
+from typing import Any
+
+import jax
+import jax.numpy as jnp
+import jax_cosmo as jc
+from jax import lax
+from jaxpm.distributed import uniform_particles
+from jaxpm.pm import lpt as jaxpm_lpt
+from jaxtyping import Array
+
+from ..fields import DensityField, FieldStatus, ParticleField, PositionUnit
+from ..utils import compute_particle_scale_factors
+
+__all__ = ["lpt"]
+
+
+@partial(jax.jit, static_argnames=["order", "geometry", "kwargs"])
+def lpt(
+    cosmo: Any,
+    initial_field: DensityField,
+    scale_factor_spec,
+    *,
+    order: int = 1,
+    initial_particles: Array = None,
+    geometry: str = "particles",
+    kwargs = {}
+) -> tuple[Any, ParticleField]:
+    """
+    Compute LPT displacements/momenta for a DensityField.
+
+    Parameters
+    ----------
+    cosmo : jax_cosmo.Cosmology
+        Cosmology describing the background expansion.
+    initial_field : DensityField
+        Linear density field packaged with mesh metadata.
+    a : float or array-like
+        Scale factor(s) at which to evaluate the growth.
+        - If scalar: returns ParticleField displacements/momenta on the 3D mesh.
+        - If array: returns (FlatDensity lightcone, ParticleField momenta).
+    order : int, default=1
+        LPT order (1 or 2 supported via underlying JAXPM implementation).
+
+    Returns
+    -------
+    tuple
+        If `a` is scalar:
+            (dx_field: ParticleField, p_field: ParticleField)
+        If `a` is an array (lightcone mode):
+            (flat_lightcone: FlatDensity, p_field: ParticleField)
+    """
+    if not isinstance(initial_field, DensityField):
+        raise TypeError("initial_field must be a DensityField instance.")
+    if order not in (1, 2):
+        raise ValueError("order must be either 1 or 2.")
+    if initial_field.status != FieldStatus.INITIAL_FIELD:
+        raise ValueError("initial_field must have status FieldStatus.INITIAL_FIELD.")
+
+    if initial_particles is None:
+        # positions in GRID_RELATIVE (0..1 over the box) or GRID_ABSOLUTE indices,
+        # depending on your convention in PositionUnit.
+        initial_particles = uniform_particles(initial_field.mesh_size, sharding=initial_field.sharding)
+        user_defined_particles = False
+    else:
+        user_defined_particles = True
+
+    initial_particles = ParticleField.FromDensityMetadata(
+        array=initial_particles,
+        field=initial_field,
+        unit=PositionUnit.GRID_ABSOLUTE,
+    )
+
+    scale_factor_spec = jnp.asarray(scale_factor_spec)
+    if jnp.isscalar(scale_factor_spec):
+        a = jnp.atleast_1d(scale_factor_spec)
+        snapshot_r = None
+        density_plane_width = None
+    elif scale_factor_spec.size == 2:
+        a_near, a_far = scale_factor_spec
+        # Find center scale factor for lightcone shell
+        a = 0.5 * (a_near + a_far)
+        r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
+        r_near, r_far = r[0], r[1]
+        snapshot_r = r[None, ...]
+        density_plane_width = (r_far - r_near)[None, ...]
+    # Snapshots at specific times
+    elif scale_factor_spec.ndim == 1:
+        a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
+        r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
+        # Width of bin i (centered at ri​):
+        inner_edges = 0.5 * (r[1:] + r[:-1])
+        start_edge = r[0] - (inner_edges[0] - r[0])
+        end_edge = r[-1] + (r[-1] - inner_edges[-1])
+        r_edges = jnp.concatenate([jnp.array([start_edge]), inner_edges, jnp.array([end_edge])])
+        # Set snap info
+        snapshot_r = r
+        density_plane_width = r_edges[1:] - r_edges[:-1]
+    # Snapshot at near a and far a for each shell
+    elif scale_factor_spec.ndim == 2:
+        a_near, a_far = scale_factor_spec[:, 0], scale_factor_spec[:, 1]
+        a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
+        r_near = jc.background.radial_comoving_distance(cosmo, a_near)
+        r_far = jc.background.radial_comoving_distance(cosmo, a_far)
+        # Set snap info
+        snapshot_r = 0.5 * (r_near + r_far)
+        density_plane_width = r_far - r_near
+    # User specified scale factors for each particle
+    elif scale_factor_spec.ndim == 3:
+        a = scale_factor_spec[..., None]
+        # No snapshot ..
+        # in this case we return only the displacements with the requested redshifts/scale factors
+        snapshot_r = None
+        density_plane_width = None
+    else:
+        raise ValueError("scale_factor_spec has invalid shape.")
+
+    dx, p, _ = jaxpm_lpt(
+        cosmo,
+        initial_field.array,
+        particles=initial_particles.array if user_defined_particles else None,
+        a=a,
+        halo_size=initial_field.halo_size,
+        sharding=initial_field.sharding,
+        order=order,
+    )
+
+    status = FieldStatus.LPT1 if order == 1 else FieldStatus.LPT2
+    if a.size > 1:
+        status = FieldStatus.LIGHTCONE
+
+    z_sources = jc.utils.a2z(a)
+    comoving_centers = jc.background.radial_comoving_distance(cosmo, a.flatten()).reshape(a.shape)
+
+    dx_field = ParticleField.FromDensityMetadata(
+        array=dx,
+        field=initial_field,
+        status=status,
+        scale_factors=a,
+        comoving_centers=comoving_centers,
+        z_sources=z_sources,
+        unit=PositionUnit.GRID_RELATIVE,
+    )
+    p_field = ParticleField.FromDensityMetadata(
+        array=p,
+        field=initial_field,
+        status=status,
+        scale_factors=a,
+        comoving_centers=comoving_centers,
+        z_sources=z_sources,
+        unit=PositionUnit.GRID_RELATIVE,
+    )
+
+    if snapshot_r is not None:
+        if geometry == "flat":
+
+            def _paint(particle_field, snap_info):
+                center, plane_width = snap_info
+                return particle_field, particle_field.paint_2d(
+                    center=center,
+                    density_plane_width=plane_width,
+                )
+
+            _, dx_field = lax.scan(_paint, dx_field, (snapshot_r, density_plane_width))
+            a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)
+            z_snapshot = jc.utils.a2z(a_snapshot)
+            dx_field = dx_field.replace(
+                scale_factors=a_snapshot,
+                z_sources=z_snapshot,
+            )
+        elif geometry == "spherical":
+
+            def _paint(particle_field, snap_info):
+                center, plane_width = snap_info
+                return particle_field, particle_field.paint_spherical(
+                    center=center,
+                    density_plane_width=plane_width,
+                    **kwargs
+                )
+
+            _, dx_field = lax.scan(_paint, dx_field, (snapshot_r, density_plane_width))
+            a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)
+            z_snapshot = jc.utils.a2z(a_snapshot)
+            dx_field = dx_field.replace(
+                scale_factors=a_snapshot,
+                z_sources=z_snapshot,
+            )
+        elif geometry == "density":
+            dx_field = dx_field.paint()
+        elif geometry == "particles":
+            pass
+        else:
+            raise ValueError(f"Unknown geometry {geometry}.")
+
+    else:
+        if geometry != "particles":
+            raise ValueError("geometry must be 'particles' when scale_factor_spec is a scalar or 3D array.")
+
+    return dx_field, p_field
+
+
+# ==========================================================
