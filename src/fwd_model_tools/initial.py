@@ -40,7 +40,7 @@ def gaussian_initial_conditions(
     flatsky_npix: Optional[Tuple[int, int]] = None,
     nside: Optional[int] = None,
     field_size: Optional[Tuple[int, int]] = None,
-    halo_size: int | Tuple[int, int] = 0,
+    halo_size: int | Tuple[int, int] = (0 , 0),
     sharding: Optional[Any] = None,
 ) -> DensityField:
     """
