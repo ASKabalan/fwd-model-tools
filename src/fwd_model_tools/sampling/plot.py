@@ -14,13 +14,13 @@ def _strip_dollars(label: str) -> str:
 
 
 def plot_ic(
-    true_ic,
-    mean_ic,
-    std_ic,
-    outdir,
-    titles=("True", "Mean", "Std", "Diff"),
-    output_format: str = "png",
-    dpi: int = 600,
+        true_ic,
+        mean_ic,
+        std_ic,
+        outdir,
+        titles=("True", "Mean", "Std", "Diff"),
+        output_format: str = "png",
+        dpi: int = 600,
 ):
     """Plot initial conditions: true, posterior mean, and posterior std.
 
@@ -158,12 +158,12 @@ def plot_posterior(
 
 
 def plot_chain(
-    param_samples,
-    outdir,
-    params=("Omega_c", "sigma8"),
-    labels=None,
-    output_format: str = "png",
-    dpi: int = 600,
+        param_samples,
+        outdir,
+        params=("Omega_c", "sigma8"),
+        labels=None,
+        output_format: str = "png",
+        dpi: int = 600,
 ):
     """Plot MCMC chain traces for convergence visualization.
 

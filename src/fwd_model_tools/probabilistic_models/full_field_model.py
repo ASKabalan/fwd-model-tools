@@ -69,7 +69,6 @@ def full_field_probmodel(
         if kappa_fields.shape[0] != len(config.nz_shear):
             raise ValueError("Number of convergence maps does not match nz_shear entries")
 
-
         observed_maps = []
         if geometry == "spherical":
             pixel_area_arcmin2 = _spherical_pixel_area_arcmin2(lightcone)

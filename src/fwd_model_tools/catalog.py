@@ -33,8 +33,7 @@ def _require_pyarrow():
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
-            "pyarrow is required for catalog I/O. Install fwd_model_tools[io] or pip install pyarrow."
-        ) from exc
+            "pyarrow is required for catalog I/O. Install fwd_model_tools[io] or pip install pyarrow.") from exc
     return pa, pq
 
 

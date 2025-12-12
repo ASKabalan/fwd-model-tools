@@ -2,9 +2,9 @@
 
 import jax
 import jax.numpy as jnp
+from jax.scipy.special import ndtr
 from jaxpm.distributed import normal_field
 from jaxtyping import Key
-from jax.scipy.special import ndtr
 from numpyro.distributions import Normal, Uniform, constraints
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key

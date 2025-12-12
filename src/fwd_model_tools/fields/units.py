@@ -49,8 +49,7 @@ def convert_units(
     # Validate same unit family
     if type(origin) is not type(destination):
         raise TypeError(
-            f"Cannot convert between different unit families: {type(origin).__name__} -> {type(destination).__name__}"
-        )
+            f"Cannot convert between different unit families: {type(origin).__name__} -> {type(destination).__name__}")
 
     # Dispatch to specific converter
     if isinstance(origin, PositionUnit):

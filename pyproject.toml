@@ -79,7 +79,7 @@ ignore = [
     "E402",  # module level import not at top of file
     "E731",  # do not assign a lambda expression, use a def
     "F722", # syntax error in type annotation
-    "UP045", # allow "Optional" usage instead of "X | None" 
+    "UP045", # allow "Optional" usage instead of "X | None"
 ]
 
 [tool.ruff.format]

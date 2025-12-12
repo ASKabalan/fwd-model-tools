@@ -18,16 +18,14 @@ __all__ = ["lpt"]
 
 
 @partial(jax.jit, static_argnames=["order", "geometry", "kwargs"])
-def lpt(
-    cosmo: Any,
-    initial_field: DensityField,
-    scale_factor_spec,
-    *,
-    order: int = 1,
-    initial_particles: Array = None,
-    geometry: str = "particles",
-    kwargs = {}
-) -> tuple[Any, ParticleField]:
+def lpt(cosmo: Any,
+        initial_field: DensityField,
+        scale_factor_spec,
+        *,
+        order: int = 1,
+        initial_particles: Array = None,
+        geometry: str = "particles",
+        kwargs={}) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
 
@@ -174,11 +172,9 @@ def lpt(
 
             def _paint(particle_field, snap_info):
                 center, plane_width = snap_info
-                return particle_field, particle_field.paint_spherical(
-                    center=center,
-                    density_plane_width=plane_width,
-                    **kwargs
-                )
+                return particle_field, particle_field.paint_spherical(center=center,
+                                                                      density_plane_width=plane_width,
+                                                                      **kwargs)
 
             _, dx_field = lax.scan(_paint, dx_field, (snapshot_r, density_plane_width))
             a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)

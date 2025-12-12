@@ -54,7 +54,7 @@ def _born_core_impl(
     coords=None,
     field_size=None,
 ):
-    constant_factor = 3 / 2 * cosmo.Omega_m * (constants.H0 / constants.c) ** 2
+    constant_factor = 3 / 2 * cosmo.Omega_m * (constants.H0 / constants.c)**2
     chi_s = jc.background.radial_comoving_distance(cosmo, jc.utils.z2a(z_source))
     cosmo._workspace = {}
     n_planes = len(r)
@@ -80,8 +80,8 @@ def _born_core_impl(
             )
             coords = jnp.stack([xgrid, ygrid], axis=0) * (jnp.pi / 180)
 
-    r_b = r.reshape(n_planes, *((1,) * (density_planes.ndim - 1)))
-    a_b = a.reshape(n_planes, *((1,) * (density_planes.ndim - 1)))
+    r_b = r.reshape(n_planes, *((1, ) * (density_planes.ndim - 1)))
+    a_b = a.reshape(n_planes, *((1, ) * (density_planes.ndim - 1)))
 
     mean_axes = tuple(range(1, density_planes.ndim))
     rho_mean = jnp.mean(density_planes, axis=mean_axes, keepdims=True)
@@ -130,8 +130,7 @@ def _born_spherical(
     if source_kind == "distribution":
         kappa_maps = [
             simps(
-                lambda z: nz(z).reshape([-1, 1])
-                * _born_core_impl(
+                lambda z: nz(z).reshape([-1, 1]) * _born_core_impl(
                     cosmo,
                     lightcone.array,
                     r_center,
@@ -142,8 +141,7 @@ def _born_spherical(
                 min_z,
                 max_z,
                 N=n_integrate,
-            )
-            for nz in sources
+            ) for nz in sources
         ]
         kappa_maps = jnp.stack(kappa_maps, axis=0)
     else:
@@ -184,8 +182,7 @@ def _born_flat(
     if source_kind == "distribution":
         kappa_maps = [
             simps(
-                lambda z: nz(z).reshape([-1, 1, 1])
-                * _born_core_impl(
+                lambda z: nz(z).reshape([-1, 1, 1]) * _born_core_impl(
                     cosmo,
                     lightcone.array,
                     r_center,
@@ -198,8 +195,7 @@ def _born_flat(
                 min_z,
                 max_z,
                 N=n_integrate,
-            )
-            for nz in sources
+            ) for nz in sources
         ]
     else:
         kappa_maps = [
@@ -212,8 +208,7 @@ def _born_flat(
                 density_plane_width,
                 pixel_size=pixel_size,
                 field_size=field_size_tuple,
-            )
-            for z in sources
+            ) for z in sources
         ]
 
     return list(zip(sources, kappa_maps))

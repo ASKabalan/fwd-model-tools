@@ -30,17 +30,13 @@ def single_ode(cosmo, reference_field: ParticleField):
         """
         pos, vel = state
 
-        forces = (
-            pm_forces(
-                pos.array,
-                mesh_shape=mesh_shape,
-                paint_absolute_pos=paint_absolute_pos,
-                halo_size=halo_size,
-                sharding=sharding,
-            )
-            * 1.5
-            * cosmo.Omega_m
-        )
+        forces = (pm_forces(
+            pos.array,
+            mesh_shape=mesh_shape,
+            paint_absolute_pos=paint_absolute_pos,
+            halo_size=halo_size,
+            sharding=sharding,
+        ) * 1.5 * cosmo.Omega_m)
 
         # Computes the update of position (drift)
         dpos = 1.0 / (a**3 * E(cosmo, a)) * vel
@@ -145,17 +141,13 @@ def symplectic_ode(cosmo, reference_field: ParticleField):
             Velocity update (acceleration).
         """
         # Compute forces using JaxPM (pass raw array)
-        forces_array = (
-            pm_forces(
-                pos.array,
-                mesh_shape=mesh_shape,
-                paint_absolute_pos=paint_absolute_pos,
-                halo_size=halo_size,
-                sharding=sharding,
-            )
-            * 1.5
-            * cosmo.Omega_m
-        )
+        forces_array = (pm_forces(
+            pos.array,
+            mesh_shape=mesh_shape,
+            paint_absolute_pos=paint_absolute_pos,
+            halo_size=halo_size,
+            sharding=sharding,
+        ) * 1.5 * cosmo.Omega_m)
 
         # Computes the update of velocity (kick)
         dvel = 1.0 / (a**2 * E(cosmo, a)) * forces_array
@@ -249,7 +241,7 @@ def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_gr
         t1 = a + dt0
         # Set the scale factors
         ai = t0
-        ac = (t0 * t1) ** 0.5  # Geometric mean of t0 and t1
+        ac = (t0 * t1)**0.5  # Geometric mean of t0 and t1
         af = t1
 
         if use_growth:
@@ -290,23 +282,19 @@ def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_gr
         t0 = a
         t1 = t0 + dt0
         t2 = t1 + dt0
-        t0t1 = (t0 * t1) ** 0.5  # Geometric mean of t0 and t1
-        t1t2 = (t1 * t2) ** 0.5  # Geometric mean of t1 and t2
+        t0t1 = (t0 * t1)**0.5  # Geometric mean of t0 and t1
+        t1t2 = (t1 * t2)**0.5  # Geometric mean of t1 and t2
         # Set the scale factors
         ac = t1
 
         # Compute forces using JaxPM (pass raw array)
-        forces_array = (
-            pm_forces(
-                pos.array,
-                mesh_shape=mesh_shape,
-                paint_absolute_pos=paint_absolute_pos,
-                halo_size=halo_size,
-                sharding=sharding,
-            )
-            * 1.5
-            * cosmo.Omega_m
-        )
+        forces_array = (pm_forces(
+            pos.array,
+            mesh_shape=mesh_shape,
+            paint_absolute_pos=paint_absolute_pos,
+            halo_size=halo_size,
+            sharding=sharding,
+        ) * 1.5 * cosmo.Omega_m)
 
         # Computes the update of velocity (kick)
         dvel = 1.0 / (ac**2 * E(cosmo, ac)) * forces_array
@@ -352,20 +340,16 @@ def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_gr
         # Get the time steps
         t0 = a
         t1 = t0 + dt0
-        t0t1 = (t0 * t1) ** 0.5  # Geometric mean of t0 and t1
+        t0t1 = (t0 * t1)**0.5  # Geometric mean of t0 and t1
 
         # Compute forces using JaxPM (pass raw array)
-        forces_array = (
-            pm_forces(
-                pos.array,
-                mesh_shape=mesh_shape,
-                paint_absolute_pos=paint_absolute_pos,
-                halo_size=halo_size,
-                sharding=sharding,
-            )
-            * 1.5
-            * cosmo.Omega_m
-        )
+        forces_array = (pm_forces(
+            pos.array,
+            mesh_shape=mesh_shape,
+            paint_absolute_pos=paint_absolute_pos,
+            halo_size=halo_size,
+            sharding=sharding,
+        ) * 1.5 * cosmo.Omega_m)
 
         # Computes the update of velocity (kick)
         dvel = 1.0 / (a**2 * E(cosmo, a)) * forces_array

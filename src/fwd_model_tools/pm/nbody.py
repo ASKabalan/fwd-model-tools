@@ -17,16 +17,16 @@ __all__ = ["nbody"]
 
 @partial(jax.jit, static_argnames=["t1", "dt0", "nb_shells", "geometry", "solver", "adjoint"])
 def nbody(
-    cosmo,
-    dx_field: ParticleField,
-    p_field: ParticleField,
-    t1: float = 1.0,
-    dt0: float = 0.05,
-    ts: jnp.ndarray | None = None,
-    nb_shells: int | None = None,
-    geometry: str = "spherical",
-    solver=ReversibleEfficientFastPM(),
-    adjoint: str | object = RecursiveCheckpointAdjoint(),
+        cosmo,
+        dx_field: ParticleField,
+        p_field: ParticleField,
+        t1: float = 1.0,
+        dt0: float = 0.05,
+        ts: jnp.ndarray | None = None,
+        nb_shells: int | None = None,
+        geometry: str = "spherical",
+        solver=ReversibleEfficientFastPM(),
+        adjoint: str | object = RecursiveCheckpointAdjoint(),
 ) -> jax.Array:
     """
     Evolve particles forward in time and save lightcone density planes.
@@ -86,11 +86,9 @@ def nbody(
     if ts is None and nb_shells is None:
         raise ValueError("Either ts or nb_shells must be provided.")
     assert dx_field.status == FieldStatus.LPT1 or dx_field.status == FieldStatus.LPT2, (
-        "dx_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
-    )
+        "dx_field must have status FieldStatus.LPT1 or FieldStatus.LPT2.")
     assert p_field.status == FieldStatus.LPT1 or p_field.status == FieldStatus.LPT2, (
-        "p_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
-    )
+        "p_field must have status FieldStatus.LPT1 or FieldStatus.LPT2.")
 
     # Validate fields match
     if dx_field.mesh_size != p_field.mesh_size:

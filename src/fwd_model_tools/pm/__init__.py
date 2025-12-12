@@ -2,6 +2,6 @@
 
 from .lpt import lpt
 from .nbody import nbody
-from .solvers import ReversibleSymplecticEuler , ReversibleEfficientFastPM, ReversibleKickDriftKick
+from .solvers import ReversibleEfficientFastPM, ReversibleKickDriftKick, ReversibleSymplecticEuler
 
 __all__ = ["lpt", "nbody", "ReversibleSymplecticEuler", "ReversibleEfficientFastPM", "ReversibleKickDriftKick"]
