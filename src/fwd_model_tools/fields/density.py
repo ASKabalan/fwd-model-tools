@@ -20,85 +20,29 @@ from .lightcone import FlatDensity
 from .units import convert_units
 
 
-@jax.tree_util.register_pytree_node_class
 class DensityField(AbstractField):
     """
     PyTree container for volumetric simulation arrays and their static metadata.
     """
 
-    def __init__(
-        self,
-        *,
-        array: Array,
-        mesh_size: tuple[int, int, int],
-        box_size: tuple[float, float, float],
-        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Optional[Any] = None,
-        halo_size: int | tuple[int, int] = 0,
-        #  Lightcone geometry and metadata
-        nside: Optional[int] = None,
-        flatsky_npix: Optional[tuple[int, int]] = None,
-        field_size: Optional[float] = None,
-        # Dynamic metadata related to redshift of the field
-        z_sources: Optional[Any] = None,
-        scale_factors: Optional[Any] = None,
-        comoving_centers: Optional[Any] = None,
-        density_width: Optional[Any] = None,
-        # Unit metadata
-        status: FieldStatus = FieldStatus.UNKNOWN,
-        unit: PhysicalUnit = PhysicalUnit.INVALID_UNIT,
-    ):
-        """
-        Initialize a density-like field along with its geometric metadata.
-
-        Parameters are kept explicit so downstream painting/analysis utilities
-        (flat, spherical, lightcone) have all required context.
-
-        Examples
-        --------
-        >>> import jax.numpy as jnp
-        >>> arr = jnp.zeros((16, 16, 16))
-        >>> field = DensityField(
-        ...     array=arr,
-        ...     mesh_size=(16, 16, 16),
-        ...     box_size=(200.0, 200.0, 200.0),
-        ...     flatsky_npix=(32, 32),
-        ... )
-        >>> field.mesh_size
-        (16, 16, 16)
-        """
-        arr = jnp.asarray(array)
-        if not ((arr.ndim == 3 and arr.shape == mesh_size) or (arr.ndim == 4 and arr.shape[1:] == mesh_size)):
+    def __check_init__(self):
+        """Validation hook called after Equinox auto-initialization."""
+        super().__check_init__()
+        # Validate array shape
+        if not (
+            (self.array.ndim == 3 and self.array.shape == self.mesh_size)
+            or (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size)
+        ):
             raise ValueError(
                 "DensityField array must have shape (mesh_size) or (N, mesh_size), "
-                f"got array shape {arr.shape} and mesh_size {mesh_size}"
+                f"got array shape {self.array.shape} and mesh_size {self.mesh_size}"
             )
-
-        if not isinstance(unit, DensityUnit):
+        # Validate unit type
+        if not isinstance(self.unit, DensityUnit):
             raise TypeError(
-                f"DensityField.unit must be a DensityUnit, got {unit!r}"
+                f"DensityField.unit must be a DensityUnit, got {self.unit!r}. "
                 "Please set the correct unit when constructing the field."
             )
-
-        super().__init__(
-            array=arr,
-            mesh_size=mesh_size,
-            box_size=box_size,
-            observer_position=observer_position,
-            sharding=sharding,
-            halo_size=halo_size,
-            # Lightcone geometry and metadata
-            nside=nside,
-            flatsky_npix=flatsky_npix,
-            field_size=field_size,
-            # Dynamic metadata related to redshift of the field
-            z_sources=z_sources,
-            scale_factors=scale_factors,
-            comoving_centers=comoving_centers,
-            density_width=density_width,
-            status=status,
-            unit=unit,
-        )
 
     def __getitem__(self, key) -> DensityField:
         """
@@ -369,7 +313,7 @@ class DensityField(AbstractField):
 
         k, pk = jax.lax.map(_power_fn, (data1, data2), batch_size=batch_size)
         k, pk = k[0], pk.squeeze()
-        return PowerSpectrum(wavenumber=k, spectra=pk, name="pk", scale_factors=self.scale_factors)
+        return PowerSpectrum(wavenumber=k, array=pk, name="pk", scale_factors=self.scale_factors)
 
     @partial(jax.jit, static_argnames=["kedges", "batch_size"])
     def transfer(
@@ -406,7 +350,7 @@ class DensityField(AbstractField):
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
         return PowerSpectrum(
-            wavenumber=wavenumber, spectra=spectra, name="transfer", scale_factors=self.scale_factors
+            wavenumber=wavenumber, array=spectra, name="transfer", scale_factors=self.scale_factors
         )
 
     @partial(jax.jit, static_argnames=["batch_size"])
@@ -444,5 +388,5 @@ class DensityField(AbstractField):
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
         return PowerSpectrum(
-            wavenumber=wavenumber, spectra=spectra, name="coherence", scale_factors=self.scale_factors
+            wavenumber=wavenumber, array=spectra, name="coherence", scale_factors=self.scale_factors
         )

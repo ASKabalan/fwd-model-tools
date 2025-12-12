@@ -28,7 +28,6 @@ DEFAULT_CHUNK_SIZE = 2**24
 SphericalScheme = Literal["ngp", "bilinear", "rbf_neighbor"]
 
 
-@jax.tree_util.register_pytree_node_class
 class ParticleField(AbstractField):
     """
     Field subclass representing particle positions or displacements.
@@ -45,33 +44,14 @@ class ParticleField(AbstractField):
     rasterized into density grids.
     """
 
-    def __init__(
-        self,
-        *,
-        array: Array,
-        mesh_size: tuple[int, int, int],
-        box_size: tuple[float, float, float],
-        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Optional[Any] = None,
-        halo_size: int | tuple[int, int] = 0,
-        #  Lightcone geometry and metadata
-        nside: Optional[int] = None,
-        flatsky_npix: Optional[tuple[int, int]] = None,
-        field_size: Optional[float] = None,
-        # Dynamic metadata related to redshift of the field
-        z_sources: Optional[Any] = None,
-        scale_factors: Optional[Any] = None,
-        comoving_centers: Optional[Any] = None,
-        density_width: Optional[Any] = None,
-        # Unit & status metadata
-        status: FieldStatus = FieldStatus.PARTICLES,
-        unit: PositionUnit = PositionUnit.GRID_RELATIVE,
-    ):
+    def __check_init__(self):
+        """Validation hook called after Equinox auto-initialization."""
+        super().__check_init__()
         # DIFFRAX traces array with None value when checking terms; during
         # shape inference diffrax/equinox may pass ShapeDtypeStruct instead of a
         # concrete array, so avoid forcing a materialization in that case.
-        if array is not None:
-            array_shape = getattr(array, "shape", ())
+        if self.array is not None:
+            array_shape = getattr(self.array, "shape", ())
             if not (
                 (len(array_shape) == 4 and array_shape[-1] == 3)
                 or (len(array_shape) == 5 and array_shape[-1] == 3)
@@ -81,28 +61,8 @@ class ParticleField(AbstractField):
                     f"ParticleField array must have shape (X, Y, Z, 3) or (N, X, Y, Z, 3); got shape {array_shape}"
                 )
 
-            if not isinstance(unit, PositionUnit):
-                raise TypeError(f"ParticleField.unit must be a PositionUnit, got {unit!r}")
-
-        super().__init__(
-            array=array,
-            mesh_size=mesh_size,
-            box_size=box_size,
-            observer_position=observer_position,
-            sharding=sharding,
-            halo_size=halo_size,
-            # Lightcone geometry and metadata
-            nside=nside,
-            flatsky_npix=flatsky_npix,
-            field_size=field_size,
-            # Dynamic metadata related to redshift of the field
-            z_sources=z_sources,
-            scale_factors=scale_factors,
-            comoving_centers=comoving_centers,
-            density_width=density_width,
-            status=status,
-            unit=unit,
-        )
+            if not isinstance(self.unit, PositionUnit):
+                raise TypeError(f"ParticleField.unit must be a PositionUnit, got {self.unit!r}")
 
     # ------------------------------------------------------------------ PyTree indexing
 

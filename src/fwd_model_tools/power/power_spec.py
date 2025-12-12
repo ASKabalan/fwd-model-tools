@@ -1,89 +1,58 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Optional
 
+import equinox as eqx
 import jax
 import jax.core
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
+from .._src.base._core import AbstractPytree
 from .._src.fields._plotting import generate_titles
 
 __all__ = ["PowerSpectrum"]
 
 
-@jax.tree_util.register_pytree_node_class
-class PowerSpectrum:
+class PowerSpectrum(AbstractPytree):
     """
     Container for power spectrum data (P(k), C_ell, transfer, coherence, ...).
 
-    Supports both single and batched spectra and is registered as a JAX PyTree
-    for compatibility with JAX transformations.
+    Supports both single and batched spectra and inherits from AbstractPytree
+    for JAX PyTree compatibility and math operations.
+
+    The power spectrum values are stored in `array` (inherited from AbstractPytree).
+    A `spectra` property is provided for backwards compatibility.
     """
 
-    __slots__ = ("wavenumber", "spectra", "name", "scale_factors")
+    # array is inherited from AbstractPytree (the power spectrum values)
+    wavenumber: jax.Array = eqx.field(static=True)
+    name: Optional[str] = eqx.field(static=True, default=None)
+    scale_factors: Optional[Any] = None
 
-    def __init__(
-        self,
-        *,
-        wavenumber: jax.Array,
-        spectra: jax.Array,
-        name: str | None = None,
-        scale_factors: Any | None = None,
-    ):
-        """
-        Parameters
-        ----------
-        wavenumber : jax.Array
-            Wavenumber (for P(k)) or multipole (for C_ell).
-        spectra : jax.Array
-            Power spectrum values. Can be 1D (n_k,) for a single spectrum
-            or 2D for multiple spectra, in which case one dimension must
-            match ``wavenumber.size`` (either (n_spectra, n_k) or (n_k, n_spectra)).
-        name : str, optional
-            Name/type of the spectrum, e.g. "pk", "cl",
-            "transfer", "coherence".
-        scale_factors : any, optional
-            Scale factors associated with the spectra (for batched inputs).
-        """
-        self.wavenumber = wavenumber
-        self.spectra = spectra
-        self.name = name
-        self.scale_factors = scale_factors
+    @property
+    def spectra(self) -> jax.Array:
+        """Alias for array (backwards compatibility)."""
+        return self.array
 
-        self._validate_shapes()
-
-    # ---- PyTree protocol -------------------------------------------------
-    def tree_flatten(self):
-        children = (self.wavenumber, self.spectra, self.scale_factors)
-        aux_data = (self.name,)
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        (name,) = aux_data
-        wavenumber, spectra, scale_factors = children
-        return cls(wavenumber=wavenumber, spectra=spectra, name=name, scale_factors=scale_factors)
-
-    # ---- Internal helpers -------------------------------------------------
-    def _validate_shapes(self) -> None:
-        """Validate wavenumber / spectra compatibility."""
+    def __check_init__(self):
+        """Validation hook called after Equinox auto-initialization."""
         if self.wavenumber.ndim != 1:
             raise ValueError("wavenumber must be 1D")
 
         n_k = self.wavenumber.shape[0]
 
-        if self.spectra.ndim == 1:
-            if self.spectra.shape[0] != n_k:
-                raise ValueError(f"Spectra length {self.spectra.shape[0]} does not match wavenumber {n_k}.")
+        if self.array.ndim == 1:
+            if self.array.shape[0] != n_k:
+                raise ValueError(f"Spectra length {self.array.shape[0]} does not match wavenumber {n_k}.")
             return
 
-        if self.spectra.ndim == 2:
-            if self.spectra.shape[1] != n_k:
+        if self.array.ndim == 2:
+            if self.array.shape[1] != n_k:
                 raise ValueError(
-                    f"Spectra shape {self.spectra.shape} incompatible with wavenumber {n_k}. Use shape (n_spec, n_k)."
+                    f"Spectra shape {self.array.shape} incompatible with wavenumber {n_k}. Use shape (n_spec, n_k)."
                 )
             return
 
@@ -94,7 +63,7 @@ class PowerSpectrum:
         return (
             "PowerSpectrum("
             f"wavenumber=Array{tuple(self.wavenumber.shape)}, "
-            f"spectra=Array{tuple(self.spectra.shape)}, "
+            f"array=Array{tuple(self.array.shape)}, "
             f"name={self.name!r}, "
             f"scale_factors={self.scale_factors})"
         )
@@ -117,22 +86,17 @@ class PowerSpectrum:
             k_sel, spec_sel = key, slice(None)
 
         k_new = jnp.atleast_1d(self.wavenumber[spec_sel])
-        if self.spectra.ndim == 1:
-            spectra_out = self.spectra[k_sel]
+        if self.array.ndim == 1:
+            array_out = self.array[k_sel]
         else:
-            spectra_out = self.spectra[k_sel, spec_sel]
-            
-        if self.scale_factors is not None and self.spectra.squeeze().ndim == 1:
+            array_out = self.array[k_sel, spec_sel]
+
+        if self.scale_factors is not None and self.array.squeeze().ndim == 1:
             sf_new = jnp.atleast_1d(self.scale_factors[k_sel])
         else:
             sf_new = self.scale_factors
 
-        return PowerSpectrum(wavenumber=k_new, spectra=spectra_out, name=self.name, scale_factors=sf_new)
-
-    @property
-    def shape(self) -> tuple[int, ...]:
-        """Shape of the power spectra array."""
-        return self.spectra.shape
+        return PowerSpectrum(wavenumber=k_new, array=array_out, name=self.name, scale_factors=sf_new)
 
 
     # ---- Plotting ---------------------------------------------------------
@@ -170,7 +134,7 @@ class PowerSpectrum:
             raise ValueError("Cannot plot traced arrays. Use PowerSpectrum.plot() outside of a jit context.")
 
         k_1d = self.wavenumber
-        pk_2d = self.spectra[None, :] if self.spectra.ndim == 1 else self.spectra
+        pk_2d = self.array[None, :] if self.array.ndim == 1 else self.array
         n_spec = pk_2d.shape[0]
 
         if label is None:
@@ -257,7 +221,7 @@ class PowerSpectrum:
             raise ValueError("Cannot plot traced arrays. Use PowerSpectrum.mean_std_plot() outside jit.")
 
         k_1d = self.wavenumber
-        pk_2d = self.spectra[None, :] if self.spectra.ndim == 1 else self.spectra
+        pk_2d = self.array[None, :] if self.array.ndim == 1 else self.array
         n_spec = pk_2d.shape[0]
 
         if label is not None:
@@ -325,7 +289,7 @@ class PowerSpectrum:
             raise ValueError("others must be non-empty.")
 
         k_ref = self.wavenumber
-        pk_ref = self.spectra[None, :] if self.spectra.ndim == 1 else self.spectra
+        pk_ref = self.array[None, :] if self.array.ndim == 1 else self.array
         if pk_ref.shape[0] != 1:
             raise ValueError("compare_plot expects the reference spectrum to be unbatched.")
         pk_ref = pk_ref[0]
@@ -334,7 +298,7 @@ class PowerSpectrum:
             if len(labels) != len(others):
                 raise ValueError(f"Expected {len(others)} label rows, got {len(labels)}.")
             for i, lbls in enumerate(labels):
-                pk_other = others[i].spectra[None, :] if others[i].spectra.ndim == 1 else others[i].spectra
+                pk_other = others[i].array[None, :] if others[i].array.ndim == 1 else others[i].array
                 if len(lbls) != pk_other.shape[0]:
                     raise ValueError(
                         f"labels[{i}] length {len(lbls)} does not match spectra batch {pk_other.shape[0]}."
@@ -362,7 +326,7 @@ class PowerSpectrum:
         for i, other in enumerate(others):
             if not jnp.allclose(other.wavenumber, k_ref):
                 raise ValueError("All spectra in compare_plot must share the same wavenumber grid.")
-            pk_other = other.spectra[None, :] if other.spectra.ndim == 1 else other.spectra
+            pk_other = other.array[None, :] if other.array.ndim == 1 else other.array
             for j in range(pk_other.shape[0]):
                 color = colors[i][j] if colors else None
                 lab = labels[i][j] if labels else (other.name or f"spectrum {i}[{j}]")
@@ -397,62 +361,22 @@ class PowerSpectrum:
 
         return fig, ax, artists
 
-    # ---- Arithmetic -------------------------------------------------------
-    def _binary_op(self, other, op) -> PowerSpectrum:
-        """Helper for elementwise binary ops with validation."""
-        if isinstance(other, PowerSpectrum):
-            if not jnp.allclose(self.wavenumber, other.wavenumber):
-                raise ValueError("PowerSpectrum operations require matching wavenumbers")
-            rhs = other.spectra
-        else:
-            rhs = other
-        return PowerSpectrum(
-            wavenumber=self.wavenumber,
-            spectra=op(self.spectra, rhs),
-            name=self.name,
-        )
-
-    def __mul__(self, other) -> PowerSpectrum:
-        """Multiply by scalar, array, or PowerSpectrum."""
-        return self._binary_op(other, jnp.multiply)
-
-    def __rmul__(self, other) -> PowerSpectrum:
-        return self.__mul__(other)
-
-    def __add__(self, other) -> PowerSpectrum:
-        """Add scalar, array, or PowerSpectrum."""
-        return self._binary_op(other, jnp.add)
-
-    def __radd__(self, other) -> PowerSpectrum:
-        return self.__add__(other)
-
-    def __sub__(self, other) -> PowerSpectrum:
-        """Subtract scalar, array, or PowerSpectrum."""
-        return self._binary_op(other, jnp.subtract)
-
-    def __rsub__(self, other) -> PowerSpectrum:
-        return PowerSpectrum(
-            wavenumber=self.wavenumber,
-            spectra=jnp.subtract(other, self.spectra),
-            name=self.name,
-        )
-
-    # ---- Comparison helper ------------------------------------------------
+    # ---- Stacking helper ------------------------------------------------
     @classmethod
-    def stack(cls, spectra: Sequence[PowerSpectrum]) -> PowerSpectrum:
+    def stack(cls, power_spectra: Sequence[PowerSpectrum]) -> PowerSpectrum:
         """Stack multiple PowerSpectrum objects along a new leading axis.
 
-        All wavenumber grids must match (allclose). Spectra are concatenated
+        All wavenumber grids must match (allclose). Arrays are concatenated
         along batch axis (introducing a leading dimension if needed).
         """
         # Make sure that all wavenumber grids match and they have the same name
-        ref_k = spectra[0].wavenumber
-        name = spectra[0].name
-        for spec in spectra[1:]:
-            if spec.shape != spectra[0].shape:
-                raise ValueError("All PowerSpectrum instances must share the same wavenumber grid to be stacked.")
+        ref_k = power_spectra[0].wavenumber
+        name = power_spectra[0].name
+        for spec in power_spectra[1:]:
+            if spec.shape != power_spectra[0].shape:
+                raise ValueError("All PowerSpectrum instances must share the same shape to be stacked.")
             if spec.name != name:
                 raise ValueError("All PowerSpectrum instances must share the same name to be stacked.")
 
-        spectra = jnp.stack([spec.spectra for spec in spectra], axis=0)
-        return cls(wavenumber=ref_k, spectra=spectra, name=name)
+        stacked_array = jnp.stack([spec.array for spec in power_spectra], axis=0)
+        return cls(wavenumber=ref_k, array=stacked_array, name=name)
