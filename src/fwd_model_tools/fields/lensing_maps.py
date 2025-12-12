@@ -1,13 +1,5 @@
 from __future__ import annotations
 
-"""
-Convergence (kappa) and shear (gamma) field classes for weak lensing.
-
-This module provides Flat/SphericalKappaField and Flat/SphericalShearField
-classes that inherit from the density/lightcone stack and carry
-lensing-specific metadata such as source redshifts.
-"""
-
 from typing import Any
 
 from .lightcone import FlatDensity, SphericalDensity
