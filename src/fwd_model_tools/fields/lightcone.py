@@ -24,71 +24,29 @@ from .._src.fields._plotting import (
 from .units import DensityUnit, convert_units
 
 
-@jax.tree_util.register_pytree_node_class
 class FlatDensity(AbstractField):
     """Flat-sky (2D) density or shear maps derived from volumetric simulations."""
 
-    __slots__ = ()
     STATUS_ENUM = FieldStatus
 
-    def __init__(
-        self,
-        *,
-        array: Array,
-        mesh_size: tuple[int, int, int],
-        box_size: tuple[float, float, float],
-        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Optional[Any] = None,
-        halo_size: int | tuple[int, int] = 0,
-        #  Lightcone geometry and metadata
-        nside: Optional[int] = None,
-        flatsky_npix: Optional[tuple[int, int]] = None,
-        field_size: Optional[float] = None,
-        # Dynamic metadata related to redshift of the field
-        z_sources: Optional[Any] = None,
-        scale_factors: Optional[Any] = None,
-        comoving_centers: Optional[Any] = None,
-        density_width: Optional[Any] = None,
-        # Unit metadata
-        status: FieldStatus = FieldStatus.UNKNOWN,
-        unit: PhysicalUnit = PhysicalUnit.INVALID_UNIT,
-    ):
-        arr = jnp.asarray(array)
-        if arr.ndim == 2:
-            spatial_shape = arr.shape
-        elif arr.ndim == 3:
-            spatial_shape = arr.shape[-2:]
+    def __check_init__(self):
+        """Validation hook called after Equinox auto-initialization."""
+        super().__check_init__()
+        # Validate array shape
+        if self.array.ndim == 2:
+            spatial_shape = self.array.shape
+        elif self.array.ndim == 3:
+            spatial_shape = self.array.shape[-2:]
         else:
             raise ValueError("FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx).")
-
-        if flatsky_npix is None:
+        # Validate required fields
+        if self.flatsky_npix is None:
             raise ValueError("FlatDensity requires `flatsky_npix`.")
-
-        if density_width is None:
+        if self.density_width is None:
             raise ValueError("FlatDensity requires `density_width`.")
-
-        if spatial_shape != tuple(flatsky_npix):
-            raise ValueError(f"Array spatial shape {spatial_shape} does not match flatsky_npix {flatsky_npix}.")
-
-        super().__init__(
-            array=arr,
-            mesh_size=mesh_size,
-            box_size=box_size,
-            observer_position=observer_position,
-            sharding=sharding,
-            halo_size=halo_size,
-            # Lightcone geometry and metadata
-            nside=nside,
-            flatsky_npix=flatsky_npix,
-            field_size=field_size,
-            # Dynamic metadata related to redshift of the field
-            z_sources=z_sources,
-            scale_factors=scale_factors,
-            comoving_centers=comoving_centers,
-            density_width=density_width,
-            status=status,
-            unit=unit,
-        )
+        # Validate spatial shape matches flatsky_npix
+        if spatial_shape != tuple(self.flatsky_npix):
+            raise ValueError(f"Array spatial shape {spatial_shape} does not match flatsky_npix {self.flatsky_npix}.")
 
     def __getitem__(self, key) -> FlatDensity:
         if self.array.ndim < 3:
@@ -280,69 +238,29 @@ class FlatDensity(AbstractField):
         wavenumber = ell_stack[0]
         spectra = spectra_stack if self.array.ndim == 3 else spectra_stack[0]
         return PowerSpectrum(
-            wavenumber=wavenumber, spectra=spectra, name="cl", scale_factors=self.scale_factors
+            wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors
         )
 
 
-@jax.tree_util.register_pytree_node_class
 class SphericalDensity(AbstractField):
     """Spherical (HEALPix) density or shear maps produced from simulations."""
 
-    __slots__ = ()
     STATUS_ENUM = FieldStatus
 
-    def __init__(
-        self,
-        *,
-        array: Array,
-        mesh_size: tuple[int, int, int],
-        box_size: tuple[float, float, float],
-        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Optional[Any] = None,
-        halo_size: int | tuple[int, int] = 0,
-        #  Lightcone geometry and metadata
-        nside: Optional[int] = None,
-        flatsky_npix: Optional[tuple[int, int]] = None,
-        field_size: Optional[float] = None,
-        # Dynamic metadata related to redshift of the field
-        z_sources: Optional[Any] = None,
-        scale_factors: Optional[Any] = None,
-        comoving_centers: Optional[Any] = None,
-        density_width: Optional[Any] = None,
-        # Unit metadata
-        status: FieldStatus = FieldStatus.UNKNOWN,
-        unit: PhysicalUnit = PhysicalUnit.INVALID_UNIT,
-    ):
-        if nside is None:
+    def __check_init__(self):
+        """Validation hook called after Equinox auto-initialization."""
+        super().__check_init__()
+        # Validate nside is provided
+        if self.nside is None:
             raise ValueError("SphericalDensity requires `nside`.")
-
-        if array is not None:
-            array_shape = getattr(array, "shape", ())
-            npix = jhp.nside2npix(nside)
+        # Validate array shape matches HEALPix npix
+        if self.array is not None:
+            array_shape = getattr(self.array, "shape", ())
+            npix = jhp.nside2npix(self.nside)
             if array_shape != () and array_shape[-1] != npix:
                 raise ValueError(
-                    f"Array last dimension {array_shape[-1]} does not match HEALPix npix {npix} for nside {nside}."
+                    f"Array last dimension {array_shape[-1]} does not match HEALPix npix {npix} for nside {self.nside}."
                 )
-
-        super().__init__(
-            array=array,
-            mesh_size=mesh_size,
-            box_size=box_size,
-            observer_position=observer_position,
-            sharding=sharding,
-            halo_size=halo_size,
-            # Lightcone geometry and metadata
-            nside=nside,
-            flatsky_npix=flatsky_npix,
-            field_size=field_size,
-            # Dynamic metadata related to redshift of the field
-            z_sources=z_sources,
-            scale_factors=scale_factors,
-            comoving_centers=comoving_centers,
-            density_width=density_width,
-            status=status,
-            unit=unit,
-        )
 
     def __getitem__(self, key) -> SphericalDensity:
         if self.array.ndim < 2:
@@ -528,7 +446,7 @@ class SphericalDensity(AbstractField):
             spectra = jnp.stack(spectras, axis=0)
             spectra = spectra if self.array.ndim == 2 else spectra[0]
             return PowerSpectrum(
-                wavenumber=ell, spectra=spectra, name="cl", scale_factors=self.scale_factors
+                wavenumber=ell, array=spectra, name="cl", scale_factors=self.scale_factors
             )
 
         if data2 is not None and data2.shape != data1.shape:
@@ -538,5 +456,5 @@ class SphericalDensity(AbstractField):
         wavenumber = ell_stack[0]
         spectra = spectra_stack if self.array.ndim == 2 else spectra_stack[0]
         return PowerSpectrum(
-            wavenumber=wavenumber, spectra=spectra, name="cl", scale_factors=self.scale_factors
+            wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors
         )

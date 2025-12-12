@@ -7,34 +7,26 @@ interface for all field types in fwd_model_tools.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Optional, Self
+from typing import Any, Optional
+
+from typing_extensions import Self
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
 
-from ._checks import (
-    _ensure_tuple3,
-    _normalize_halo_size,
-    _optional_positive_int,
-    _optional_tuple2_positive,
-)
 from ._enums import FieldStatus, PhysicalUnit
+import equinox as eqx
 
-
-class AbstractPytree(ABC):
+class AbstractPytree(eqx.Module):
     """
     Minimal base class capturing the array payload shared by all field objects.
+    Inherits from eqx.Module, so it is an immutable PyTree by default.
     """
 
-    __slots__ = ("array",)
-    __array_priority__ = 1000
-
-    def __init__(self, *, array: jax.Array):
-        self.array = array
+    array: Array
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -46,18 +38,29 @@ class AbstractPytree(ABC):
         """Shorthand for ``array.dtype``."""
         return self.array.dtype
 
-    @abstractmethod
-    def replace(self, **updates: Any) -> AbstractField:
-        """Return a copy with the provided attributes replaced."""
+    def replace(self, **kwargs: Any) -> Self:
+        """
+        Return a copy with the provided attributes replaced.
+        Uses equinox.tree_at under the hood.
+        """
+        if not kwargs:
+            return self
+        names = tuple(kwargs.keys())
+        new_values = tuple(kwargs.values())
+
+        def where(tree):
+            return tuple(getattr(tree, name) for name in names)
+
+        return eqx.tree_at(where, self, new_values)
 
     # ----------------------------------------------------------- math helpers
     def _coerce_other(self, other: Any) -> Any:
-        return other.array if isinstance(other, AbstractField) else other
+        return other.array if isinstance(other, AbstractPytree) else other
 
-    def _binary_op(self, other: Any, op) -> AbstractField:
+    def _binary_op(self, other: Any, op) -> Self:
         return self.replace(array=op(self.array, self._coerce_other(other)))
 
-    def _binary_rop(self, other: Any, op) -> AbstractField:
+    def _binary_rop(self, other: Any, op) -> Self:
         return self.replace(array=op(self._coerce_other(other), self.array))
 
     def __add__(self, other: Any):
@@ -136,170 +139,57 @@ class AbstractPytree(ABC):
         return self.replace(array=fn(self.array, *args, **kwargs))
 
 
-@jax.tree_util.register_pytree_node_class
 class AbstractField(AbstractPytree):
     """
     PyTree container for volumetric simulation arrays and their static metadata.
+    Inherits from eqx.Module via AbstractPytree.
     """
 
-    __slots__ = (
-        # Main array object inherited from AbstractField
-        "array",
-        # Simulation configuration
-        "mesh_size",
-        "box_size",
-        "observer_position",
-        "sharding",
-        "halo_size",
-        # Lightcone geometry and metadata
-        "nside",
-        "flatsky_npix",
-        "field_size",
-        # Dynamic metadata related to redshift of the field
-        "z_sources",
-        "scale_factors",
-        "comoving_centers",
-        "density_width",
-        # Unit and status metadata
-        "unit",
-        "status",
-    )
+    # Dynamic metadata (JAX traced) - array inherited from AbstractPytree
+    z_sources: Optional[Any] = None
+    scale_factors: Optional[Any] = None
+    comoving_centers: Optional[Any] = None
+    density_width: Optional[Any] = None
+
+    # Static metadata (not traced by JAX)
+    mesh_size: tuple[int, int, int] = eqx.field(static=True)
+    box_size: tuple[float, float, float] = eqx.field(static=True)
+    observer_position: tuple[float, float, float] = eqx.field(static=True, default=(0.5, 0.5, 0.5))
+    sharding: Optional[Any] = eqx.field(static=True, default=None)
+    halo_size: tuple[int, int] = eqx.field(static=True, default=(0, 0))
+    nside: Optional[int] = eqx.field(static=True, default=None)
+    flatsky_npix: Optional[tuple[int, int]] = eqx.field(static=True, default=None)
+    field_size: Optional[float] = eqx.field(static=True, default=None)
+    status: FieldStatus = eqx.field(static=True, default=FieldStatus.UNKNOWN)
+    unit: PhysicalUnit = eqx.field(static=True, default=PhysicalUnit.INVALID_UNIT)
 
     STATUS_ENUM = FieldStatus
 
-    def __init__(
-        self,
-        *,
-        array: Array,
-        mesh_size: tuple[int, int, int],
-        box_size: tuple[float, float, float],
-        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
-        sharding: Optional[Any] = None,
-        halo_size: int | tuple[int, int] = 0,
-        #  Lightcone geometry and metadata
-        nside: Optional[int] = None,
-        flatsky_npix: Optional[tuple[int, int]] = None,
-        field_size: Optional[float] = None,
-        # Dynamic metadata related to redshift of the field
-        z_sources: Optional[Any] = None,
-        scale_factors: Optional[Any] = None,
-        comoving_centers: Optional[Any] = None,
-        density_width: Optional[Any] = None,
-        # Unit metadata
-        status: FieldStatus = FieldStatus.UNKNOWN,
-        unit: PhysicalUnit = PhysicalUnit.INVALID_UNIT,
-    ):
-        """
-        Initialize a density-like field along with its geometric metadata.
-
-        Parameters are kept explicit so downstream painting/analysis utilities
-        (flat, spherical, lightcone) have all required context.
-
-        Examples
-        --------
-        >>> import jax.numpy as jnp
-        >>> arr = jnp.zeros((16, 16, 16))
-        >>> field = DensityField(
-        ...     array=arr,
-        ...     mesh_size=(16, 16, 16),
-        ...     box_size=(200.0, 200.0, 200.0),
-        ...     flatsky_npix=(32, 32),
-        ... )
-        >>> field.mesh_size
-        (16, 16, 16)
-        """
-        super().__init__(array=array)
-        mesh_size = _ensure_tuple3("mesh_size", mesh_size, cast=int)
-        box_size = _ensure_tuple3("box_size", box_size, cast=float)
-        observer_position = _ensure_tuple3("observer_position", observer_position, cast=float)
-        if any(not 0.0 <= frac <= 1.0 for frac in observer_position):
+    def __check_init__(self):
+        """Validation hook called after Equinox auto-initialization."""
+        # Validate mesh_size
+        if not (isinstance(self.mesh_size, tuple) and len(self.mesh_size) == 3):
+            raise ValueError(f"mesh_size must be a tuple of 3, got {self.mesh_size}")
+        # Validate box_size
+        if not (isinstance(self.box_size, tuple) and len(self.box_size) == 3):
+            raise ValueError(f"box_size must be a tuple of 3, got {self.box_size}")
+        # Validate observer_position
+        if not (isinstance(self.observer_position, tuple) and len(self.observer_position) == 3):
+            raise ValueError(f"observer_position must be a tuple of 3, got {self.observer_position}")
+        if any(not 0.0 <= frac <= 1.0 for frac in self.observer_position):
             raise ValueError("observer_position entries must lie within [0, 1]")
-        halo_size = _normalize_halo_size(halo_size)
-        nside = _optional_positive_int("nside", nside)
-        flatsky_npix = _optional_tuple2_positive("flatsky_npix", flatsky_npix)
-
-        self.mesh_size = mesh_size
-        self.box_size = box_size
-        self.observer_position = observer_position
-        self.sharding = sharding
-        self.halo_size = halo_size
-        # Lightcone geometry and metadata
-        self.nside = nside
-        self.flatsky_npix = flatsky_npix
-        self.field_size = field_size
-        self.z_sources = z_sources
-        self.scale_factors = scale_factors
-        self.comoving_centers = comoving_centers
-        self.density_width = density_width
-        # Unit and status metadata
-        self.status = self._coerce_status(status)
-        self.unit = unit
-
-    # ------------------------------------------------------------------ PyTree
-    def tree_flatten(self):
-        children = (
-            self.array,
-            self.z_sources,
-            self.scale_factors,
-            self.comoving_centers,
-            self.density_width,
-        )
-        # static metadata
-        aux_data = (
-            self.mesh_size,
-            self.box_size,
-            self.observer_position,
-            self.sharding,
-            self.nside,
-            self.flatsky_npix,
-            self.field_size,
-            self.halo_size,
-            self.status,
-            self.unit,
-        )
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        (
-            mesh_size,
-            box_size,
-            observer_position,
-            sharding,
-            nside,
-            flatsky_npix,
-            field_size,
-            halo_size,
-            status,
-            unit,
-        ) = aux_data
-        (
-            array,
-            z_sources,
-            scale_factors,
-            comoving_centers,
-            density_width,
-        ) = children
-
-        return cls(
-            array=array,
-            mesh_size=mesh_size,
-            box_size=box_size,
-            observer_position=observer_position,
-            sharding=sharding,
-            halo_size=halo_size,
-            #
-            nside=nside,
-            flatsky_npix=flatsky_npix,
-            field_size=field_size,
-            z_sources=z_sources,
-            scale_factors=scale_factors,
-            comoving_centers=comoving_centers,
-            density_width=density_width,
-            #
-            status=status,
-            unit=unit,
-        )
+        # Validate halo_size
+        if not (isinstance(self.halo_size, tuple) and len(self.halo_size) == 2):
+            raise ValueError(f"halo_size must be a tuple of 2, got {self.halo_size}")
+        if any(h < 0 for h in self.halo_size):
+            raise ValueError("halo_size entries must be >= 0")
+        # Validate nside if provided
+        if self.nside is not None and self.nside <= 0:
+            raise ValueError(f"nside must be positive, got {self.nside}")
+        # Validate flatsky_npix if provided
+        if self.flatsky_npix is not None:
+            if not (len(self.flatsky_npix) == 2 and all(x > 0 for x in self.flatsky_npix)):
+                raise ValueError(f"flatsky_npix must be 2 positive ints, got {self.flatsky_npix}")
 
     @classmethod
     def _coerce_status(cls, status):
@@ -389,37 +279,6 @@ class AbstractField(AbstractPytree):
             status=status if status is not None else field.status,
             unit=unit if unit is not None else field.unit,
         )
-
-    def replace(self, **updates: Any) -> Self:
-        params = {
-            "array": self.array,
-            "mesh_size": self.mesh_size,
-            "box_size": self.box_size,
-            "observer_position": self.observer_position,
-            "sharding": self.sharding,
-            "halo_size": self.halo_size,
-            #
-            "nside": self.nside,
-            "flatsky_npix": self.flatsky_npix,
-            "field_size": self.field_size,
-            #
-            "z_sources": self.z_sources,
-            "scale_factors": self.scale_factors,
-            "comoving_centers": self.comoving_centers,
-            "density_width": self.density_width,
-            #
-            "status": self.status,
-            "unit": self.unit,
-        }
-        allowed_keys = set(params.keys())
-        unknown = set(updates) - allowed_keys
-        if unknown:
-            raise TypeError(f"Unknown DensityField attribute(s): {unknown}")
-        params.update(updates)
-        instance = object.__new__(type(self))
-        for key, value in params.items():
-            setattr(instance, key, value)
-        return instance
 
     def block_until_ready(self) -> Self:
         """
@@ -516,4 +375,6 @@ class AbstractField(AbstractPytree):
 
     # ------------------------------------------------------------------ Factory
     def __getitem__(self, key) -> Self:
-        return jax.tree.map(lambda x: x[key], self)
+        to_index, not_to_index = eqx.partition(self , lambda x : eqx.is_array(x) and x.ndim > 1)
+        to_index = jax.tree.map(lambda x: x[key], to_index)
+        return eqx.combine(to_index, not_to_index)

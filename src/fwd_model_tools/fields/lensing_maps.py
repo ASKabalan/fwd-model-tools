@@ -12,7 +12,6 @@ from typing import Any
 
 from .lightcone import FlatDensity, SphericalDensity
 from .units import ConvergenceUnit, convert_units
-import jax
 
 __all__ = [
     "FlatKappaField",
@@ -25,7 +24,6 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 # Flat-sky convergence                                                        #
 # --------------------------------------------------------------------------- #
-@jax.tree_util.register_pytree_node_class
 class FlatKappaField(FlatDensity):
     """
     Convergence map in flat-sky (Cartesian) geometry.
@@ -79,7 +77,6 @@ class FlatKappaField(FlatDensity):
 # --------------------------------------------------------------------------- #
 # Spherical convergence                                                       #
 # --------------------------------------------------------------------------- #
-@jax.tree_util.register_pytree_node_class
 class SphericalKappaField(SphericalDensity):
     """
     Convergence map in spherical (HEALPix) geometry.
@@ -129,7 +126,6 @@ class SphericalKappaField(SphericalDensity):
 # --------------------------------------------------------------------------- #
 # Flat-sky shear                                                              #
 # --------------------------------------------------------------------------- #
-@jax.tree_util.register_pytree_node_class
 class FlatShearField(FlatDensity):
     """
     Shear map (γ1, γ2) in flat-sky (Cartesian) geometry.
@@ -173,7 +169,6 @@ class FlatShearField(FlatDensity):
 # --------------------------------------------------------------------------- #
 # Spherical shear                                                             #
 # --------------------------------------------------------------------------- #
-@jax.tree_util.register_pytree_node_class
 class SphericalShearField(SphericalDensity):
     """
     Shear map (γ1, γ2) in spherical (HEALPix) geometry.
