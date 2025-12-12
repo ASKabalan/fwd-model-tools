@@ -96,7 +96,7 @@ class AbstractPytree(eqx.Module):
     def __abs__(self):
         return self.replace(array=jnp.abs(self.array))
 
-    def pow__(self, other[, modulo])
+    def __pow__(self, other):
         return self.replace(array=self.array**other)
 
     def min(self, *args, **kwargs) -> Self:
@@ -145,12 +145,12 @@ class AbstractPytree(eqx.Module):
         return self.replace(array=fn(self.array, *args, **kwargs))
 
     def __array__(self):
-        raise ValueError(f"Please avoid applying jax.numpy function directly on the object of type {type(self).__class__}"
-                            "Instead use the apply_fn function :                                                           "
-                            "                               new_dens = dens.apply_fn(jnp.log1p)                            "
-                            "Or with arguments                                                                             "
-                            "                               new_dens = dens.apply_fn(jnp.power , 2)                        "
-                            )
+        raise ValueError(
+            f"Please avoid applying jax.numpy function directly on the object of type {type(self).__class__}"
+            "Instead use the apply_fn function :                                                           "
+            "                               new_dens = dens.apply_fn(jnp.log1p)                            "
+            "Or with arguments                                                                             "
+            "                               new_dens = dens.apply_fn(jnp.power , 2)                        ")
 
 
 class AbstractField(AbstractPytree):
@@ -159,15 +159,17 @@ class AbstractField(AbstractPytree):
     Inherits from eqx.Module via AbstractPytree.
     """
 
+    # Static metadata without defaults (must come first for dataclass)
+    mesh_size: tuple[int, int, int] = eqx.field(static=True)
+    box_size: tuple[float, float, float] = eqx.field(static=True)
+
     # Dynamic metadata (JAX traced) - array inherited from AbstractPytree
     z_sources: Optional[Any] = None
     scale_factors: Optional[Any] = None
     comoving_centers: Optional[Any] = None
     density_width: Optional[Any] = None
 
-    # Static metadata (not traced by JAX)
-    mesh_size: tuple[int, int, int] = eqx.field(static=True)
-    box_size: tuple[float, float, float] = eqx.field(static=True)
+    # Static metadata with defaults
     observer_position: tuple[float, float, float] = eqx.field(static=True, default=(0.5, 0.5, 0.5))
     sharding: Optional[Any] = eqx.field(static=True, default=None)
     halo_size: tuple[int, int] = eqx.field(static=True, default=(0, 0))
@@ -308,20 +310,18 @@ class AbstractField(AbstractPytree):
 
     def __repr__(self) -> str:
         classname = type(self).__name__
-        return (
-            f"{classname}("
-            f"array=Array{self.array.shape}, "
-            f"mesh_size={self.mesh_size}, "
-            f"box_size={self.box_size}, "
-            f"observer_position={self.observer_position}, "
-            f"sharding={self.sharding}, "
-            f"halo_size={self.halo_size}, "
-            f"nside={self.nside}, "
-            f"flatsky_npix={self.flatsky_npix}, "
-            f"field_size={self.field_size}, "
-            f"status={self.status.name}, "
-            f"unit={self.unit.name})"
-        )
+        return (f"{classname}("
+                f"array=Array{self.array.shape}, "
+                f"mesh_size={self.mesh_size}, "
+                f"box_size={self.box_size}, "
+                f"observer_position={self.observer_position}, "
+                f"sharding={self.sharding}, "
+                f"halo_size={self.halo_size}, "
+                f"nside={self.nside}, "
+                f"flatsky_npix={self.flatsky_npix}, "
+                f"field_size={self.field_size}, "
+                f"status={self.status.name}, "
+                f"unit={self.unit.name})")
 
     def runtime_inspect(self) -> None:
         """
@@ -389,6 +389,6 @@ class AbstractField(AbstractPytree):
 
     # ------------------------------------------------------------------ Factory
     def __getitem__(self, key) -> Self:
-        to_index, not_to_index = eqx.partition(self , lambda x : eqx.is_array(x) and x.ndim > 1)
+        to_index, not_to_index = eqx.partition(self, lambda x: eqx.is_array(x) and x.ndim > 1)
         to_index = jax.tree.map(lambda x: x[key], to_index)
         return eqx.combine(to_index, not_to_index)
