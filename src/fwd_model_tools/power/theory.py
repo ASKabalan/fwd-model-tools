@@ -26,9 +26,7 @@ def compute_theory_cl(
     return cl_matrix[0]
 
 
-def _normalize_z_source(
-    z_source: float | jc.redshift.redshift_distribution,
-) -> jc.redshift.redshift_distribution:
+def _normalize_z_source(z_source: float | jc.redshift.redshift_distribution, ) -> jc.redshift.redshift_distribution:
     if isinstance(z_source, numbers.Real):
         return jc.redshift.delta_nz(float(z_source))
     if isinstance(z_source, jc.redshift.redshift_distribution):

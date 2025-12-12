@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import jax
+import jax.numpy as jnp
 import jax_cosmo as jc
 
 from fwd_model_tools.fields import DensityField, FieldStatus
 from fwd_model_tools.initial import interpolate_initial_conditions
 from fwd_model_tools.lensing import born, raytrace
-from fwd_model_tools.pm import lpt, nbody, ReversibleKickDriftKick , ReversibleSymplecticEuler
-import jax.numpy as jnp
+from fwd_model_tools.pm import ReversibleKickDriftKick, ReversibleSymplecticEuler, lpt, nbody
+
 from .config import Configurations
 
 __all__ = ["Planck18", "make_full_field_model"]

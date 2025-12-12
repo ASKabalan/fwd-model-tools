@@ -10,15 +10,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Optional
 
-from typing_extensions import Self
-
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
+from typing_extensions import Self
 
 from ._enums import FieldStatus, PhysicalUnit
-import equinox as eqx
+
 
 class AbstractPytree(eqx.Module):
     """
@@ -93,6 +93,12 @@ class AbstractPytree(eqx.Module):
     def __pos__(self):
         return self
 
+    def __abs__(self):
+        return self.replace(array=jnp.abs(self.array))
+
+    def pow__(self, other[, modulo])
+        return self.replace(array=self.array**other)
+
     def min(self, *args, **kwargs) -> Self:
         """Shorthand for ``jnp.min(self.array, *args, **kwargs)``."""
         return self.replace(array=jnp.min(self.array, *args, **kwargs))
@@ -137,6 +143,14 @@ class AbstractPytree(eqx.Module):
             New instance with the transformed array.
         """
         return self.replace(array=fn(self.array, *args, **kwargs))
+
+    def __array__(self):
+        raise ValueError(f"Please avoid applying jax.numpy function directly on the object of type {type(self).__class__}"
+                            "Instead use the apply_fn function :                                                           "
+                            "                               new_dens = dens.apply_fn(jnp.log1p)                            "
+                            "Or with arguments                                                                             "
+                            "                               new_dens = dens.apply_fn(jnp.power , 2)                        "
+                            )
 
 
 class AbstractField(AbstractPytree):

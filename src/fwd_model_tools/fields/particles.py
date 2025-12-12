@@ -13,16 +13,18 @@ from jaxpm.painting import cic_read, cic_read_dx
 from jaxtyping import Array, Float
 
 from .._src.base._core import AbstractField
-from .._src.fields._painting import _single_paint, _single_paint_2d, _single_paint_spherical
-from .._src.fields._plotting import (
-    generate_titles,
-    plot_3d_particles,
-    prepare_axes,
-    resolve_particle_weights,
+from .._src.fields._painting import (
+    _single_paint,
+    _single_paint_2d,
+    _single_paint_2d_lightcone,
+    _single_paint_spherical,
+    _single_paint_spherical_lightcone,
 )
+from .._src.fields._plotting import generate_titles, plot_3d_particles, prepare_axes, resolve_particle_weights
 from .density import DensityField, FieldStatus
 from .lightcone import FlatDensity, SphericalDensity
 from .units import DensityUnit, PositionUnit, convert_units
+from .lightcone import SphericalDensity, FlatDensity
 
 DEFAULT_CHUNK_SIZE = 2**24
 SphericalScheme = Literal["ngp", "bilinear", "rbf_neighbor"]
@@ -52,14 +54,11 @@ class ParticleField(AbstractField):
         # concrete array, so avoid forcing a materialization in that case.
         if self.array is not None:
             array_shape = getattr(self.array, "shape", ())
-            if not (
-                (len(array_shape) == 4 and array_shape[-1] == 3)
-                or (len(array_shape) == 5 and array_shape[-1] == 3)
-                or array_shape == ()  # diffrax term compatibility traces shape ()
-            ):
+            if not ((len(array_shape) == 4 and array_shape[-1] == 3) or (len(array_shape) == 5 and array_shape[-1] == 3)
+                    or array_shape == ()  # diffrax term compatibility traces shape ()
+                    ):
                 raise ValueError(
-                    f"ParticleField array must have shape (X, Y, Z, 3) or (N, X, Y, Z, 3); got shape {array_shape}"
-                )
+                    f"ParticleField array must have shape (X, Y, Z, 3) or (N, X, Y, Z, 3); got shape {array_shape}")
 
             if not isinstance(self.unit, PositionUnit):
                 raise TypeError(f"ParticleField.unit must be a PositionUnit, got {self.unit!r}")
@@ -73,10 +72,8 @@ class ParticleField(AbstractField):
         For a 5D array, slices the leading batch dimension.
         """
         if self.array.ndim != 5:
-            raise ValueError(
-                "Indexing only supported for batched ParticleField (5D array); "
-                f"got array with {self.array.ndim} dimensions"
-            )
+            raise ValueError("Indexing only supported for batched ParticleField (5D array); "
+                             f"got array with {self.array.ndim} dimensions")
         # Use the DensityField __getitem__ implementation (tree.map).
         return super().__getitem__(key)
 
@@ -132,8 +129,7 @@ class ParticleField(AbstractField):
         data = jnp.asarray(self.array)
         if self.unit == PositionUnit.MPC_H:
             raise ValueError(
-                "Cannot paint ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first."
-            )
+                "Cannot paint ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first.")
         mode = "relative" if self.unit == PositionUnit.GRID_RELATIVE else "absolute"
 
         paint_fn = jax.tree_util.Partial(
@@ -190,8 +186,7 @@ class ParticleField(AbstractField):
         """
         if self.unit == PositionUnit.MPC_H:
             raise ValueError(
-                "Cannot read_out ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first."
-            )
+                "Cannot read_out ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first.")
         mode = "relative" if self.unit == PositionUnit.GRID_RELATIVE else "absolute"
 
         if mode == "relative":
@@ -225,7 +220,7 @@ class ParticleField(AbstractField):
 
     # ------------------------------------------------------------------ 2D flat-sky painting
 
-    @partial(jax.jit, static_argnames=("batch_size",))
+    @partial(jax.jit, static_argnames=("batch_size", ))
     def paint_2d(
         self,
         center: Float | Array,
@@ -248,6 +243,11 @@ class ParticleField(AbstractField):
         data = jnp.asarray(self.array)
         center_arr = jnp.atleast_1d(center)
         width_arr = jnp.atleast_1d(density_plane_width)
+        if width_arr.shape != center_arr.shape:
+            raise ValueError(
+                f"center and density_plane_width must have the same shape; got {center_arr.shape} and {width_arr.shape}"
+            )
+        LIGHTCONE_MODE = True
 
         if data.ndim == 5:
             nb_shells = data.shape[0]
@@ -255,17 +255,25 @@ class ParticleField(AbstractField):
                 raise ValueError(f"Batched input: center must have {nb_shells} elements, got {center_arr.size}")
             if width_arr.size != nb_shells:
                 raise ValueError(
-                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}"
-                )
+                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}")
         elif data.ndim == 4:
-            data = data[None, ...]
-            center_arr = center_arr[None, ...]
-            width_arr = width_arr[None, ...]
+            if center_arr.size != 1:
+                if self.scale_factors.shape == self.mesh_size and \
+                   self.status == FieldStatus.LIGHTCONE:
+                    LIGHTCONE_MODE = True
+                else:
+                    raise ValueError("Painting with mutiple centers/widths requires batched input data ")
+            else:
+                data = data[None, ...]
+                center_arr = center_arr[None, ...]
+                width_arr = width_arr[None, ...]
         else:
             raise ValueError(f"paint_2d() expects 4D or 5D array, got shape {data.shape}")
 
+        _painting_impl = _single_paint_2d_lightcone if LIGHTCONE_MODE else _single_paint_2d
+
         paint_fn = jax.tree_util.Partial(
-            _single_paint_2d,
+            _painting_impl,
             mesh_size=self.mesh_size,
             flatsky_npix=self.flatsky_npix,
             box_size=self.box_size,
@@ -275,13 +283,13 @@ class ParticleField(AbstractField):
             weights=weights,
             max_comoving_radius=self.max_comoving_radius,
         )
+        paint_fn = jax.tree_util.Partial(_painting_impl, array=data)
+        carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
-        painted = jax.lax.map(paint_fn, (data, center_arr, width_arr), batch_size=batch_size)
+        painted = jax.lax.map(paint_fn, carry, batch_size=batch_size)
         painted = painted.squeeze()
         center_arr.squeeze()
         widths = width_arr.squeeze()
-
-        from .lightcone import FlatDensity
 
         flat = FlatDensity.FromDensityMetadata(
             array=painted,
@@ -336,23 +344,39 @@ class ParticleField(AbstractField):
         center_arr = jnp.atleast_1d(center)
         width_arr = jnp.atleast_1d(density_plane_width)
 
+        if width_arr.shape != center_arr.shape:
+            raise ValueError(
+                f"center and density_plane_width must have the same shape; got {center_arr.shape} and {width_arr.shape}"
+            )
+
+        LIGHTCONE_MODE = True
+
         if data.ndim == 5:
             nb_shells = data.shape[0]
             if center_arr.size != nb_shells:
                 raise ValueError(f"Batched input: center must have {nb_shells} elements, got {center_arr.size}")
             if width_arr.size != nb_shells:
                 raise ValueError(
-                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}"
-                )
+                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}")
         elif data.ndim == 4:
-            data = data[None, ...]
-            center_arr = center_arr[None, ...]
-            width_arr = width_arr[None, ...]
+            if center_arr.size != 1:
+                if self.scale_factors.shape == self.mesh_size and \
+                   self.status == FieldStatus.LIGHTCONE:
+                    LIGHTCONE_MODE = True
+                else:
+                    raise ValueError("Painting with mutiple centers/widths requires batched input data ")
+            else:
+                data = data[None, ...]
+                center_arr = center_arr[None, ...]
+                width_arr = width_arr[None, ...]
+                LIGHTCONE_MODE = False
         else:
             raise ValueError(f"paint_spherical() expects 4D or 5D array, got shape {data.shape}")
 
+        _painting_impl = _single_paint_spherical_lightcone if LIGHTCONE_MODE else _single_paint_spherical
+
         paint_fn = jax.tree_util.Partial(
-            _single_paint_spherical,
+            _painting_impl,
             mesh_size=self.mesh_size,
             box_size=self.box_size,
             observer_position=self.observer_position,
@@ -370,13 +394,13 @@ class ParticleField(AbstractField):
             ud_grade_pess=ud_grade_pess,
             max_comoving_radius=self.max_comoving_radius,
         )
+        paint_fn = jax.tree_util.Partial(_painting_impl, array=data)
+        carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
-        painted = jax.lax.map(paint_fn, (data, center_arr, width_arr), batch_size=batch_size)
+        painted = jax.lax.map(paint_fn, carry, batch_size=batch_size)
         painted = painted.squeeze()
         center_arr.squeeze()
         widths = width_arr.squeeze()
-
-        from .lightcone import SphericalDensity
 
         sph = SphericalDensity.FromDensityMetadata(
             array=painted,

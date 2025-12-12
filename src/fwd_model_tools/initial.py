@@ -174,7 +174,7 @@ def interpolate_initial_conditions(
 
     field = fft3d(initial_field)
     kvec = fftk(field)
-    kmesh = sum((kk / box_size[i] * mesh_size[i]) ** 2 for i, kk in enumerate(kvec)) ** 0.5
+    kmesh = sum((kk / box_size[i] * mesh_size[i])**2 for i, kk in enumerate(kvec))**0.5
     pkmesh = pk_fn(kmesh) * (mesh_size[0] * mesh_size[1] * mesh_size[2]) / (box_size[0] * box_size[1] * box_size[2])
 
     field = field * jnp.sqrt(pkmesh)

@@ -86,6 +86,35 @@ def _single_paint(
     return density
 
 
+def _single_paint_2d_lightcone(
+    center_width: tuple[float, float],
+    array: Array,
+    mesh_size: tuple[int, int, int],
+    box_size: tuple[float, float, float],
+    observer_position: tuple[float, float, float],
+    sharding: any,
+    flatsky_npix: tuple[int, int],
+    halo_size: tuple[int, int],
+    weights: Array | float | None,
+    max_comoving_radius: float,
+) -> Array:
+    """
+    """
+    center, width = center_width
+    array_center_width = (array, center, width)
+    return _single_paint_2d(
+        array_center_width=array_center_width,
+        mesh_size=mesh_size,
+        box_size=box_size,
+        observer_position=observer_position,
+        sharding=sharding,
+        flatsky_npix=flatsky_npix,
+        halo_size=halo_size,
+        weights=weights,
+        max_comoving_radius=max_comoving_radius,
+    )
+
+
 def _single_paint_2d(
     array_center_width: tuple[Array, float, float],
     mesh_size: tuple[int, int, int],
@@ -171,6 +200,51 @@ def _single_paint_2d(
     return density_plane
 
 
+def _single_paint_spherical_lightcone(
+    center_width: tuple[float, float],
+    array: Array,
+    mesh_size: tuple[int, int, int],
+    box_size: tuple[float, float, float],
+    observer_position: tuple[float, float, float],
+    sharding: any,
+    nside: int,
+    halo_size: tuple[int, int],
+    scheme: SphericalScheme,
+    weights: Array | None,
+    kernel_width_arcmin: float | None,
+    smoothing_interpretation: str,
+    paint_nside: int | None,
+    ud_grade_power: float,
+    ud_grade_order_in: str,
+    ud_grade_order_out: str,
+    ud_grade_pess: bool,
+    max_comoving_radius: float,
+) -> Array:
+    """
+    """
+    center, width = center_width
+    array_center_width = (array, center, width)
+    return _single_paint_spherical(
+        array_center_width=array_center_width,
+        mesh_size=mesh_size,
+        box_size=box_size,
+        observer_position=observer_position,
+        sharding=sharding,
+        nside=nside,
+        halo_size=halo_size,
+        scheme=scheme,
+        weights=weights,
+        kernel_width_arcmin=kernel_width_arcmin,
+        smoothing_interpretation=smoothing_interpretation,
+        paint_nside=paint_nside,
+        ud_grade_power=ud_grade_power,
+        ud_grade_order_in=ud_grade_order_in,
+        ud_grade_order_out=ud_grade_order_out,
+        ud_grade_pess=ud_grade_pess,
+        max_comoving_radius=max_comoving_radius,
+    )
+
+
 def _single_paint_spherical(
     array_center_width: tuple[Array, float, float],
     mesh_size: tuple[int, int, int],
@@ -248,12 +322,10 @@ def _single_paint_spherical(
 
     def error_message(rmin, rmax, density_plane_width, max_comoving_radius):
         if rmin < density_plane_width / 2 or rmax > max_comoving_radius - density_plane_width / 2:
-            return (
-                f"Requested spherical shell (rmin={rmin}, rmax={rmax}) "
-                f"lies outside the box limits [0, {max_comoving_radius}]. "
-                "Adjust center to be between {density_plane_width / 2} and "
-                f"{max_comoving_radius - density_plane_width / 2}."
-            )
+            return (f"Requested spherical shell (rmin={rmin}, rmax={rmax}) "
+                    f"lies outside the box limits [0, {max_comoving_radius}]. "
+                    "Adjust center to be between {density_plane_width / 2} and "
+                    f"{max_comoving_radius - density_plane_width / 2}.")
 
     jax.debug.callback(
         error_message,

@@ -14,8 +14,9 @@ from jaxtyping import Array
 from .._src.base._core import AbstractField
 from .._src.base._enums import DensityUnit, FieldStatus, PhysicalUnit
 from .._src.fields._plotting import generate_titles, plot_3d_density, prepare_axes
-from ..power import PowerSpectrum, coherence, transfer
+from ..power import PowerSpectrum, coherence
 from ..power import power as power_fn
+from ..power import transfer
 from .lightcone import FlatDensity
 from .units import convert_units
 
@@ -29,20 +30,14 @@ class DensityField(AbstractField):
         """Validation hook called after Equinox auto-initialization."""
         super().__check_init__()
         # Validate array shape
-        if not (
-            (self.array.ndim == 3 and self.array.shape == self.mesh_size)
-            or (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size)
-        ):
-            raise ValueError(
-                "DensityField array must have shape (mesh_size) or (N, mesh_size), "
-                f"got array shape {self.array.shape} and mesh_size {self.mesh_size}"
-            )
+        if not ((self.array.ndim == 3 and self.array.shape == self.mesh_size) or
+                (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size)):
+            raise ValueError("DensityField array must have shape (mesh_size) or (N, mesh_size), "
+                             f"got array shape {self.array.shape} and mesh_size {self.mesh_size}")
         # Validate unit type
         if not isinstance(self.unit, DensityUnit):
-            raise TypeError(
-                f"DensityField.unit must be a DensityUnit, got {self.unit!r}. "
-                "Please set the correct unit when constructing the field."
-            )
+            raise TypeError(f"DensityField.unit must be a DensityUnit, got {self.unit!r}. "
+                            "Please set the correct unit when constructing the field.")
 
     def __getitem__(self, key) -> DensityField:
         """
@@ -51,10 +46,8 @@ class DensityField(AbstractField):
         For a 5D array, slices the leading batch dimension.
         """
         if self.array.ndim != 4:
-            raise ValueError(
-                "Indexing only supported for batched DensityField with 4D array, "
-                f"got array with {self.array.ndim} dimensions"
-            )
+            raise ValueError("Indexing only supported for batched DensityField with 4D array, "
+                             f"got array with {self.array.ndim} dimensions")
         # Use the DensityField __getitem__ implementation (tree.map).
         return super().__getitem__(key)
 
@@ -271,13 +264,13 @@ class DensityField(AbstractField):
     # -------------------------------------------------------- power-spectrum API
     @partial(jax.jit, static_argnames=["multipoles", "los", "batch_size"])
     def power(
-        self,
-        mesh2: Optional[DensityField] = None,
-        *,
-        kedges: Optional[Array | jnp.ndarray] = None,
-        multipoles: Optional[Iterable[int]] = 0,
-        los: Array | Iterable[float] = (0.0, 0.0, 1.0),
-        batch_size: Optional[int] = None,
+            self,
+            mesh2: Optional[DensityField] = None,
+            *,
+            kedges: Optional[Array | jnp.ndarray] = None,
+            multipoles: Optional[Iterable[int]] = 0,
+            los: Array | Iterable[float] = (0.0, 0.0, 1.0),
+            batch_size: Optional[int] = None,
     ) -> PowerSpectrum:
         """Compute the 3D matter power spectrum P(k).
 
@@ -349,9 +342,7 @@ class DensityField(AbstractField):
         k_stack, spectra_stack = jax.lax.map(_compute, (data1, data2), batch_size=batch_size)
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
-        return PowerSpectrum(
-            wavenumber=wavenumber, array=spectra, name="transfer", scale_factors=self.scale_factors
-        )
+        return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="transfer", scale_factors=self.scale_factors)
 
     @partial(jax.jit, static_argnames=["batch_size"])
     def coherence(
@@ -387,6 +378,4 @@ class DensityField(AbstractField):
         k_stack, spectra_stack = jax.lax.map(_compute, (data1, data2), batch_size=batch_size)
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
-        return PowerSpectrum(
-            wavenumber=wavenumber, array=spectra, name="coherence", scale_factors=self.scale_factors
-        )
+        return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="coherence", scale_factors=self.scale_factors)

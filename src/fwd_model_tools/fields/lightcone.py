@@ -15,12 +15,7 @@ from fwd_model_tools.power import PowerSpectrum, angular_cl_flat, angular_cl_sph
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import FieldStatus, PhysicalUnit
-from .._src.fields._plotting import (
-    generate_titles,
-    plot_flat_density,
-    plot_spherical_density,
-    prepare_axes,
-)
+from .._src.fields._plotting import generate_titles, plot_flat_density, plot_spherical_density, prepare_axes
 from .units import DensityUnit, convert_units
 
 
@@ -50,10 +45,8 @@ class FlatDensity(AbstractField):
 
     def __getitem__(self, key) -> FlatDensity:
         if self.array.ndim < 3:
-            raise ValueError(
-                f"Indexing only supported for batched FlatDensity (3D array), "
-                f"got array with {self.array.ndim} dimensions"
-            )
+            raise ValueError(f"Indexing only supported for batched FlatDensity (3D array), "
+                             f"got array with {self.array.ndim} dimensions")
         return super().__getitem__(key)
 
     def to(
@@ -237,9 +230,7 @@ class FlatDensity(AbstractField):
         ell_stack, spectra_stack = jax.lax.map(_compute, (data1, data2), batch_size=batch_size)
         wavenumber = ell_stack[0]
         spectra = spectra_stack if self.array.ndim == 3 else spectra_stack[0]
-        return PowerSpectrum(
-            wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors
-        )
+        return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors)
 
 
 class SphericalDensity(AbstractField):
@@ -264,10 +255,8 @@ class SphericalDensity(AbstractField):
 
     def __getitem__(self, key) -> SphericalDensity:
         if self.array.ndim < 2:
-            raise ValueError(
-                f"Indexing only supported for batched SphericalDensity (2D array), "
-                f"got array with {self.array.ndim} dimensions"
-            )
+            raise ValueError(f"Indexing only supported for batched SphericalDensity (2D array), "
+                             f"got array with {self.array.ndim} dimensions")
         return super().__getitem__(key)
 
     def to(
@@ -445,9 +434,7 @@ class SphericalDensity(AbstractField):
                 spectras.append(spectra)
             spectra = jnp.stack(spectras, axis=0)
             spectra = spectra if self.array.ndim == 2 else spectra[0]
-            return PowerSpectrum(
-                wavenumber=ell, array=spectra, name="cl", scale_factors=self.scale_factors
-            )
+            return PowerSpectrum(wavenumber=ell, array=spectra, name="cl", scale_factors=self.scale_factors)
 
         if data2 is not None and data2.shape != data1.shape:
             raise ValueError("mesh2 must match shape for cross Cl")
@@ -455,6 +442,4 @@ class SphericalDensity(AbstractField):
         ell_stack, spectra_stack = jax.lax.map(_compute, (data1, data2), batch_size=batch_size)
         wavenumber = ell_stack[0]
         spectra = spectra_stack if self.array.ndim == 2 else spectra_stack[0]
-        return PowerSpectrum(
-            wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors
-        )
+        return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors)
