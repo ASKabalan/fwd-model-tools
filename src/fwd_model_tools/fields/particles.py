@@ -24,7 +24,6 @@ from .._src.fields._plotting import generate_titles, plot_3d_particles, prepare_
 from .density import DensityField, FieldStatus
 from .lightcone import FlatDensity, SphericalDensity
 from .units import DensityUnit, PositionUnit, convert_units
-from .lightcone import SphericalDensity, FlatDensity
 
 DEFAULT_CHUNK_SIZE = 2**24
 SphericalScheme = Literal["ngp", "bilinear", "rbf_neighbor"]
@@ -270,19 +269,29 @@ class ParticleField(AbstractField):
         else:
             raise ValueError(f"paint_2d() expects 4D or 5D array, got shape {data.shape}")
 
-        _painting_impl = _single_paint_2d_lightcone if LIGHTCONE_MODE else _single_paint_2d
+        kwargs = {
+            "mesh_size": self.mesh_size,
+            "box_size": self.box_size,
+            "observer_position": self.observer_position,
+            "sharding": self.sharding,
+            "flatsky_npix": self.flatsky_npix,
+            "halo_size": self.halo_size,
+            "weights": weights,
+            "max_comoving_radius": self.max_comoving_radius,
+        }
 
-        paint_fn = jax.tree_util.Partial(
-            _painting_impl,
-            mesh_size=self.mesh_size,
-            flatsky_npix=self.flatsky_npix,
-            box_size=self.box_size,
-            observer_position=self.observer_position,
-            sharding=self.sharding,
-            halo_size=self.halo_size,
-            weights=weights,
-            max_comoving_radius=self.max_comoving_radius,
-        )
+        if LIGHTCONE_MODE:
+            paint_fn = jax.tree_util.Partial(
+                _single_paint_2d_lightcone,
+                array=data,
+                **kwargs,
+            )
+        else:
+            paint_fn = jax.tree_util.Partial(
+                _single_paint_2d,
+                **kwargs,
+            )
+
         paint_fn = jax.tree_util.Partial(_painting_impl, array=data)
         carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
@@ -360,7 +369,7 @@ class ParticleField(AbstractField):
                     f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}")
         elif data.ndim == 4:
             if center_arr.size != 1:
-                if self.scale_factors.shape == self.mesh_size and \
+                if self.scale_factors.squeeze().shape == self.mesh_size and \
                    self.status == FieldStatus.LIGHTCONE:
                     LIGHTCONE_MODE = True
                 else:
@@ -373,28 +382,36 @@ class ParticleField(AbstractField):
         else:
             raise ValueError(f"paint_spherical() expects 4D or 5D array, got shape {data.shape}")
 
-        _painting_impl = _single_paint_spherical_lightcone if LIGHTCONE_MODE else _single_paint_spherical
+        kwargs = {
+            "mesh_size": self.mesh_size,
+            "box_size": self.box_size,
+            "observer_position": self.observer_position,
+            "sharding": self.sharding,
+            "nside": self.nside,
+            "halo_size": self.halo_size,
+            "scheme": scheme,
+            "weights": weights,
+            "kernel_width_arcmin": kernel_width_arcmin,
+            "smoothing_interpretation": smoothing_interpretation,
+            "paint_nside": paint_nside,
+            "ud_grade_power": ud_grade_power,
+            "ud_grade_order_in": ud_grade_order_in,
+            "ud_grade_order_out": ud_grade_order_out,
+            "ud_grade_pess": ud_grade_pess,
+            "max_comoving_radius": self.max_comoving_radius,
+        }
 
-        paint_fn = jax.tree_util.Partial(
-            _painting_impl,
-            mesh_size=self.mesh_size,
-            box_size=self.box_size,
-            observer_position=self.observer_position,
-            sharding=self.sharding,
-            nside=self.nside,
-            halo_size=self.halo_size,
-            scheme=scheme,
-            weights=weights,
-            kernel_width_arcmin=kernel_width_arcmin,
-            smoothing_interpretation=smoothing_interpretation,
-            paint_nside=paint_nside,
-            ud_grade_power=ud_grade_power,
-            ud_grade_order_in=ud_grade_order_in,
-            ud_grade_order_out=ud_grade_order_out,
-            ud_grade_pess=ud_grade_pess,
-            max_comoving_radius=self.max_comoving_radius,
-        )
-        paint_fn = jax.tree_util.Partial(_painting_impl, array=data)
+        if LIGHTCONE_MODE:
+            paint_fn = jax.tree_util.Partial(
+                _single_paint_spherical_lightcone,
+                array=data,
+                **kwargs,
+            )
+        else:
+            paint_fn = jax.tree_util.Partial(
+                _single_paint_spherical,
+                **kwargs,
+            )
         carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
         painted = jax.lax.map(paint_fn, carry, batch_size=batch_size)

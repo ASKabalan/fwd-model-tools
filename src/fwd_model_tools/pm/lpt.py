@@ -17,7 +17,7 @@ from ..utils import compute_particle_scale_factors
 __all__ = ["lpt"]
 
 
-@partial(jax.jit, static_argnames=["order", "geometry", "kwargs"])
+@partial(jax.jit, static_argnames=["order", "geometry", "painting_kwargs"])
 def lpt(cosmo: Any,
         initial_field: DensityField,
         scale_factor_spec,
@@ -25,7 +25,7 @@ def lpt(cosmo: Any,
         order: int = 1,
         initial_particles: Array = None,
         geometry: str = "particles",
-        kwargs={}) -> tuple[Any, ParticleField]:
+        painting_kwargs={}) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
 
@@ -154,14 +154,7 @@ def lpt(cosmo: Any,
     if snapshot_r is not None:
         if geometry == "flat":
 
-            def _paint(particle_field, snap_info):
-                center, plane_width = snap_info
-                return particle_field, particle_field.paint_2d(
-                    center=center,
-                    density_plane_width=plane_width,
-                )
-
-            _, dx_field = lax.scan(_paint, dx_field, (snapshot_r, density_plane_width))
+            dx_field = dx_field.paint_2d(center=snapshot_r, density_plane_width=density_plane_width, **painting_kwargs)
             a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)
             z_snapshot = jc.utils.a2z(a_snapshot)
             dx_field = dx_field.replace(
@@ -170,13 +163,9 @@ def lpt(cosmo: Any,
             )
         elif geometry == "spherical":
 
-            def _paint(particle_field, snap_info):
-                center, plane_width = snap_info
-                return particle_field, particle_field.paint_spherical(center=center,
-                                                                      density_plane_width=plane_width,
-                                                                      **kwargs)
-
-            _, dx_field = lax.scan(_paint, dx_field, (snapshot_r, density_plane_width))
+            dx_field = dx_field.paint_spherical(center=snapshot_r,
+                                                density_plane_width=density_plane_width,
+                                                **painting_kwargs)
             a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)
             z_snapshot = jc.utils.a2z(a_snapshot)
             dx_field = dx_field.replace(

@@ -15,7 +15,7 @@ from .solvers import ReversibleEfficientFastPM, setup_odeterms
 __all__ = ["nbody"]
 
 
-@partial(jax.jit, static_argnames=["t1", "dt0", "nb_shells", "geometry", "solver", "adjoint"])
+@partial(jax.jit, static_argnames=["t1", "dt0", "nb_shells", "geometry", "solver", "adjoint", "painting_kwargs"])
 def nbody(
         cosmo,
         dx_field: ParticleField,
@@ -27,6 +27,7 @@ def nbody(
         geometry: str = "spherical",
         solver=ReversibleEfficientFastPM(),
         adjoint: str | object = RecursiveCheckpointAdjoint(),
+        painting_kwargs={},
 ) -> jax.Array:
     """
     Evolve particles forward in time and save lightcone density planes.
@@ -138,11 +139,7 @@ def nbody(
             particle_field = y[1]
             particle_field = particle_field.replace(scale_factors=t)
             # Paint to spherical
-            return particle_field.paint_spherical(
-                center=r_center,
-                density_plane_width=width,
-                scheme="bilinear",
-            )
+            return particle_field.paint_spherical(center=r_center, density_plane_width=width, **painting_kwargs)
     elif geometry == "flat":
         if flatsky_npix is None:
             raise ValueError("Field must have flatsky_npix set for flat geometry")
@@ -158,10 +155,7 @@ def nbody(
             particle_field = particle_field.replace(scale_factors=t)
 
             # Paint to flat 2D
-            return particle_field.paint_2d(
-                center=r_center,
-                density_plane_width=width,
-            )
+            return particle_field.paint_2d(center=r_center, density_plane_width=width, **painting_kwargs)
 
     elif geometry == "density":
 
