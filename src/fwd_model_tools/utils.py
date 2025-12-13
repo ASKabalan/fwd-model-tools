@@ -13,7 +13,6 @@ __all__ = [
     "compute_box_size_from_redshift",
     "compute_max_redshift_from_box_size",
     "compute_lightcone_shells",
-    "compute_lpt_lightcone_scale_factors",
 ]
 
 
@@ -172,40 +171,44 @@ def compute_particle_scale_factors(
     distances = field.to(PositionUnit.MPC_H)
     distances = field - jnp.array(field.observer_position_mpc)
     r = jnp.linalg.norm(distances.array, axis=-1)
-    a = jc.background.a_of_chi(cosmo, r)
+    a = jc.background.a_of_chi(cosmo, r.reshape(-1 , r.shape[-1])).reshape(r.shape)
 
     return a
 
+@jax.jit
+def edges(centers, r_start=None):
+    """
+    Reconstructs all edges from centers.
+    
+    Args:
+        centers: Array of center points.
+        r_start: (Optional) The starting edge coordinate. 
+                 If None, assumes equal spacing between the first two points 
+                 to derive the start.
+    
+    Returns:
+        Array of edges (length = len(centers) + 1)
+    """
+    # 1. Handle the 'None' case (Assumption: Equal Spacing)
+    # If spacing is equal: r[0] = c[0] - (half_width)
+    # half_width approx = (c[1] - c[0]) / 2
+    # r[0] = c[0] - 0.5 * (c[1] - c[0])  =>  1.5 * c[0] - 0.5 * c[1]
+    if r_start is None:
+        r_start = 1.5 * centers[0] - 0.5 * centers[1]
+        
+    def step_fn(r_prev, c):
+        r_next = 2 * c - r_prev
+        return r_next, r_next # carry, output
+    _, edges_tail = jax.lax.scan(step_fn, r_start, centers)
+    return jnp.concatenate([jnp.atleast_1d(r_start), edges_tail])
+
 
 @jax.jit
-def compute_lpt_lightcone_scale_factors(cosmo, field: DensityField) -> jax.Array:
+def distances(centers, r_start=None):
     """
-    Compute scale factors for LPT lightcone from a DensityField.
-
-    This function extracts box geometry and observer information from the field
-    to compute the maximum comoving distance, then converts it to a scale factor
-    using the cosmology's distance-redshift relation.
-
-    Parameters
-    ----------
-    cosmo : jax_cosmo.Cosmology
-        Cosmology object for distance computations.
-    field : DensityField
-        Field containing box_size and observer_position metadata.
-
-    Returns
-    -------
-    jax.Array
-        Scale factor corresponding to the maximum comoving distance.
-
-    Examples
-    --------
-    >>> cosmo = Planck18()
-    >>> field = gaussian_initial_conditions(key, mesh_size, box_size, pk_fn)
-    >>> scale_factor = compute_lpt_lightcone_scale_factors(cosmo, field)
-    >>> # Returns a single scale factor value
+    Computes cell widths (distances) from centers.
+    Calls get_edges internally.
     """
-    # compute comoving distance for every slate along the z-axis
-    r_centers = ((jnp.arange(field.mesh_size[-1]) + 0.5) * field.box_size[-1] / field.mesh_size[-1])[::-1]
-    a_centers = jc.background.a_of_chi(cosmo, r_centers)
-    return a_centers
+    r = edges(centers, r_start)
+    return jnp.abs(r[1:] - r[:-1])
+
