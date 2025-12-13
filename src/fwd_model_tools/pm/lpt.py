@@ -12,7 +12,7 @@ from jaxpm.pm import lpt as jaxpm_lpt
 from jaxtyping import Array
 
 from ..fields import DensityField, FieldStatus, ParticleField, PositionUnit
-from ..utils import compute_particle_scale_factors
+from ..utils import compute_particle_scale_factors, distances
 
 __all__ = ["lpt"]
 
@@ -25,7 +25,7 @@ def lpt(cosmo: Any,
         order: int = 1,
         initial_particles: Array = None,
         geometry: str = "particles",
-        painting_kwargs={}) -> tuple[Any, ParticleField]:
+        painting_kwargs=()) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
 
@@ -57,6 +57,8 @@ def lpt(cosmo: Any,
     if initial_field.status != FieldStatus.INITIAL_FIELD:
         raise ValueError("initial_field must have status FieldStatus.INITIAL_FIELD.")
 
+    painting_kwargs = dict(painting_kwargs)
+
     if initial_particles is None:
         # positions in GRID_RELATIVE (0..1 over the box) or GRID_ABSOLUTE indices,
         # depending on your convention in PositionUnit.
@@ -70,7 +72,6 @@ def lpt(cosmo: Any,
         field=initial_field,
         unit=PositionUnit.GRID_ABSOLUTE,
     )
-
     scale_factor_spec = jnp.asarray(scale_factor_spec)
     if jnp.isscalar(scale_factor_spec):
         a = jnp.atleast_1d(scale_factor_spec)
@@ -80,7 +81,6 @@ def lpt(cosmo: Any,
         a_near, a_far = scale_factor_spec
         # Find center scale factor for lightcone shell
         a = 0.5 * (a_near + a_far)
-        r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
         r_near, r_far = r[0], r[1]
         snapshot_r = r[None, ...]
         density_plane_width = (r_far - r_near)[None, ...]
@@ -89,13 +89,9 @@ def lpt(cosmo: Any,
         a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
         r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
         # Width of bin i (centered at ri​):
-        inner_edges = 0.5 * (r[1:] + r[:-1])
-        start_edge = r[0] - (inner_edges[0] - r[0])
-        end_edge = r[-1] + (r[-1] - inner_edges[-1])
-        r_edges = jnp.concatenate([jnp.array([start_edge]), inner_edges, jnp.array([end_edge])])
         # Set snap info
         snapshot_r = r
-        density_plane_width = r_edges[1:] - r_edges[:-1]
+        density_plane_width = distances(r , initial_particles.max_comoving_radius)
     # Snapshot at near a and far a for each shell
     elif scale_factor_spec.ndim == 2:
         a_near, a_far = scale_factor_spec[:, 0], scale_factor_spec[:, 1]
@@ -161,6 +157,7 @@ def lpt(cosmo: Any,
                 scale_factors=a_snapshot,
                 z_sources=z_snapshot,
             )
+            dx_field = dx_field[::-1]
         elif geometry == "spherical":
 
             dx_field = dx_field.paint_spherical(center=snapshot_r,
@@ -172,6 +169,7 @@ def lpt(cosmo: Any,
                 scale_factors=a_snapshot,
                 z_sources=z_snapshot,
             )
+            dx_field = dx_field[::-1]
         elif geometry == "density":
             dx_field = dx_field.paint()
         elif geometry == "particles":
