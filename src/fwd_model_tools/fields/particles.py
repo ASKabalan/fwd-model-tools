@@ -257,7 +257,7 @@ class ParticleField(AbstractField):
                     f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}")
         elif data.ndim == 4:
             if center_arr.size != 1:
-                if self.scale_factors.shape == self.mesh_size and \
+                if self.scale_factors.squeeze().shape == self.mesh_size and \
                    self.status == FieldStatus.LIGHTCONE:
                     LIGHTCONE_MODE = True
                 else:
@@ -292,7 +292,6 @@ class ParticleField(AbstractField):
                 **kwargs,
             )
 
-        paint_fn = jax.tree_util.Partial(_painting_impl, array=data)
         carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
         painted = jax.lax.map(paint_fn, carry, batch_size=batch_size)
