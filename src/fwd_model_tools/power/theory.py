@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import numbers
-from typing import Callable, Union
+from typing import Callable, Union, Iterable
 
 import jax.numpy as jnp
 import jax_cosmo as jc
 from jax.tree_util import register_pytree_node_class
 from jax_cosmo.redshift import redshift_distribution
-
+from jaxtyping import Array
 from .power_spec import PowerSpectrum
 
 __all__ = ["compute_theory_cl", "tophat_z"]
@@ -52,9 +52,11 @@ def _normalize_z_source(z_source: ZSourceType, ) -> list[jc.redshift.redshift_di
         return [z_source]
 
     # Handle list
-    if isinstance(z_source, (list, tuple)):
+    if isinstance(z_source, Iterable):
         result = []
         for zs in z_source:
+            if isinstance(zs , Array):
+                zs = float(zs)
             if isinstance(zs, numbers.Real):
                 result.append(jc.redshift.delta_nz(float(zs)))
             elif isinstance(zs, jc.redshift.redshift_distribution):
@@ -62,8 +64,8 @@ def _normalize_z_source(z_source: ZSourceType, ) -> list[jc.redshift.redshift_di
             else:
                 raise TypeError(f"Each z_source must be a scalar or redshift_distribution, got {type(zs)}")
         return result
-
-    raise TypeError("z_source must be a scalar, redshift_distribution, or list thereof.")
+    else:
+        raise TypeError("z_source must be a scalar, redshift_distribution, or list thereof.")
 
 
 def _resolve_nonlinear_fn(nonlinear_fn: str | Callable) -> Callable:
