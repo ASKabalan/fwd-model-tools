@@ -32,9 +32,13 @@ dependencies = [
     "numpyro",
     "jaxtyping",
     "jaxpm",
+    "healpy",
     "jax-cosmo",
     "diffrax",
     "arviz",
+    "getdist",
+    "rich",
+    "orbax-checkpoint",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +48,7 @@ dev = [
     "ruff>=0.1.0",
     "pre-commit>=3.0",
 ]
+io = ["pyarrow>=14.0"]
 
 [project.urls]
 Homepage = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
@@ -66,16 +71,31 @@ select = [
     "UP",  # pyupgrade
     "T10", # flake8-debugger
     "I",   # isort
+    "T20", # flake8-print
 ]
+
 ignore = [
     "E501",  # line too long
     "E402",  # module level import not at top of file
     "E731",  # do not assign a lambda expression, use a def
     "F722", # syntax error in type annotation
+    "UP045", # allow "Optional" usage instead of "X | None"
 ]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.isort]
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 120
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

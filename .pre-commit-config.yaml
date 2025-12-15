@@ -9,7 +9,7 @@ repos:
     rev: v0.40.2
     hooks:
     - id: yapf
-      args: ['--parallel', '--in-place']
+      args: ['--in-place', '--style', 'pyproject.toml']
 -   repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
