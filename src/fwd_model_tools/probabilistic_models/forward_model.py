@@ -6,31 +6,15 @@ import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
 
-from fwd_model_tools.fields import DensityField, FieldStatus
-from fwd_model_tools.initial import interpolate_initial_conditions
-from fwd_model_tools.lensing import born, raytrace
-from fwd_model_tools.pm import ReversibleKickDriftKick, ReversibleSymplecticEuler, lpt, nbody
-
+from ..fields import DensityField, FieldStatus
+from ..fields.painting import PaintingOptions
+from ..initial import interpolate_initial_conditions
+from ..lensing import born, raytrace
+from ..parameters import Planck18
+from ..pm import EfficientDriftDoubleKick, NoCorrection, NoInterp, OnionTiler, lpt, nbody
 from .config import Configurations
 
-__all__ = ["Planck18", "make_full_field_model"]
-
-
-def Planck18(**overrides):
-    """Return a Planck 2018 cosmology instance with optional overrides."""
-
-    params = {
-        "Omega_c": 0.2607,
-        "Omega_b": 0.0490,
-        "Omega_k": 0.0,
-        "h": 0.6766,
-        "n_s": 0.9665,
-        "sigma8": 0.8102,
-        "w0": -1.0,
-        "wa": 0.0,
-    }
-    params.update(overrides)
-    return jc.Cosmology(**params)
+__all__ = ["make_full_field_model"]
 
 
 def make_full_field_model(
@@ -64,6 +48,17 @@ def make_full_field_model(
             order=config.lpt_order,
         )
 
+        # Create solver with appropriate interp_kernel based on geometry
+        if geometry == "spherical":
+            interp_kernel = OnionTiler(painting=PaintingOptions(target="spherical"))
+        else:
+            interp_kernel = NoInterp(painting=PaintingOptions(target="flat"))
+
+        solver = EfficientDriftDoubleKick(
+            pgd_kernel=NoCorrection(),
+            interp_kernel=interp_kernel,
+        )
+
         lightcone = nbody(
             cosmo,
             dx_field,
@@ -71,9 +66,8 @@ def make_full_field_model(
             t1=config.t1,
             dt0=config.dt0,
             nb_shells=config.number_of_shells,
-            geometry=geometry,
+            solver=solver,
             adjoint=config.adjoint,
-            solver=ReversibleSymplecticEuler(),
         )
 
         lensing_fn = raytrace if config.lensing == "raytrace" else born
