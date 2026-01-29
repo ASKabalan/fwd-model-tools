@@ -11,21 +11,20 @@ from jaxpm.distributed import uniform_particles
 from jaxpm.pm import lpt as jaxpm_lpt
 from jaxtyping import Array
 
-from ..fields import DensityField, FieldStatus, ParticleField, PositionUnit
+from ..fields import DensityField, FieldStatus, PaintingOptions, ParticleField, PositionUnit
 from ..utils import compute_particle_scale_factors, distances
 
 __all__ = ["lpt"]
 
 
-@partial(jax.jit, static_argnames=["order", "geometry", "painting_kwargs"])
+@partial(jax.jit, static_argnames=["order", "painting"])
 def lpt(cosmo: Any,
         initial_field: DensityField,
         scale_factor_spec,
         *,
         order: int = 1,
         initial_particles: Array = None,
-        geometry: str = "particles",
-        painting_kwargs=()) -> tuple[Any, ParticleField]:
+        painting: PaintingOptions | None = None) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
 
@@ -56,8 +55,6 @@ def lpt(cosmo: Any,
         raise ValueError("order must be either 1 or 2.")
     if initial_field.status != FieldStatus.INITIAL_FIELD:
         raise ValueError("initial_field must have status FieldStatus.INITIAL_FIELD.")
-
-    painting_kwargs = dict(painting_kwargs)
 
     if initial_particles is None:
         # positions in GRID_RELATIVE (0..1 over the box) or GRID_ABSOLUTE indices,
@@ -91,7 +88,7 @@ def lpt(cosmo: Any,
         # Width of bin i (centered at ri​):
         # Set snap info
         snapshot_r = r
-        density_plane_width = distances(r , initial_particles.max_comoving_radius)
+        density_plane_width = distances(r, initial_particles.max_comoving_radius)
     # Snapshot at near a and far a for each shell
     elif scale_factor_spec.ndim == 2:
         a_near, a_far = scale_factor_spec[:, 0], scale_factor_spec[:, 1]
@@ -148,9 +145,15 @@ def lpt(cosmo: Any,
     )
 
     if snapshot_r is not None:
-        if geometry == "flat":
+        target = painting.target if painting is not None else "particles"
 
-            dx_field = dx_field.paint_2d(center=snapshot_r, density_plane_width=density_plane_width, **painting_kwargs)
+        if target == "flat":
+            dx_field = dx_field.paint_2d(
+                center=snapshot_r,
+                density_plane_width=density_plane_width,
+                weights=painting.weights,
+                batch_size=painting.batch_size,
+            )
             a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)
             z_snapshot = jc.utils.a2z(a_snapshot)
             dx_field = dx_field.replace(
@@ -158,11 +161,21 @@ def lpt(cosmo: Any,
                 z_sources=z_snapshot,
             )
             dx_field = dx_field[::-1]
-        elif geometry == "spherical":
-
-            dx_field = dx_field.paint_spherical(center=snapshot_r,
-                                                density_plane_width=density_plane_width,
-                                                **painting_kwargs)
+        elif target == "spherical":
+            dx_field = dx_field.paint_spherical(
+                center=snapshot_r,
+                density_plane_width=density_plane_width,
+                scheme=painting.scheme,
+                weights=painting.weights,
+                kernel_width_arcmin=painting.kernel_width_arcmin,
+                smoothing_interpretation=painting.smoothing_interpretation,
+                paint_nside=painting.paint_nside,
+                ud_grade_power=painting.ud_grade_power,
+                ud_grade_order_in=painting.ud_grade_order_in,
+                ud_grade_order_out=painting.ud_grade_order_out,
+                ud_grade_pess=painting.ud_grade_pess,
+                batch_size=painting.batch_size,
+            )
             a_snapshot = jc.background.a_of_chi(cosmo, snapshot_r)
             z_snapshot = jc.utils.a2z(a_snapshot)
             dx_field = dx_field.replace(
@@ -170,16 +183,21 @@ def lpt(cosmo: Any,
                 z_sources=z_snapshot,
             )
             dx_field = dx_field[::-1]
-        elif geometry == "density":
-            dx_field = dx_field.paint()
-        elif geometry == "particles":
+        elif target == "density":
+            dx_field = dx_field.paint(
+                weights=painting.weights if painting else 1.0,
+                chunk_size=painting.chunk_size if painting else 2**24,
+                batch_size=painting.batch_size if painting else None,
+            )
+        elif target == "particles":
             pass
         else:
-            raise ValueError(f"Unknown geometry {geometry}.")
+            raise ValueError(f"Unknown painting target {target}.")
 
     else:
-        if geometry != "particles":
-            raise ValueError("geometry must be 'particles' when scale_factor_spec is a scalar or 3D array.")
+        target = painting.target if painting is not None else "particles"
+        if target != "particles":
+            raise ValueError("painting.target must be 'particles' when scale_factor_spec is a scalar or 3D array.")
 
     return dx_field, p_field
 
