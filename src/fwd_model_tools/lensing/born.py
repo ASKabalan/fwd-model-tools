@@ -3,8 +3,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax_cosmo as jc
 
-from fwd_model_tools._src.lensing import _born_flat, _born_spherical
-from fwd_model_tools.fields import FieldStatus, FlatKappaField, SphericalDensity, SphericalKappaField
+from .._src.lensing import _born_flat, _born_spherical
+from ..fields import FieldStatus, FlatKappaField, SphericalDensity, SphericalKappaField
 
 __all__ = ["born"]
 

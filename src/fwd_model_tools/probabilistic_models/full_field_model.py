@@ -6,9 +6,8 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 
-from fwd_model_tools.fields import DensityField
-from fwd_model_tools.sampling import DistributedNormal
-
+from ..fields import DensityField
+from ..sampling import DistributedNormal
 from .config import Configurations
 from .forward_model import Planck18, make_full_field_model
 

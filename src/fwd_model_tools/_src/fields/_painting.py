@@ -320,21 +320,6 @@ def _single_paint_spherical(
     # Observer position in Mpc
     observer_position_mpc = tuple(frac * length for frac, length in zip(observer_position, box_size))
 
-    def error_message(rmin, rmax, density_plane_width, max_comoving_radius):
-        if rmin < density_plane_width / 2 or rmax > max_comoving_radius - density_plane_width / 2:
-            return (f"Requested spherical shell (rmin={rmin}, rmax={rmax}) "
-                    f"lies outside the box limits [0, {max_comoving_radius}]. "
-                    "Adjust center to be between {density_plane_width / 2} and "
-                    f"{max_comoving_radius - density_plane_width / 2}.")
-
-    jax.debug.callback(
-        error_message,
-        rmin,
-        rmax,
-        density_plane_width if density_plane_width is not None else width,
-        max_comoving_radius,
-    )
-
     if sharding is not None:
         positions = jax.lax.with_sharding_constraint(positions, sharding)
 

@@ -1,8 +1,9 @@
 """Sampling utilities and distributed persistency helpers."""
 
+# Re-export from io module for backwards compatibility
+from ..io import load_sharded, save_sharded
 from .batched_sampling import batched_sampling, load_samples
 from .dist import DistributedNormal, PreconditionnedUniform
-from .persistency import load_sharded, save_sharded
 from .plot import plot_chain, plot_ic, plot_posterior
 
 __all__ = [

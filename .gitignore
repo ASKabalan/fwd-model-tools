@@ -143,3 +143,6 @@ external
 *.pkl
 logs
 output*
+EXAMPLES/**
+scripts/**
+snippets/**

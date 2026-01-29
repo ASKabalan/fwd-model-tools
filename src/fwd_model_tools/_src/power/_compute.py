@@ -191,6 +191,49 @@ def _spherical_cl(map_sphere, map_sphere2=None, *, lmax=None, method="jax"):
     return ell_out, jnp.asarray(cl)
 
 
+def _cross_spherical_cl(maps, *, lmax=None, method="healpy"):
+    """
+    Compute all cross-angular power spectra for batched HEALPix maps.
+
+    For B maps, computes K = B*(B+1)/2 cross-spectra in upper triangular order.
+
+    Parameters
+    ----------
+    maps : array_like
+        Batched HEALPix maps with shape (B, npix)
+    lmax : int, optional
+        Maximum multipole moment. Defaults to 3*nside-1.
+    method : str, default="healpy"
+        Must be "healpy". JAX method not supported for cross-spectra.
+
+    Returns
+    -------
+    ell : jnp.ndarray
+        Array of multipole moments
+    cls : jnp.ndarray
+        Cross-spectra with shape (K, n_ell) where K = B*(B+1)/2
+        Ordering: (0,0), (0,1), ..., (0,B-1), (1,1), ..., (B-1,B-1)
+    """
+    if method != "healpy":
+        raise ValueError(f"cross_angular_cl_spherical only supports method='healpy', got method='{method}'. "
+                         "JAX method is not implemented for cross-spectra computation.")
+
+    if not jax.core.is_concrete(maps):
+        raise ValueError("method='healpy' requires concrete (non-traced) arrays")
+
+    # Convert to numpy for healpy
+    maps_np = np.asarray(maps)
+
+    # healpy.anafast with multiple maps returns all cross-spectra in upper triangular order
+    # Shape: (K, n_ell) where K = B*(B+1)/2
+    cls = hp.anafast(maps_np, lmax=lmax, pol=False)
+
+    # Generate ell array
+    ell_out = np.arange(cls.shape[-1])
+
+    return jnp.asarray(ell_out), jnp.asarray(cls)
+
+
 def _transfer(mesh0, mesh1, *, box_shape, kedges=None):
     """Monopole transfer function sqrt(P1/P0)."""
     k, pk0 = _power(mesh0, None, box_shape=box_shape, kedges=kedges, multipoles=0)
