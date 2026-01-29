@@ -4,7 +4,19 @@ import jax.numpy as jnp
 from jaxpm.distributed import uniform_particles
 from jaxtyping import Array
 
-from fwd_model_tools._src.base._enums import ConvergenceUnit, DensityUnit, PhysicalUnit, PositionUnit
+from .._src.base._enums import ConvergenceUnit, DensityUnit, PhysicalUnit, PositionUnit
+
+__all__ = [
+    # Density units exports
+    "DENSITY",
+    "OVERDENSITY",
+    "COUNTS",
+    "MSUN_H_PER_MPC3",
+    # Position units exports
+    "MPC_H",
+    "GRID_ABSOLUTE",
+    "GRID_RELATIVE",
+]
 
 
 def convert_units(
@@ -184,6 +196,8 @@ def _convert_density(
     """
     if volume_element is None:
         raise ValueError("volume_element is required for density unit conversions")
+
+    volume_element = jnp.expand_dims(volume_element, axis=tuple(range(volume_element.ndim, array.ndim)))
     # Compute mass per particle if needed for MSUN conversions
     mass_per_particle = None
     if origin == DensityUnit.MSUN_H_PER_MPC3 or destination == DensityUnit.MSUN_H_PER_MPC3:
@@ -225,9 +239,11 @@ def _convert_density(
         return density * volume_element
 
     elif destination == DensityUnit.OVERDENSITY:
-        rho_mean = jnp.mean(density)
+        if mean_density is None:
+            # If not provided, compute mean from the density field
+            mean_density = jnp.mean(density)
         eps = jnp.finfo(density.dtype).eps
-        safe_mean = jnp.where(rho_mean == 0, eps, rho_mean)
+        safe_mean = jnp.where(mean_density == 0, eps, mean_density)
         return density / safe_mean - 1.0
 
     elif destination == DensityUnit.MSUN_H_PER_MPC3:
@@ -253,3 +269,14 @@ def _convert_convergence(
     """
     # Both are numerically identical
     return array
+
+
+# Density units exports
+DENSITY = DensityUnit.DENSITY
+OVERDENSITY = DensityUnit.OVERDENSITY
+COUNTS = DensityUnit.COUNTS
+MSUN_H_PER_MPC3 = DensityUnit.MSUN_H_PER_MPC3
+# Position units exports
+MPC_H = PositionUnit.MPC_H
+GRID_ABSOLUTE = PositionUnit.GRID_ABSOLUTE
+GRID_RELATIVE = PositionUnit.GRID_RELATIVE
