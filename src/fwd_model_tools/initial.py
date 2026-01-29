@@ -30,18 +30,18 @@ from .fields import DensityField, DensityUnit, FieldStatus
     ],
 )
 def gaussian_initial_conditions(
-    key: PRNGKeyArray,
-    mesh_size: Tuple[int, int, int],
-    box_size: Tuple[float, float, float],
-    *,
-    cosmo: Optional[jc.Cosmology] = None,
-    pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
-    observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-    flatsky_npix: Optional[Tuple[int, int]] = None,
-    nside: Optional[int] = None,
-    field_size: Optional[Tuple[int, int]] = None,
-    halo_size: int | Tuple[int, int] = (0 , 0),
-    sharding: Optional[Any] = None,
+        key: PRNGKeyArray,
+        mesh_size: Tuple[int, int, int],
+        box_size: Tuple[float, float, float],
+        *,
+        cosmo: Optional[jc.Cosmology] = None,
+        pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
+        observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
+        flatsky_npix: Optional[Tuple[int, int]] = None,
+        nside: Optional[int] = None,
+        field_size: Optional[Tuple[int, int]] = None,
+        halo_size: int | Tuple[int, int] = (0, 0),
+        sharding: Optional[Any] = None,
 ) -> DensityField:
     """
     Sample Gaussian initial conditions and package them as a Field PyTree.
