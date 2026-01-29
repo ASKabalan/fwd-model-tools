@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import numbers
-from typing import Callable, Union, Iterable
+from typing import Callable, Iterable, Union
 
 import jax.numpy as jnp
 import jax_cosmo as jc
 from jax.tree_util import register_pytree_node_class
 from jax_cosmo.redshift import redshift_distribution
 from jaxtyping import Array
+
 from .power_spec import PowerSpectrum
 
 __all__ = ["compute_theory_cl", "tophat_z"]
@@ -55,7 +56,7 @@ def _normalize_z_source(z_source: ZSourceType, ) -> list[jc.redshift.redshift_di
     if isinstance(z_source, Iterable):
         result = []
         for zs in z_source:
-            if isinstance(zs , Array):
+            if isinstance(zs, Array):
                 zs = float(zs)
             if isinstance(zs, numbers.Real):
                 result.append(jc.redshift.delta_nz(float(zs)))

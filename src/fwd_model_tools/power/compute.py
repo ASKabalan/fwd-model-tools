@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 import jax.numpy as jnp
 
-from fwd_model_tools._src.power import _coherence, _flat_cl, _power, _spherical_cl, _transfer
+from .._src.power import _coherence, _cross_spherical_cl, _flat_cl, _power, _spherical_cl, _transfer
 
 
 def power(
@@ -95,4 +95,15 @@ def angular_cl_spherical(
     return ell_out, spectra
 
 
-__all__ = ["power", "transfer", "coherence", "angular_cl_flat", "angular_cl_spherical"]
+def cross_angular_cl_spherical(
+    maps,
+    *,
+    lmax: int | None = None,
+    method: str = "healpy",
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Cross-spherical (HEALPix) angular Cl for all pairs. Returns (ell, spectra)."""
+    ell_out, spectra = _cross_spherical_cl(maps, lmax=lmax, method=method)
+    return ell_out, spectra
+
+
+__all__ = ["power", "transfer", "coherence", "angular_cl_flat", "angular_cl_spherical", "cross_angular_cl_spherical"]
