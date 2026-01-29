@@ -528,9 +528,28 @@ def plot_spherical_density(
     vmin=None,
     vmax=None,
     show_colorbar=True,
+    show_ticks=True,
     title="",
 ):
-    """Plot a single HEALPix spherical map using healpy.mollview."""
+    """Plot a single HEALPix spherical map using healpy.mollview.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    data : array-like
+        HEALPix map data.
+    cmap : str
+        Colormap name.
+    vmin, vmax : float, optional
+        Color range limits.
+    show_colorbar : bool
+        Whether to show colorbar.
+    show_ticks : bool
+        Whether to show graticule (coordinate grid lines) on the Mollweide projection.
+    title : str
+        Title for the plot.
+    """
     import healpy as hp
 
     def _sub_from_ax(ax_obj):
@@ -570,4 +589,9 @@ def plot_spherical_density(
     if delegate is None:
         raise RuntimeError("healpy.mollview did not return a Mollweide axes.")
     _attach_delegate(ax, delegate)
+
+    # Control graticule display
+    if not show_ticks:
+        hp.graticule(verbose=False, alpha=0)
+
     return ax
