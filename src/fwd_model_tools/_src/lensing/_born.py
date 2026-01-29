@@ -9,7 +9,7 @@ import jax_cosmo.constants as constants
 from jax.scipy.ndimage import map_coordinates
 from jax_cosmo.scipy.integrate import simps
 
-from fwd_model_tools.fields import FlatDensity, SphericalDensity
+from ...fields import FlatDensity, SphericalDensity
 
 __all__ = ["_born_core_impl", "_born_spherical", "_born_flat"]
 
