@@ -112,15 +112,15 @@ def _clip_to_start(tprev, tnext, t0):
 
 @require_diffrax
 def integrate(
-    terms: tuple[ODETerm, ...],
-    solver: AbstractSolver,
-    t0: float,
-    t1: float,
-    dt0: float,
-    y0: Any,
-    args: Any = None,
-    saveat: SaveAt = SaveAt(t1=True),
-    adjoint: str | AbstractAdjoint = "reverse",
+        terms: tuple[ODETerm, ...],
+        solver: AbstractSolver,
+        t0: float,
+        t1: float,
+        dt0: float,
+        y0: Any,
+        args: Any = None,
+        saveat: SaveAt = SaveAt(t1=True),
+        adjoint: str | AbstractAdjoint = "reverse",
 ) -> Any:
     """
     Unified ODE integration with adjoint selection.
@@ -183,14 +183,10 @@ def integrate(
     """
     if adjoint == "reverse":
         # Use custom reverse-mode VJP implementation
-        solution = reverse_adjoint_integrate(
-            terms, solver, t0=t0, t1=t1, dt0=dt0, y0=y0, saveat=saveat, args=args
-        )
+        solution = reverse_adjoint_integrate(terms, solver, t0=t0, t1=t1, dt0=dt0, y0=y0, saveat=saveat, args=args)
     else:
         # Assume it's a diffrax adjoint object, pass to diffeqsolve
-        sol = diffeqsolve(
-            terms, solver, t0, t1, dt0, y0, saveat=saveat, adjoint=adjoint, args=args
-        )
+        sol = diffeqsolve(terms, solver, t0, t1, dt0, y0, saveat=saveat, adjoint=adjoint, args=args)
         solution = sol.ys
     return solution
 

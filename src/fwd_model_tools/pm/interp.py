@@ -146,7 +146,7 @@ class NoInterp(AbstractInterp):
         y: tuple[ParticleField, ParticleField],
         cosmo,
     ) -> Any:
-        dx , p = y
+        dx, p = y
 
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
@@ -220,7 +220,7 @@ class OnionTiler(AbstractInterp):
         y: tuple[ParticleField, ParticleField],
         cosmo,
     ) -> Any:
-        dx , p = y
+        dx, p = y
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
 
@@ -402,7 +402,7 @@ class TelephotoInterp(AbstractInterp):
         y: tuple[ParticleField, ParticleField],
         cosmo,
     ) -> Any:
-        dx , p = y
+        dx, p = y
 
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]

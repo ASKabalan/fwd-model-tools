@@ -95,7 +95,7 @@ def integrate(displacements: ParticleField,
     # Initialize solver OUTSIDE the loop
     disp0, vel0 = displacements, velocities
     t1_init = t0 + dt0
-    disp, vel, state , ts = solver.init(disp0, vel0, t0, t1_init, dt0, ts,  cosmo)
+    disp, vel, state, ts = solver.init(disp0, vel0, t0, t1_init, dt0, ts, cosmo)
 
     # Bundle all differentiable args
     y0_cosmo_ts_solver = ((disp, vel, state), cosmo, ts, solver)
@@ -267,10 +267,14 @@ def _fwd_loop(y0_cosmo_ts_solver: Tuple[Tuple[ParticleField, ParticleField, NBod
 
     y_final = (disp_final, vel_final, state_final)
     return snapshots, y_final
+
+
+from typing import Any, Tuple
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import equinox as eqx
-from typing import Tuple, Any
+
 
 def _integrate_bwd(
     t0: float,
@@ -301,8 +305,8 @@ def _integrate_bwd(
     adj_ts_scalar = jnp.zeros_like(ts[0])
 
     def inner_backward_step(carry):
-        (disp, vel, state, diff_cosmo_, diff_solver_, adj_disp_, adj_vel_, adj_state_, 
-         adj_cosmo_, adj_solver_, t0_, tc) = carry
+        (disp, vel, state, diff_cosmo_, diff_solver_, adj_disp_, adj_vel_, adj_state_, adj_cosmo_, adj_solver_, t0_,
+         tc) = carry
 
         t_prev = tc - dt0
         t_prev = _clip_to_start(t_prev, tc, t0_)
@@ -320,26 +324,24 @@ def _integrate_bwd(
             solver_in = eqx.combine(diff_solver_in, nondiff_solver)
             cosmo_in = eqx.combine(diff_cosmo_in, nondiff_cosmo)
             # IMPORTANT: Use the nondiff part from the PREVIOUS state (reconstructed above)
-            state_in = eqx.combine(diff_state_in, nondiff_state_prev) 
+            state_in = eqx.combine(diff_state_in, nondiff_state_prev)
             disp_out, vel_out, state_out = solver_in.step(disp_in, vel_in, t_prev, tc, dt0, state_in, cosmo_in)
-            state_out , _ = eqx.partition(state_out, eqx.is_inexact_array_like)
+            state_out, _ = eqx.partition(state_out, eqx.is_inexact_array_like)
             return (disp_out, vel_out, state_out)
 
         _, f_vjp_step = jax.vjp(_to_vjp_step, disp_prev, vel_prev, diff_cosmo_, diff_solver_, diff_state_prev)
-        
+
         # Propagate adjoints backwards
         new_adj_disp, new_adj_vel, new_adj_cosmo_step, new_adj_solver_step, new_adj_state_step = f_vjp_step(
-            (adj_disp_, adj_vel_, adj_state_)
-        )
+            (adj_disp_, adj_vel_, adj_state_))
 
         # Accumulate parameter adjoints
         adj_cosmo_new = jax.tree.map(jnp.add, adj_cosmo_, new_adj_cosmo_step)
         adj_solver_new = jax.tree.map(jnp.add, adj_solver_, new_adj_solver_step)
 
         # FIX: Return new_adj_state_step, not adj_state_
-        return (disp_prev, vel_prev, state_prev, diff_cosmo_, diff_solver_, 
-                new_adj_disp, new_adj_vel, new_adj_state_step, 
-                adj_cosmo_new, adj_solver_new, t0_, t_prev)
+        return (disp_prev, vel_prev, state_prev, diff_cosmo_, diff_solver_, new_adj_disp, new_adj_vel,
+                new_adj_state_step, adj_cosmo_new, adj_solver_new, t0_, t_prev)
 
     def inner_backward_cond(carry):
         *_, t0_, tc = carry
@@ -375,7 +377,7 @@ def _integrate_bwd(
         t_prev = tc - dt0
         t_prev = _clip_to_start(t_prev, tc, t0_prev_snap)
         disp_prev, vel_prev, state_prev = solver_.reverse(disp, vel, t_prev, tc, dt0, state, cosmo_)
-        
+
         diff_state_prev, nondiff_state_prev = eqx.partition(state_prev, eqx.is_inexact_array_like)
 
         # VJP of the forward step (includes time gradient)
@@ -385,7 +387,7 @@ def _integrate_bwd(
             s_in = eqx.combine(diff_solver_in, nondiff_solver)
             c_in = eqx.combine(diff_cosmo_in, nondiff_cosmo)
             s_in_state_prev = eqx.combine(diff_state_in, nondiff_state_prev)
-            
+
             disp_out, vel_out, state_out = s_in.step(disp_in, vel_in, tp_local, tc_in, dt0, s_in_state_prev, c_in)
             diff_state_out = eqx.filter(state_out, eqx.is_inexact_array_like)
             return disp_out, vel_out, diff_state_out
@@ -406,12 +408,22 @@ def _integrate_bwd(
         adj_solver_final = jax.tree.map(jnp.add, adj_solver_sum, step_adj_solver)
 
         # Run inner backward loop
-        inner_carry = (disp_prev, vel_prev, state_prev, diff_cosmo_, diff_solver_, 
-                       step_adj_disp, step_adj_vel, step_adj_state, # Use step_adj_state as seed
-                       adj_cosmo_final, adj_solver_final, t0_prev_snap, t_prev)
+        inner_carry = (
+            disp_prev,
+            vel_prev,
+            state_prev,
+            diff_cosmo_,
+            diff_solver_,
+            step_adj_disp,
+            step_adj_vel,
+            step_adj_state,  # Use step_adj_state as seed
+            adj_cosmo_final,
+            adj_solver_final,
+            t0_prev_snap,
+            t_prev)
 
-        (disp_out, vel_out, state_out, _, _, adj_disp_out, adj_vel_out, adj_state_out, 
-         adj_cosmo_out, adj_solver_out, _, t_out) = jax.lax.while_loop(inner_backward_cond, inner_backward_step, inner_carry)
+        (disp_out, vel_out, state_out, _, _, adj_disp_out, adj_vel_out, adj_state_out, adj_cosmo_out, adj_solver_out, _,
+         t_out) = jax.lax.while_loop(inner_backward_cond, inner_backward_step, inner_carry)
 
         outer_carry = (disp_out, vel_out, state_out, diff_cosmo_, diff_solver_, adj_disp_out, adj_vel_out,
                        adj_state_out, adj_cosmo_out, adj_solver_out, step_adj_ts, t_out)
@@ -421,7 +433,7 @@ def _integrate_bwd(
     # Set up reverse scan
     t1_ = ts[-1]
     t_steps = jnp.concatenate((jnp.asarray([t0]), ts[:-1]))
-    
+
     init_carry = (disp_final, vel_final, state_final, diff_cosmo, diff_solver, adj_disp, adj_vel, adj_state, adj_cosmo,
                   adj_solver, adj_ts_scalar, t1_)
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from typing import Any
-from jaxpm.growth import E, Gf, dGfa, gp
-from jaxpm.growth import growth_factor as Gp
+
 import equinox as eqx
 import jax.numpy as jnp
-from jaxpm.growth import E
+from jaxpm.growth import E, Gf, dGfa, gp
+from jaxpm.growth import growth_factor as Gp
 from jaxpm.pm import pm_forces
 
 from ..fields import ParticleField, PositionUnit
@@ -115,7 +115,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
 
         # Physics: First Kick
         t0t1 = (t0 * t1)**0.5
-        ai , ac , af = t0 , t0 , t0t1
+        ai, ac, af = t0, t0, t0t1
 
         kick_factor = (Gf(cosmo, af) - Gf(cosmo, ai)) / dGfa(cosmo, ac)
 
@@ -128,9 +128,11 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         prefactor = 1.0 / (ac**2 * E(cosmo, ac))
         dvel = forces * (prefactor * kick_factor)
 
-        vel_new = ParticleField.FromDensityMetadata(array=velocities.array + dvel, field=velocities, scale_factors=jnp.atleast_1d(af))
+        vel_new = ParticleField.FromDensityMetadata(array=velocities.array + dvel,
+                                                    field=velocities,
+                                                    scale_factors=jnp.atleast_1d(af))
 
-        return displacement, vel_new, NBodyState(interp_state=interp_state) , ts
+        return displacement, vel_new, NBodyState(interp_state=interp_state), ts
 
     def step(
         self,
@@ -147,7 +149,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         # 1. Drift
         # ai = t0, ac = t0t1, af = t1
         t0t1 = (t0 * t1)**0.5
-        ai , ac , af = t0 , t0t1 , t1
+        ai, ac, af = t0, t0t1, t1
         drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
         prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
 
@@ -182,7 +184,9 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
         dvel = forces * (prefactor_kick * kick_factor)
 
-        v_new = ParticleField.FromDensityMetadata(array=v_boosted.array + dvel, field=v_boosted, scale_factors=jnp.atleast_1d(af))
+        v_new = ParticleField.FromDensityMetadata(array=v_boosted.array + dvel,
+                                                  field=v_boosted,
+                                                  scale_factors=jnp.atleast_1d(af))
 
         # 4. Advance Interp
         new_interp_state = self.interp_kernel.advance(state.interp_state)
@@ -218,11 +222,11 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
 class ReversibleDoubleKickDrift(AbstractNBodySolver):
     """
     Reversible symplectic KKD solver with PGD correction storage.
-    
+
     Structure:
     - Init: Kick (v0 -> v0.5) -> Boost (at x0) -> Drift (x0 -> x1)
     - Step: Kick (v0.5 -> v1.5) -> Boost (at x1) -> Drift (x1 -> x2)
-    
+
     Reversibility:
     - Reverse uses exact Un-Drift -> Un-Boost -> Un-Kick.
     - PGD is applied as a velocity boost before drift, calculated at the *current* position.
@@ -244,51 +248,45 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         """
         # Initialize sub-states
         interp_state = self.interp_kernel.init()
-        
+
         t0t1 = (t0 * t1)**0.5
 
         # 1. First Kick: v0 -> v0.5 (t0 -> t0t1)
         ai, ac, af = t0, t0, t0t1
-        
-        forces = pm_forces(
-            displacement.array,
-            mesh_shape=displacement.mesh_size,
-            paint_absolute_pos=(displacement.unit == PositionUnit.GRID_ABSOLUTE),
-            halo_size=displacement.halo_size,
-            sharding=displacement.sharding
-        ) * 1.5 * cosmo.Omega_m
+
+        forces = pm_forces(displacement.array,
+                           mesh_shape=displacement.mesh_size,
+                           paint_absolute_pos=(displacement.unit == PositionUnit.GRID_ABSOLUTE),
+                           halo_size=displacement.halo_size,
+                           sharding=displacement.sharding) * 1.5 * cosmo.Omega_m
 
         kick_factor = (Gf(cosmo, af) - Gf(cosmo, ai)) / dGfa(cosmo, ac)
         prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
-        
+
         dvel = forces * (prefactor_kick * kick_factor)
-        
+
         # v_half is v0.5
-        v_half = ParticleField.FromDensityMetadata(
-            array=velocities.array + dvel, 
-            field=velocities, 
-            scale_factors=jnp.atleast_1d(af)
-        )
+        v_half = ParticleField.FromDensityMetadata(array=velocities.array + dvel,
+                                                   field=velocities,
+                                                   scale_factors=jnp.atleast_1d(af))
 
         # 2. PGD Boost (at x0) + Drift (x0 -> x1)
         ai, ac, af = t0, t0t1, t1
-        
+
         drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
         prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
         full_drift_factor = prefactor_drift * drift_factor
-        
-        # Apply PGD Boost. 
+
+        # Apply PGD Boost.
         # Note: We use t0 for PGD time as it depends on x0
         x_curr, v_boosted = self.pgd_kernel.apply(t0, displacement, v_half, full_drift_factor=full_drift_factor)
-        
+
         dpos = v_boosted.array * full_drift_factor
-        
-        x_new = ParticleField.FromDensityMetadata(
-            array=x_curr.array + dpos,
-            field=displacement,
-            scale_factors=jnp.atleast_1d(af)
-        )
-        
+
+        x_new = ParticleField.FromDensityMetadata(array=x_curr.array + dpos,
+                                                  field=displacement,
+                                                  scale_factors=jnp.atleast_1d(af))
+
         # We return v_boosted so that 'velocities' in state carries the boost
         return x_new, v_boosted, NBodyState(interp_state=interp_state), ts - dt
 
@@ -311,13 +309,11 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         t1t2 = (t1 * t2)**0.5
 
         # 1. Forces at x1
-        forces = pm_forces(
-            displacement.array,
-            mesh_shape=displacement.mesh_size,
-            paint_absolute_pos=(displacement.unit == PositionUnit.GRID_ABSOLUTE),
-            halo_size=displacement.halo_size,
-            sharding=displacement.sharding
-        ) * 1.5 * cosmo.Omega_m
+        forces = pm_forces(displacement.array,
+                           mesh_shape=displacement.mesh_size,
+                           paint_absolute_pos=(displacement.unit == PositionUnit.GRID_ABSOLUTE),
+                           halo_size=displacement.halo_size,
+                           sharding=displacement.sharding) * 1.5 * cosmo.Omega_m
 
         # 2. Double Kick: v(t0t1) -> v(t1t2)
         # Note: input `velocities` is v0.5_boosted.
@@ -325,37 +321,33 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         ac = t1
         ai_1, af_1 = t0t1, t1
         k1 = (Gf(cosmo, af_1) - Gf(cosmo, ai_1)) / dGfa(cosmo, ac)
-        
+
         ai_2, af_2 = t1, t1t2
         k2 = (Gf(cosmo, af_2) - Gf(cosmo, ai_2)) / dGfa(cosmo, ac)
-        
+
         kick_factor = k1 + k2
         prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
         dvel = forces * (prefactor_kick * kick_factor)
-        
-        v_new = ParticleField.FromDensityMetadata(
-            array=velocities.array + dvel, 
-            field=velocities, 
-            scale_factors=jnp.atleast_1d(t1t2)
-        )
+
+        v_new = ParticleField.FromDensityMetadata(array=velocities.array + dvel,
+                                                  field=velocities,
+                                                  scale_factors=jnp.atleast_1d(t1t2))
 
         # 3. PGD Boost (at x1) + Drift (x1 -> x2)
         ai, ac, af = t1, t1t2, t2
         drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
         prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
         full_drift_factor = prefactor_drift * drift_factor
-        
+
         # Apply PGD Boost at t1 (current time/pos)
         x_curr, v_boosted = self.pgd_kernel.apply(t1, displacement, v_new, full_drift_factor=full_drift_factor)
 
         dpos = v_boosted.array * full_drift_factor
-                
-        x_new = ParticleField.FromDensityMetadata(
-            array=x_curr.array + dpos ,
-            field=displacement,
-            scale_factors=jnp.atleast_1d(af)
-        )
-        
+
+        x_new = ParticleField.FromDensityMetadata(array=x_curr.array + dpos,
+                                                  field=displacement,
+                                                  scale_factors=jnp.atleast_1d(af))
+
         # 4. Advance Interp
         new_interp_state = self.interp_kernel.advance(state.interp_state)
         new_state = NBodyState(interp_state=new_interp_state)
@@ -390,61 +382,52 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         t0t1 = (t0 * t1)**0.5
         t2 = t1 + dt
         t1t2 = (t1 * t2)**0.5
-        
+
         # 1. Un-Drift (x2 -> x1) using v1.5_boosted
         ai, ac, af = t1, t1t2, t2
         drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
         prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
         full_drift_factor = prefactor_drift * drift_factor
-        
+
         dpos = velocities.array * full_drift_factor
-        
+
         # displacement here is x2
-        x_old = ParticleField.FromDensityMetadata(
-            array=displacement.array - dpos,
-            field=displacement,
-            scale_factors=jnp.atleast_1d(t1)
-        )
-        
+        x_old = ParticleField.FromDensityMetadata(array=displacement.array - dpos,
+                                                  field=displacement,
+                                                  scale_factors=jnp.atleast_1d(t1))
+
         # 2. Un-Boost (at x1)
         # Recompute boost at recovered x1
-        vel_zero = ParticleField.FromDensityMetadata(
-            array=jnp.zeros_like(velocities.array),
-            field=velocities,
-            unit=velocities.unit
-        )
+        vel_zero = ParticleField.FromDensityMetadata(array=jnp.zeros_like(velocities.array),
+                                                     field=velocities,
+                                                     unit=velocities.unit)
         # Note: pgd.apply returns (x, v_boosted). We need just the velocity boost part.
         x_uncorrected, v_uncorrected = self.pgd_kernel.rewind(t1, x_old, vel_zero, full_drift_factor=drift_factor)
-        
-        
+
         # 3. Un-Kick (v1.5 -> v0.5)
         # Recompute forces at recovered position x1
-        forces = pm_forces(
-            x_uncorrected.array,
-            mesh_shape=x_uncorrected.mesh_size,
-            paint_absolute_pos=(x_uncorrected.unit == PositionUnit.GRID_ABSOLUTE),
-            halo_size=x_uncorrected.halo_size,
-            sharding=x_uncorrected.sharding
-        ) * 1.5 * cosmo.Omega_m
-        
+        forces = pm_forces(x_uncorrected.array,
+                           mesh_shape=x_uncorrected.mesh_size,
+                           paint_absolute_pos=(x_uncorrected.unit == PositionUnit.GRID_ABSOLUTE),
+                           halo_size=x_uncorrected.halo_size,
+                           sharding=x_uncorrected.sharding) * 1.5 * cosmo.Omega_m
+
         ac = t1
         ai_1, af_1 = t0t1, t1
         k1 = (Gf(cosmo, af_1) - Gf(cosmo, ai_1)) / dGfa(cosmo, ac)
         ai_2, af_2 = t1, t1t2
         k2 = (Gf(cosmo, af_2) - Gf(cosmo, ai_2)) / dGfa(cosmo, ac)
-        
+
         kick_factor = k1 + k2
         prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
         dvel = forces * (prefactor_kick * kick_factor)
-        
-        v_old = ParticleField.FromDensityMetadata(
-            array=v_uncorrected.array - dvel,
-            field=velocities,
-            scale_factors=jnp.atleast_1d(t0t1)
-        )
-        
+
+        v_old = ParticleField.FromDensityMetadata(array=v_uncorrected.array - dvel,
+                                                  field=velocities,
+                                                  scale_factors=jnp.atleast_1d(t0t1))
+
         # 4. Rewind Interp State
         prev_interp_state = self.interp_kernel.rewind(state.interp_state)
         prev_state = NBodyState(interp_state=prev_interp_state)
-        
+
         return x_old, v_old, prev_state
