@@ -13,9 +13,9 @@ from jaxpm.growth import E, Gf, dGfa
 from jaxpm.growth import growth_factor as Gp
 from jaxpm.pm import pm_forces
 
-from ..fields import ParticleField, PositionUnit
+from ...fields import ParticleField, PositionUnit
 
-__all__ = ["symplectic_ode", "symplectic_fpm_ode"]
+__all__ = ["single_ode", "symplectic_fpm"]
 
 
 def single_ode(cosmo, reference_field: ParticleField):
@@ -54,131 +54,29 @@ def single_ode(cosmo, reference_field: ParticleField):
 
     return nbody_ode
 
-
-def symplectic_ode(cosmo, reference_field: ParticleField):
+def symplectic_fpm(
+    cosmo,
+    reference_field: ParticleField,
+    dt0: float,
+    use_growth: bool = False,
+):
     """
-    Create drift and kick functions for standard symplectic N-body integration.
-
-    This function returns drift and kick operators that work with ParticleField objects.
-    The symplectic integrator maintains the Hamiltonian structure of the N-body system.
-
-    Parameters
-    ----------
-    reference_field : ParticleField
-        Reference field containing all metadata (mesh_size, box_size, sharding,
-        halo_size, etc.) needed for the integration.
-    paint_mode : str, optional
-        Painting mode for force computation: "relative" for displacements or
-        "absolute" for absolute positions. Default is "relative".
-
-    Returns
-    -------
-    drift : callable
-        Drift operator: (a, vel, args) -> dpos
-        Updates particle positions based on velocities.
-    kick : callable
-        Kick operator: (a, pos, args) -> dvel
-        Updates particle velocities based on gravitational forces.
-
-    Notes
-    -----
-    Both drift and kick functions accept and return ParticleField objects,
-    automatically preserving all metadata (sharding, observer_position, etc.).
-
-    The integrator uses the standard leapfrog scheme without growth factor corrections.
-
-    Examples
-    --------
-    >>> drift, kick = symplectic_ode(dx_field, paint_mode="relative")
-    >>> # Use with a symplectic integrator
-    >>> dpos = drift(a=0.5, vel=velocity_field, args=cosmo)
-    >>> dvel = kick(a=0.5, pos=position_field, args=cosmo)
-    """
-    # Extract metadata from reference field
-    mesh_shape = reference_field.mesh_size
-    paint_absolute_pos = reference_field.unit == PositionUnit.GRID_ABSOLUTE
-    halo_size = reference_field.halo_size
-    sharding = reference_field.sharding
-
-    def drift(a, vel, args):
-        """
-        Drift operator: updates positions based on velocities.
-
-        Parameters
-        ----------
-        a : float
-            Scale factor.
-        vel : ParticleField
-            Velocity field.
-        args : cosmology object
-            Cosmology describing the background expansion.
-
-        Returns
-        -------
-        ParticleField
-            Position update (displacement).
-        """
-        # Computes the update of position (drift)
-        dpos = 1 / (a**3 * E(cosmo, a)) * vel
-        return dpos.replace(scale_factors=a)
-
-    def kick(a, pos, args):
-        """
-        Kick operator: updates velocities based on gravitational forces.
-
-        Parameters
-        ----------
-        a : float
-            Scale factor.
-        pos : ParticleField
-            Position field.
-        args : cosmology object
-            Cosmology describing the background expansion.
-
-        Returns
-        -------
-        ParticleField
-            Velocity update (acceleration).
-        """
-        # Compute forces using JaxPM (pass raw array)
-        forces_array = (pm_forces(
-            pos.array,
-            mesh_shape=mesh_shape,
-            paint_absolute_pos=paint_absolute_pos,
-            halo_size=halo_size,
-            sharding=sharding,
-        ) * 1.5 * cosmo.Omega_m)
-
-        # Computes the update of velocity (kick)
-        dvel = 1.0 / (a**2 * E(cosmo, a)) * forces_array
-        # Wrap back into ParticleField
-        dvel = ParticleField.FromDensityMetadata(
-            array=dvel,
-            field=pos,
-            scale_factors=a,
-        )
-        return dvel
-
-    return drift, kick
-
-
-def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_growth: bool = False):
-    """
-    Create drift, kick, and first_kick functions for FastPM-style symplectic integration.
+    Create drift, pgd, kick, and first_kick functions for FastPM-style symplectic integration.
 
     This function returns operators for FastPM integration with optional growth factor
-    corrections. All operators work with ParticleField objects.
+    corrections and PGD correction. All operators work with ParticleField objects.
 
     Parameters
     ----------
+    cosmo : jax_cosmo.Cosmology
+        Cosmology for background expansion.
     reference_field : ParticleField
         Reference field containing all metadata (mesh_size, box_size, sharding,
         halo_size, etc.) needed for the integration.
     dt0 : float
         Base time step size in scale factor units.
-    paint_mode : str, optional
-        Painting mode for force computation: "relative" for displacements or
-        "absolute" for absolute positions. Default is "relative".
+    pgd_kernel : AbstractCorrection
+        Correction kernel. If NoCorrection is used, returns zeros.
     use_growth : bool, optional
         Whether to use growth factor corrections (True) or simple scale factor
         evolution (False). Default is False.
@@ -187,6 +85,8 @@ def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_gr
     -------
     drift : callable
         Drift operator: (a, vel, args) -> dpos
+    pgd : callable
+        PGD correction operator: (a, pos, args) -> dpos_correction
     kick : callable
         Kick operator: (a, pos, args) -> dvel
     first_kick : callable
@@ -201,12 +101,17 @@ def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_gr
     When use_growth=True, the integrator uses linear growth factors Gf and Gp
     for more accurate evolution in the mildly non-linear regime.
 
+    The PGD correction is applied after drift and before kick, so forces are
+    computed at PGD-corrected positions.
+
     Examples
     --------
-    >>> drift, kick, first_kick = symplectic_fpm_ode(
+    >>> pgd_kernel = PGDKernel(alpha=1.0, kl=0.3, ks=1.0)
+    >>> drift, pgd, kick, first_kick = symplectic_ode_fpm(
+    ...     cosmo,
     ...     dx_field,
     ...     dt0=0.01,
-    ...     paint_mode="relative",
+    ...     pgd_kernel=pgd_kernel,
     ...     use_growth=True
     ... )
     >>> # Initialize with first kick
@@ -355,7 +260,10 @@ def symplectic_fpm_ode(cosmo, reference_field: ParticleField, dt0: float, use_gr
         dvel = 1.0 / (a**2 * E(cosmo, a)) * forces_array
 
         # First kick control factor
-        kick_factor = (Gf(cosmo, t0t1) - Gf(cosmo, t0)) / dGfa(cosmo, t0)
+        if use_growth:
+            kick_factor = (Gf(cosmo, t0t1) - Gf(cosmo, t0)) / dGfa(cosmo, t0)
+        else:
+            kick_factor = (t0t1 - t0) / t0
 
         # Wrap back into ParticleField
         return ParticleField.FromDensityMetadata(
