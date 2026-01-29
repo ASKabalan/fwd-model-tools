@@ -28,7 +28,7 @@ class PowerSpectrum(AbstractPytree):
     """
 
     # array is inherited from AbstractPytree (the power spectrum values)
-    wavenumber: jax.Array = eqx.field(static=True)
+    wavenumber: jax.Array
     name: Optional[str] = eqx.field(static=True, default=None)
     scale_factors: Optional[Any] = None
 
