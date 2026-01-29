@@ -266,7 +266,7 @@ class SharpeningKernel(AbstractCorrection):
             3. Return (pos_unchanged, vel + v_pgd)
         """
         v_pgd = self._compute_boost(pos, vel, full_drift_factor)
-        
+
         # Boost velocity (position unchanged)
         vel_boosted = vel + v_pgd
 
@@ -288,7 +288,7 @@ class SharpeningKernel(AbstractCorrection):
             3. Return (pos_unchanged, vel - v_pgd)
         """
         v_pgd = self._compute_boost(pos, vel, full_drift_factor)
-        
+
         # Un-Boost velocity
         vel_pure = vel - v_pgd
 

@@ -54,6 +54,7 @@ def single_ode(cosmo, reference_field: ParticleField):
 
     return nbody_ode
 
+
 def symplectic_fpm(
     cosmo,
     reference_field: ParticleField,

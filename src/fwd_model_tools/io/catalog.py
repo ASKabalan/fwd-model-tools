@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, ParamSpec, TypeVar
 
@@ -15,7 +16,7 @@ import numpy as np
 from .._src.base._core import AbstractField
 from .._src.base._enums import DensityUnit, FieldStatus, PositionUnit
 from ..fields import DensityField, FlatDensity, ParticleField, SphericalDensity
-import dataclasses
+
 try:
     import datasets
 except ImportError:
@@ -202,7 +203,7 @@ def _dict_to_catalog(item: dict) -> "Catalog":
     else:
         unit = DensityUnit[item["unit"]]
 
-    def _to_static_tuple(v ,_type):
+    def _to_static_tuple(v, _type):
         return tuple(_type(x) for x in v)
 
     field = field_cls(
