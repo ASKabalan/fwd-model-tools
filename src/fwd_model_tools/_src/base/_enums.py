@@ -16,23 +16,23 @@ class FieldStatus(str, Enum):
     GAMMA = auto()
 
 
-class PhysicalUnit(Enum):
+class PhysicalUnit(str, Enum):
     INVALID_UNIT = auto()
 
 
-class PositionUnit(Enum):
+class PositionUnit(str, Enum):
     GRID_RELATIVE = auto()
     GRID_ABSOLUTE = auto()
     MPC_H = auto()
 
 
-class DensityUnit(Enum):
+class DensityUnit(str, Enum):
     OVERDENSITY = auto()
     DENSITY = auto()
     COUNTS = auto()
     MSUN_H_PER_MPC3 = auto()
 
 
-class ConvergenceUnit(Enum):
+class ConvergenceUnit(str, Enum):
     DIMENSIONLESS = auto()
     EFFECTIVE_DENSITY = auto()

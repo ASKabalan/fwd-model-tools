@@ -13,6 +13,9 @@ __all__ = [
     "compute_box_size_from_redshift",
     "compute_max_redshift_from_box_size",
     "compute_lightcone_shells",
+    "distances",
+    "centers",
+    "compute_particle_scale_factors",
 ]
 
 
@@ -169,23 +172,24 @@ def compute_particle_scale_factors(
 ) -> jax.Array:
     assert isinstance(field, ParticleField), "field must be a ParticleField instance."
     distances = field.to(PositionUnit.MPC_H)
-    distances = field - jnp.array(field.observer_position_mpc)
+    distances = distances - jnp.array(field.observer_position_mpc)
     r = jnp.linalg.norm(distances.array, axis=-1)
-    a = jc.background.a_of_chi(cosmo, r.reshape(-1 , r.shape[-1])).reshape(r.shape)
+    a = jc.background.a_of_chi(cosmo, r.reshape(-1, r.shape[-1])).reshape(r.shape)
 
     return a
+
 
 @jax.jit
 def edges(centers, r_start=None):
     """
     Reconstructs all edges from centers.
-    
+
     Args:
         centers: Array of center points.
-        r_start: (Optional) The starting edge coordinate. 
-                 If None, assumes equal spacing between the first two points 
+        r_start: (Optional) The starting edge coordinate.
+                 If None, assumes equal spacing between the first two points
                  to derive the start.
-    
+
     Returns:
         Array of edges (length = len(centers) + 1)
     """
@@ -195,10 +199,11 @@ def edges(centers, r_start=None):
     # r[0] = c[0] - 0.5 * (c[1] - c[0])  =>  1.5 * c[0] - 0.5 * c[1]
     if r_start is None:
         r_start = 1.5 * centers[0] - 0.5 * centers[1]
-        
+
     def step_fn(r_prev, c):
         r_next = 2 * c - r_prev
-        return r_next, r_next # carry, output
+        return r_next, r_next  # carry, output
+
     _, edges_tail = jax.lax.scan(step_fn, r_start, centers)
     return jnp.concatenate([jnp.atleast_1d(r_start), edges_tail])
 
@@ -212,3 +217,12 @@ def distances(centers, r_start=None):
     r = edges(centers, r_start)
     return jnp.abs(r[1:] - r[:-1])
 
+
+@jax.jit
+def centers(distances, r_start):
+    """
+    Computes centers from edges.
+    Calls get_edges internally.
+    """
+    r_edges = jnp.concatenate([jnp.atleast_1d(r_start), r_start + jnp.cumsum(distances)])
+    return 0.5 * (r_edges[1:] + r_edges[:-1])
