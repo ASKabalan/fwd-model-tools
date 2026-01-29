@@ -13,7 +13,7 @@ from jaxtyping import Key, PyTree
 from numpyro.infer import HMC, MCMC, NUTS
 from numpyro.infer.util import initialize_model
 
-from .persistency import load_sharded, save_sharded
+from ..io import load_sharded, save_sharded
 
 
 def batched_sampling(

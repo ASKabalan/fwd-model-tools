@@ -7,6 +7,8 @@ interface for all field types in fwd_model_tools.
 
 from __future__ import annotations
 
+import dataclasses
+from abc import abstractmethod
 from collections.abc import Sequence
 from typing import Any, Optional
 
@@ -16,7 +18,6 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
 from typing_extensions import Self
-import dataclasses
 
 from ._enums import FieldStatus, PhysicalUnit
 
@@ -91,24 +92,26 @@ class AbstractPytree(eqx.Module):
     def __abs__(self):
         return self.replace(array=jnp.abs(self.array))
 
-    def __pow__(self, other):
-        return self.replace(array=self.array**other)
+    # DO NOT IMPLEMENT THIS
+    # IT BREAKS EQUINOX OMEGA
+    #def __pow__(self, other):
+    #    return self.replace(array=self.array**other)
 
     def min(self, *args, **kwargs) -> Self:
         """Shorthand for ``jnp.min(self.array, *args, **kwargs)``."""
-        return self.replace(array=jnp.min(self.array, *args, **kwargs))
+        return jnp.min(self.array, *args, **kwargs)
 
     def max(self, *args, **kwargs) -> Self:
         """Shorthand for ``jnp.max(self.array, *args, **kwargs)``."""
-        return self.replace(array=jnp.max(self.array, *args, **kwargs))
+        return jnp.max(self.array, *args, **kwargs)
 
     def mean(self, *args, **kwargs) -> Self:
         """Shorthand for ``jnp.mean(self.array, *args, **kwargs)``."""
-        return self.replace(array=jnp.mean(self.array, *args, **kwargs))
+        return jnp.mean(self.array, *args, **kwargs)
 
     def std(self, *args, **kwargs) -> Self:
         """Shorthand for ``jnp.std(self.array, *args, **kwargs)``."""
-        return self.replace(array=jnp.std(self.array, *args, **kwargs))
+        return jnp.std(self.array, *args, **kwargs)
 
     def transpose(self, *axes: int) -> Self:
         """Shorthand for ``jnp.transpose(self.array, *axes)``."""
@@ -139,13 +142,11 @@ class AbstractPytree(eqx.Module):
         """
         return self.replace(array=fn(self.array, *args, **kwargs))
 
-    def __array__(self):
-        raise ValueError(f"Please avoid applying jax.numpy function directly on the object of type {type(self).__class__}"
-                            "Instead use the apply_fn function :                                                           "
-                            "                               new_dens = dens.apply_fn(jnp.log1p)                            "
-                            "Or with arguments                                                                             "
-                            "                               new_dens = dens.apply_fn(jnp.power , 2)                        "
-                            )
+    def __array__(self, dtype=None) -> Array:
+        return np.asarray(self.array)
+
+    def __jax_array__(self, dtype=None) -> Array:
+        return jnp.asarray(self.array)
 
 
 class AbstractField(AbstractPytree):
@@ -290,6 +291,26 @@ class AbstractField(AbstractPytree):
             unit=unit if unit is not None else field.unit,
         )
 
+    @classmethod
+    @abstractmethod
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> Self:
+        """
+        Create a new field of the same class and metadata as `field`, filled with `fill_value`.
+
+        Parameters
+        ----------
+        field : AbstractField
+            Reference field supplying metadata.
+        fill_value : float, optional
+            Value to fill the new array with (default is 0.0).
+
+        Returns
+        -------
+        AbstractField subclass
+            New instance with the same metadata as `field` and an array filled with `fill_value`.
+        """
+        raise NotImplementedError("full_like must be implemented in subclasses.")
+
     def block_until_ready(self) -> Self:
         """
         Block until the underlying array is ready.
@@ -304,20 +325,19 @@ class AbstractField(AbstractPytree):
 
     def __repr__(self) -> str:
         classname = type(self).__name__
-        return (
-            f"{classname}("
-            f"array=Array{self.array.shape}, "
-            f"mesh_size={self.mesh_size}, "
-            f"box_size={self.box_size}, "
-            f"observer_position={self.observer_position}, "
-            f"sharding={self.sharding}, "
-            f"halo_size={self.halo_size}, "
-            f"nside={self.nside}, "
-            f"flatsky_npix={self.flatsky_npix}, "
-            f"field_size={self.field_size}, "
-            f"status={self.status.name}, "
-            f"unit={self.unit.name})"
-        )
+        return (f"{classname}("
+                f"array  = Array{self.array.shape}\n, "
+                f"dtype  = {self.array.dtype}, "
+                f"  mesh_size         ={self.mesh_size}, "
+                f"  box_size          ={self.box_size}, "
+                f"  observer_position ={self.observer_position}, "
+                f"  sharding          ={self.sharding}, "
+                f"  halo_size         ={self.halo_size}, "
+                f"  nside             ={self.nside}, "
+                f"  flatsky_npix      ={self.flatsky_npix}, "
+                f"  field_size        ={self.field_size}, "
+                f"  status            ={self.status.name}, "
+                f"  unit              ={self.unit.name})")
 
     def runtime_inspect(self) -> None:
         """
@@ -381,10 +401,10 @@ class AbstractField(AbstractPytree):
 
         # ---- Sharding info ----
         dbg.print("{} array sharding:", classname)
-        dbg.inspect_array_sharding(arr)
+        dbg.inspect_array_sharding(arr, callback=print)
 
     # ------------------------------------------------------------------ Factory
     def __getitem__(self, key) -> Self:
-        to_index, not_to_index = eqx.partition(self , lambda x : eqx.is_array(x) and x.ndim > 1)
+        to_index, not_to_index = eqx.partition(self, lambda x: eqx.is_array(x) and x.ndim >= 1)
         to_index = jax.tree.map(lambda x: x[key], to_index)
         return eqx.combine(to_index, not_to_index)

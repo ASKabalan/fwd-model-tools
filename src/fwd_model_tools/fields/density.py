@@ -13,6 +13,7 @@ from jaxtyping import Array
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import DensityUnit, FieldStatus, PhysicalUnit
+from .._src.base._tri_map import tri_map
 from .._src.fields._plotting import generate_titles, plot_3d_density, prepare_axes
 from ..power import PowerSpectrum, coherence
 from ..power import power as power_fn
@@ -144,7 +145,7 @@ class DensityField(AbstractField):
 
         return FlatDensity.FromDensityMetadata(
             array=projection,
-            density_field=projected_field,
+            field=projected_field,
             status=FieldStatus.PROJECTED_DENSITY,
         )
 
@@ -152,23 +153,23 @@ class DensityField(AbstractField):
         self,
         *,
         ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
-        project_slices: int = 10,
-        crop: tuple[slice, slice, slice] = (slice(None), slice(None), slice(None)),
-        labels: tuple[str, str, str] = ("X", "Y", "Z"),
-        ticks: tuple[Sequence[float], Sequence[float], Sequence[float]] = ([], [], []),
         cmap: str = "magma",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
+        colorbar: bool = True,
+        project_slices: int = 10,
+        crop: tuple[slice, slice, slice] = (slice(None), slice(None), slice(None)),
+        labels: tuple[str, str, str] = ("X", "Y", "Z"),
+        ticks: tuple[Sequence[float], Sequence[float], Sequence[float]] = ([], [], []),
         elev: float = 40,
         azim: float = -30,
         zoom: float = 0.8,
         edges: bool = True,
-        colorbar: bool = True,
         levels: int = 64,
-        **kwargs,
+        apply_log: bool = False,
     ):
         """Plot 3D density field as orthogonal slice visualization."""
 
@@ -192,7 +193,7 @@ class DensityField(AbstractField):
         for idx, ax_i in enumerate(axes[:n_plots]):
             plot_3d_density(
                 ax_i,
-                data[idx],
+                data[idx] if not apply_log else jnp.log10(data[idx] + 1),
                 project_slices=project_slices,
                 crop=crop,
                 labels=labels,
@@ -219,45 +220,45 @@ class DensityField(AbstractField):
         self,
         *,
         ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
-        crop: tuple[slice, slice, slice] = (slice(None), slice(None), slice(None)),
-        project_slices: int = 10,
-        labels: tuple[str, str, str] = ("X", "Y", "Z"),
-        ticks: tuple[Sequence[float], Sequence[float], Sequence[float]] = ([], [], []),
         cmap: str = "magma",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
+        colorbar: bool = True,
+        project_slices: int = 10,
+        crop: tuple[slice, slice, slice] = (slice(None), slice(None), slice(None)),
+        labels: tuple[str, str, str] = ("X", "Y", "Z"),
+        ticks: tuple[Sequence[float], Sequence[float], Sequence[float]] = ([], [], []),
         elev: float = 40,
         azim: float = -30,
         zoom: float = 0.8,
         edges: bool = True,
-        colorbar: bool = True,
         levels: int = 64,
-        **kwargs,
+        apply_log: bool = False,
     ) -> None:
         """Display 3D density using :meth:`plot`."""
 
         self.plot(
             ax=ax,
-            crop=crop,
-            project_slices=project_slices,
-            labels=labels,
-            ticks=ticks,
             cmap=cmap,
             figsize=figsize,
             ncols=ncols,
             titles=titles,
             vmin=vmin,
             vmax=vmax,
+            colorbar=colorbar,
+            project_slices=project_slices,
+            crop=crop,
+            labels=labels,
+            ticks=ticks,
             elev=elev,
             azim=azim,
             zoom=zoom,
             edges=edges,
-            colorbar=colorbar,
             levels=levels,
-            **kwargs,
+            apply_log=apply_log,
         )
         plt.show()
 
@@ -307,6 +308,88 @@ class DensityField(AbstractField):
         k, pk = jax.lax.map(_power_fn, (data1, data2), batch_size=batch_size)
         k, pk = k[0], pk.squeeze()
         return PowerSpectrum(wavenumber=k, array=pk, name="pk", scale_factors=self.scale_factors)
+
+    @partial(jax.jit, static_argnames=["multipoles", "los", "batch_size"])
+    def cross_power(
+            self,
+            *,
+            kedges: Optional[Array | jnp.ndarray] = None,
+            multipoles: Optional[Iterable[int]] = 0,
+            los: Array | Iterable[float] = (0.0, 0.0, 1.0),
+            batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute all cross-power spectra for batched density fields.
+
+        For a batched field with B maps, computes K = B*(B+1)/2 cross-spectra
+        corresponding to all unique pairs (i,j) where i <= j, in upper triangular order:
+        (0,0), (0,1), ..., (0,B-1), (1,1), (1,2), ..., (B-1,B-1)
+
+        Parameters
+        ----------
+        kedges : array_like, optional
+            Edges of k-bins for power spectrum estimation.
+        multipoles : int or iterable of int, default=0
+            Multipole moments to compute (0 for monopole only).
+        los : array_like, default=(0.0, 0.0, 1.0)
+            Line-of-sight direction for multipole decomposition.
+        batch_size : int, optional
+            Batch size for lax.map processing. None means no batching.
+
+        Returns
+        -------
+        PowerSpectrum
+            Power spectrum object with array shape (K,) or (K, n_multipoles) where K = B*(B+1)/2
+
+        Raises
+        ------
+        ValueError
+            If array is not 4D or has fewer than 2 maps in batch dimension.
+
+        Examples
+        --------
+        >>> # Create batched field with 4 density maps
+        >>> field = DensityField(array=jnp.ones((4, 64, 64, 64)), ...)
+        >>> cross_pk = field.cross_power()
+        >>> cross_pk.array.shape[0]  # K = 4*(4+1)/2 = 10
+        10
+        """
+        data = self.array
+
+        # Validate batched 4D input with at least 2 maps
+        if data.ndim != 4:
+            raise ValueError(f"cross_power requires batched array with shape (B, X, Y, Z), "
+                             f"got array with {data.ndim} dimensions. Use power() for single fields.")
+
+        n_maps = data.shape[0]
+        if n_maps < 2:
+            raise ValueError(f"cross_power requires at least 2 maps in batch dimension, got {n_maps}. "
+                             "Use power() for single fields.")
+
+        box_shape = tuple(self.box_size)
+        multipoles_static = tuple(multipoles) if isinstance(multipoles, (list, tuple)) else multipoles
+        los_tuple = None if multipoles_static == 0 else tuple(np.asarray(los, dtype=float))
+
+        def pair_fn(pair):
+            """Compute power spectrum for a single (i, j) pair."""
+            mesh_i, mesh_j = pair
+            k, pk = power_fn(
+                mesh_i,
+                mesh_j,
+                box_shape=box_shape,
+                kedges=kedges,
+                multipoles=multipoles_static,
+                los=los_tuple,
+            )
+            return k, pk
+
+        # Compute all upper triangular pairs using tri_map
+        results = tri_map(data, pair_fn, batch_size=batch_size)
+        k_stack, pk_stack = results
+
+        # Extract wavenumber from first result (all pairs share same k-bins)
+        wavenumber = k_stack[0]
+
+        return PowerSpectrum(wavenumber=wavenumber, array=pk_stack, name="cross_pk", scale_factors=self.scale_factors)
 
     @partial(jax.jit, static_argnames=["kedges", "batch_size"])
     def transfer(
@@ -379,3 +462,14 @@ class DensityField(AbstractField):
         wavenumber = k_stack[0]
         spectra = spectra_stack if self.array.ndim == 4 else spectra_stack[0]
         return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="coherence", scale_factors=self.scale_factors)
+
+    @classmethod
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> DensityField:
+        """
+        Create a new DensityField with the same metadata as `field`
+        and an array filled with `fill_value`.
+        """
+        return cls.FromDensityMetadata(
+            array=jnp.full(field.mesh_size, fill_value),
+            field=field,
+        )

@@ -11,11 +11,11 @@ import matplotlib.pyplot as plt
 from jax.image import resize
 from jaxtyping import Array
 
-from fwd_model_tools.power import PowerSpectrum, angular_cl_flat, angular_cl_spherical
-
 from .._src.base._core import AbstractField
 from .._src.base._enums import FieldStatus, PhysicalUnit
+from .._src.base._tri_map import tri_map
 from .._src.fields._plotting import generate_titles, plot_flat_density, plot_spherical_density, prepare_axes
+from ..power import PowerSpectrum, angular_cl_flat, angular_cl_spherical, cross_angular_cl_spherical
 from .units import DensityUnit, convert_units
 
 
@@ -37,8 +37,6 @@ class FlatDensity(AbstractField):
         # Validate required fields
         if self.flatsky_npix is None:
             raise ValueError("FlatDensity requires `flatsky_npix`.")
-        if self.density_width is None:
-            raise ValueError("FlatDensity requires `density_width`.")
         # Validate spatial shape matches flatsky_npix
         if spatial_shape != tuple(self.flatsky_npix):
             raise ValueError(f"Array spatial shape {spatial_shape} does not match flatsky_npix {self.flatsky_npix}.")
@@ -107,10 +105,11 @@ class FlatDensity(AbstractField):
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
-        show_colorbar: bool = True,
-        show_ticks: bool = True,
         vmin: float | None = None,
         vmax: float | None = None,
+        colorbar: bool = True,
+        show_ticks: bool = True,
+        apply_log: bool = False,
     ):
         """
         Visualize one or more flat-sky maps using matplotlib.
@@ -135,11 +134,11 @@ class FlatDensity(AbstractField):
             if idx < n_maps:
                 plot_flat_density(
                     ax_i,
-                    data[idx],
+                    data[idx] if not apply_log else jnp.log10(data[idx] + 1),
                     cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
-                    show_colorbar=show_colorbar,
+                    show_colorbar=colorbar,
                     show_ticks=show_ticks,
                     title=titles[idx] if titles and idx < len(titles) else None,
                 )
@@ -157,11 +156,11 @@ class FlatDensity(AbstractField):
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
-        show_colorbar: bool = True,
-        show_ticks: bool = True,
         vmin: float | None = None,
         vmax: float | None = None,
-        **kwargs,
+        colorbar: bool = True,
+        show_ticks: bool = True,
+        apply_log: bool = False,
     ) -> None:
         """Plot and display flat maps using matplotlib."""
         import matplotlib.pyplot as plt
@@ -172,11 +171,11 @@ class FlatDensity(AbstractField):
             figsize=figsize,
             ncols=ncols,
             titles=titles,
-            show_colorbar=show_colorbar,
-            show_ticks=show_ticks,
             vmin=vmin,
             vmax=vmax,
-            **kwargs,
+            colorbar=colorbar,
+            show_ticks=show_ticks,
+            apply_log=apply_log,
         )
         plt.show()
 
@@ -231,6 +230,203 @@ class FlatDensity(AbstractField):
         wavenumber = ell_stack[0]
         spectra = spectra_stack if self.array.ndim == 3 else spectra_stack[0]
         return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors)
+
+    def cross_angular_cl(
+        self,
+        *,
+        field_size: Optional[float] = None,
+        pixel_size: Optional[float] = None,
+        ell_edges: Iterable[float] | None = None,
+        batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute all cross-angular power spectra for batched flat-sky maps.
+
+        For a batched field with B maps, computes K = B*(B+1)/2 cross-spectra
+        corresponding to all unique pairs (i,j) where i <= j, in upper triangular order:
+        (0,0), (0,1), ..., (0,B-1), (1,1), (1,2), ..., (B-1,B-1)
+
+        Parameters
+        ----------
+        field_size : float, optional
+            Field size in degrees. Defaults to self.field_size.
+        pixel_size : float, optional
+            Pixel size for Fourier transforms.
+        ell_edges : array_like, optional
+            Edges of ell-bins for angular power spectrum.
+        batch_size : int, optional
+            Batch size for lax.map processing. None means no batching.
+
+        Returns
+        -------
+        PowerSpectrum
+            Angular power spectrum object with array shape (K,) where K = B*(B+1)/2
+
+        Raises
+        ------
+        ValueError
+            If array is not 3D or has fewer than 2 maps in batch dimension.
+
+        Examples
+        --------
+        >>> # Create batched flat-sky maps with 4 maps
+        >>> flat = FlatDensity(array=jnp.ones((4, 128, 128)), ...)
+        >>> cross_cl = flat.cross_angular_cl()
+        >>> cross_cl.array.shape[0]  # K = 4*(4+1)/2 = 10
+        10
+        """
+        data = self.array
+
+        # Validate batched 3D input with at least 2 maps
+        if data.ndim != 3:
+            raise ValueError(f"cross_angular_cl requires batched array with shape (B, ny, nx), "
+                             f"got array with {data.ndim} dimensions. Use angular_cl() for single maps.")
+
+        n_maps = data.shape[0]
+        if n_maps < 2:
+            raise ValueError(f"cross_angular_cl requires at least 2 maps in batch dimension, got {n_maps}. "
+                             "Use angular_cl() for single maps.")
+
+        effective_field_size = field_size or self.field_size
+
+        def pair_fn(pair):
+            """Compute angular Cl for a single (i, j) pair."""
+            map_i, map_j = pair
+            ell, cl = angular_cl_flat(
+                map_i,
+                map_j,
+                pixel_size=pixel_size,
+                field_size=effective_field_size,
+                ell_edges=ell_edges,
+            )
+            return ell, cl
+
+        # Compute all upper triangular pairs using tri_map
+        results = tri_map(data, pair_fn, batch_size=batch_size)
+        ell_stack, cl_stack = results
+
+        # Extract ell from first result (all pairs share same ell-bins)
+        wavenumber = ell_stack[0]
+
+        return PowerSpectrum(wavenumber=wavenumber, array=cl_stack, name="cross_cl", scale_factors=self.scale_factors)
+
+    def transfer(
+        self,
+        other: FlatDensity,
+        *,
+        field_size: Optional[float] = None,
+        pixel_size: Optional[float] = None,
+        ell_edges: Iterable[float] | None = None,
+        batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute angular transfer function sqrt(Cl_other / Cl_self).
+
+        Parameters
+        ----------
+        other : FlatDensity
+            The other flat-sky field to compare against.
+        field_size : float, optional
+            Field size in degrees. Defaults to self.field_size.
+        pixel_size : float, optional
+            Pixel size for Fourier transforms.
+        ell_edges : array_like, optional
+            Edges of ell-bins for angular power spectrum.
+        batch_size : int, optional
+            Batch size for lax.map processing.
+
+        Returns
+        -------
+        PowerSpectrum
+            Transfer function T(ell) = sqrt(Cl_other / Cl_self).
+        """
+        cl_self = self.angular_cl(
+            field_size=field_size,
+            pixel_size=pixel_size,
+            ell_edges=ell_edges,
+            batch_size=batch_size,
+        )
+        cl_other = other.angular_cl(
+            field_size=field_size,
+            pixel_size=pixel_size,
+            ell_edges=ell_edges,
+            batch_size=batch_size,
+        )
+        transfer_ratio = (cl_other.array / cl_self.array)**0.5
+        return PowerSpectrum(
+            wavenumber=cl_self.wavenumber,
+            array=transfer_ratio,
+            name="transfer",
+            scale_factors=self.scale_factors,
+        )
+
+    def coherence(
+        self,
+        other: FlatDensity,
+        *,
+        field_size: Optional[float] = None,
+        pixel_size: Optional[float] = None,
+        ell_edges: Iterable[float] | None = None,
+        batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute angular coherence Cl_cross / sqrt(Cl_self * Cl_other).
+
+        Parameters
+        ----------
+        other : FlatDensity
+            The other flat-sky field to compute coherence with.
+        field_size : float, optional
+            Field size in degrees. Defaults to self.field_size.
+        pixel_size : float, optional
+            Pixel size for Fourier transforms.
+        ell_edges : array_like, optional
+            Edges of ell-bins for angular power spectrum.
+        batch_size : int, optional
+            Batch size for lax.map processing.
+
+        Returns
+        -------
+        PowerSpectrum
+            Coherence r(ell) = Cl_cross / sqrt(Cl_self * Cl_other).
+        """
+        cl_self = self.angular_cl(
+            field_size=field_size,
+            pixel_size=pixel_size,
+            ell_edges=ell_edges,
+            batch_size=batch_size,
+        )
+        cl_other = other.angular_cl(
+            field_size=field_size,
+            pixel_size=pixel_size,
+            ell_edges=ell_edges,
+            batch_size=batch_size,
+        )
+        cl_cross = self.angular_cl(
+            other,
+            field_size=field_size,
+            pixel_size=pixel_size,
+            ell_edges=ell_edges,
+            batch_size=batch_size,
+        )
+        coherence_ratio = cl_cross.array / (cl_self.array * cl_other.array)**0.5
+        return PowerSpectrum(
+            wavenumber=cl_self.wavenumber,
+            array=coherence_ratio,
+            name="coherence",
+            scale_factors=self.scale_factors,
+        )
+
+    @classmethod
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> DensityField:
+        """
+        Create a new DensityField with the same metadata as `field`
+        and an array filled with `fill_value`.
+        """
+        if field.field_size is None:
+            raise ValueError("field_size metadata is required to create full_like FlatDensity.")
+
+        return cls.FromDensityMetadata(
+            array=jnp.full(field.field_size, fill_value),
+            field=field,
+        )
 
 
 class SphericalDensity(AbstractField):
@@ -322,9 +518,11 @@ class SphericalDensity(AbstractField):
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
-        show_colorbar: bool = True,
         vmin: float | None = None,
         vmax: float | None = None,
+        colorbar: bool = True,
+        show_ticks: bool = True,
+        apply_log: bool = False,
     ):
         """
         Visualize one or more spherical maps using ``healpy.mollview``.
@@ -352,17 +550,18 @@ class SphericalDensity(AbstractField):
                 title = titles[idx] if titles and idx < len(titles) else ""
                 plot_spherical_density(
                     ax_i,
-                    data[idx],
+                    data[idx] if not apply_log else jnp.log10(data[idx] + 1),
                     cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
-                    show_colorbar=show_colorbar,
+                    show_colorbar=colorbar,
+                    show_ticks=show_ticks,
                     title=title,
                 )
             else:
                 ax_i.axis("off")
 
-        return fig
+        return fig, axes
 
     def show(
         self,
@@ -372,9 +571,11 @@ class SphericalDensity(AbstractField):
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
         titles: Optional[Sequence[str]] = None,
-        apply_log: bool = True,
-        show_colorbar: bool = True,
-        **kwargs,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        colorbar: bool = True,
+        show_ticks: bool = True,
+        apply_log: bool = False,
     ) -> None:
         """
         Plot and display spherical maps using healpy.
@@ -390,8 +591,11 @@ class SphericalDensity(AbstractField):
             figsize=figsize,
             ncols=ncols,
             titles=titles,
-            show_colorbar=show_colorbar,
-            **kwargs,
+            vmin=vmin,
+            vmax=vmax,
+            colorbar=colorbar,
+            show_ticks=show_ticks,
+            apply_log=apply_log,
         )
         plt.show()
 
@@ -443,3 +647,177 @@ class SphericalDensity(AbstractField):
         wavenumber = ell_stack[0]
         spectra = spectra_stack if self.array.ndim == 2 else spectra_stack[0]
         return PowerSpectrum(wavenumber=wavenumber, array=spectra, name="cl", scale_factors=self.scale_factors)
+
+    def cross_angular_cl(
+        self,
+        *,
+        lmax: Optional[int] = None,
+        method: str = "healpy",
+        batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute all cross-angular power spectra for batched HEALPix maps.
+
+        For a batched field with B maps, computes K = B*(B+1)/2 cross-spectra
+        corresponding to all unique pairs (i,j) where i <= j, in upper triangular order:
+        (0,0), (0,1), ..., (0,B-1), (1,1), (1,2), ..., (B-1,B-1)
+
+        This method uses healpy's anafast function with pol=False, which efficiently
+        computes all cross-spectra in a single call.
+
+        Parameters
+        ----------
+        lmax : int, optional
+            Maximum multipole moment. Defaults to 3*nside-1.
+        method : str, default="healpy"
+            Must be "healpy". JAX method is not supported for cross-spectra.
+        batch_size : int, optional
+            Not used for healpy method. Included for API consistency.
+
+        Returns
+        -------
+        PowerSpectrum
+            Angular power spectrum object with array shape (K, n_ell) where K = B*(B+1)/2
+
+        Raises
+        ------
+        ValueError
+            If method is not "healpy", array is not 2D, or has fewer than 2 maps.
+
+        Examples
+        --------
+        >>> # Create batched HEALPix maps with 4 maps
+        >>> sphere = SphericalDensity(array=jnp.ones((4, 12*64**2)), nside=64, ...)
+        >>> cross_cl = sphere.cross_angular_cl()
+        >>> cross_cl.array.shape[0]  # K = 4*(4+1)/2 = 10
+        10
+
+        Notes
+        -----
+        Unlike FlatDensity.cross_angular_cl which uses tri_map, this implementation
+        relies on healpy.anafast which natively computes all cross-spectra when
+        given multiple maps. This is more efficient than computing pairs individually.
+        """
+        data = self.array
+
+        # Validate batched 2D input with at least 2 maps
+        if data.ndim != 2:
+            raise ValueError(f"cross_angular_cl requires batched array with shape (B, npix), "
+                             f"got array with {data.ndim} dimensions. Use angular_cl() for single maps.")
+
+        n_maps = data.shape[0]
+        if n_maps < 2:
+            raise ValueError(f"cross_angular_cl requires at least 2 maps in batch dimension, got {n_maps}. "
+                             "Use angular_cl() for single maps.")
+
+        # Call the power module function
+        ell, cls = cross_angular_cl_spherical(data, lmax=lmax, method=method)
+
+        return PowerSpectrum(wavenumber=ell, array=cls, name="cross_cl", scale_factors=self.scale_factors)
+
+    def transfer(
+        self,
+        other: SphericalDensity,
+        *,
+        lmax: Optional[int] = None,
+        method: str = "jax",
+        batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute angular transfer function sqrt(Cl_other / Cl_self).
+
+        Parameters
+        ----------
+        other : SphericalDensity
+            The other spherical field to compare against.
+        lmax : int, optional
+            Maximum multipole moment. Defaults to 3*nside-1.
+        method : str, default="jax"
+            Method for computing power spectrum ("jax" or "healpy").
+        batch_size : int, optional
+            Batch size for lax.map processing.
+
+        Returns
+        -------
+        PowerSpectrum
+            Transfer function T(ell) = sqrt(Cl_other / Cl_self).
+        """
+        cl_self = self.angular_cl(
+            lmax=lmax,
+            method=method,
+            batch_size=batch_size,
+        )
+        cl_other = other.angular_cl(
+            lmax=lmax,
+            method=method,
+            batch_size=batch_size,
+        )
+        transfer_ratio = (cl_other.array / cl_self.array)**0.5
+        return PowerSpectrum(
+            wavenumber=cl_self.wavenumber,
+            array=transfer_ratio,
+            name="transfer",
+            scale_factors=self.scale_factors,
+        )
+
+    def coherence(
+        self,
+        other: SphericalDensity,
+        *,
+        lmax: Optional[int] = None,
+        method: str = "jax",
+        batch_size: Optional[int] = None,
+    ) -> PowerSpectrum:
+        """Compute angular coherence Cl_cross / sqrt(Cl_self * Cl_other).
+
+        Parameters
+        ----------
+        other : SphericalDensity
+            The other spherical field to compute coherence with.
+        lmax : int, optional
+            Maximum multipole moment. Defaults to 3*nside-1.
+        method : str, default="jax"
+            Method for computing power spectrum ("jax" or "healpy").
+        batch_size : int, optional
+            Batch size for lax.map processing.
+
+        Returns
+        -------
+        PowerSpectrum
+            Coherence r(ell) = Cl_cross / sqrt(Cl_self * Cl_other).
+        """
+        cl_self = self.angular_cl(
+            lmax=lmax,
+            method=method,
+            batch_size=batch_size,
+        )
+        cl_other = other.angular_cl(
+            lmax=lmax,
+            method=method,
+            batch_size=batch_size,
+        )
+        cl_cross = self.angular_cl(
+            other,
+            lmax=lmax,
+            method=method,
+            batch_size=batch_size,
+        )
+        coherence_ratio = cl_cross.array / (cl_self.array * cl_other.array)**0.5
+        return PowerSpectrum(
+            wavenumber=cl_self.wavenumber,
+            array=coherence_ratio,
+            name="coherence",
+            scale_factors=self.scale_factors,
+        )
+
+    @classmethod
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> DensityField:
+        """
+        Create a new DensityField with the same metadata as `field`
+        and an array filled with `fill_value`.
+        """
+        if field.nside is None:
+            raise ValueError("nside metadata is required to create full_like SphericalDensity.")
+
+        return cls.FromDensityMetadata(
+            array=jnp.full((jhp.nside2npix(field.nside), ), fill_value),
+            field=field,
+        )

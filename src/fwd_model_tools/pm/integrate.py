@@ -1,64 +1,16 @@
 from functools import partial
-from typing import Any
+from typing import Any, Literal, Tuple
 
 import equinox as eqx
+import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
-from diffrax import AbstractSolver, ODETerm, SaveAt
 from jax._src.numpy.util import promote_dtypes_inexact
 
+from ..fields import ParticleField
+from .solvers import AbstractNBodySolver, NBodyState
 
-def handle_saveat(save_at: SaveAt, t0: float, t1: float) -> SaveAt:
-    """
-    Prepares a SaveAt configuration for ODE integration by ensuring that the snapshot times array (ts)
-    is a valid JAX array and conditionally includes the start (t0) and/or end (t1) times.
-
-    This function performs the following steps:
-      - Verifies that at least one of t0, t1, or ts is specified.
-      - Replaces a None value in ts with an empty JAX array to enable safe concatenation.
-      - Prepends t0 to ts if save_at.subs.t0 is True.
-      - Appends t1 to ts if save_at.subs.t1 is True.
-
-    Args:
-        save_at: A diffrax SaveAt instance with optional flags (subs.t0, subs.t1) and an optional ts array.
-        t0: The initial time of the integration interval.
-        t1: The final time of the integration interval.
-
-    Returns:
-        A modified SaveAt object where the ts attribute is a valid JAX array, potentially updated to include t0 and/or t1.
-    """
-    assert save_at.subs is not None, "You must set at least one of t0, t1, or ts."
-
-    def _where_subs_ts(s):
-        return s.subs.ts
-
-    # Replace `None` with an empty array to make concatenation valid
-    if save_at.subs.ts is None:
-        save_at = eqx.tree_at(_where_subs_ts, save_at, replace=jnp.array([]))
-
-    # If both t0 and t1 are True, prepend t0 and append t1
-    if save_at.subs.t0 and save_at.subs.t1:
-        save_at = eqx.tree_at(
-            _where_subs_ts,
-            save_at,
-            replace_fn=lambda x: jnp.concatenate((jnp.array([t0]), x, jnp.array([t1]))),
-        )
-    # If only t0 is True, prepend t0
-    elif save_at.subs.t0:
-        save_at = eqx.tree_at(
-            _where_subs_ts,
-            save_at,
-            replace_fn=lambda x: jnp.concatenate((jnp.array([t0]), x)),
-        )
-    # If only t1 is True, append t1
-    elif save_at.subs.t1:
-        save_at = eqx.tree_at(
-            _where_subs_ts,
-            save_at,
-            replace_fn=lambda x: jnp.concatenate((x, jnp.array([t1]))),
-        )
-
-    return save_at
+AdjointType = Literal['reverse', 'checkpointed']
 
 
 def _clip_to_end(tprev, tnext, t1):
@@ -99,405 +51,402 @@ def _clip_to_start(tprev, tnext, t0):
     return jnp.where(clip, t0, tprev)
 
 
-def integrate(
-        terms: tuple[ODETerm, ...],
-        solver: AbstractSolver,
-        t0: float,
-        t1: float,
-        dt0: float,
-        y0: Any,
-        args: Any | None = None,
-        saveat: SaveAt | None = SaveAt(t1=True),
-) -> Any:
+def integrate(displacements: ParticleField,
+              velocities: ParticleField,
+              cosmo: Any,
+              ts: jnp.ndarray,
+              solver: AbstractNBodySolver,
+              t0: float,
+              t1: float,
+              dt0: float,
+              adjoint: AdjointType = 'checkpointed') -> Any:
     """
-    Integrates an ODE system from time t0 to t1 using a specified solver, returning solution snapshots
-    at times defined by the saveat configuration.
+    Main integration entry point.
 
-    This function leverages diffrax's solver capabilities and processes the snapshot schedule provided by saveat.
-    It also promotes the snapshot times array to an inexact data type for compatibility.
+    Integrates an N-body system from t0 through snapshot times ts using the provided solver.
+    Supports two adjoint modes for gradient computation:
+      - 'checkpointed': Memory-efficient autodiff using equinox checkpointed scan
+      - 'reverse': Custom VJP with explicit backward pass using solver.reverse()
 
     Args:
-        terms: A tuple of ODETerm instances that describe the system dynamics.
-        solver: A diffrax.AbstractSolver instance specifying the integration method.
-        t0: The starting time for integration.
-        t1: The ending time for integration.
-        dt0: The step size for each integration increment.
-        y0: The initial state of the system (scalar, array, or PyTree).
-        args: Additional parameters for the ODE system (any PyTree).
-        saveat: A diffrax.SaveAt object specifying when and how to save solution snapshots.
-                Defaults to saving at the final time.
+        y0: Initial state tuple (displacement, velocities) as ParticleFields.
+        cosmo: Cosmology parameters.
+        ts: Array of snapshot times at which to save output.
+        solver: An AbstractNBodySolver instance.
+        t0: Initial time for integration.
+        t1: Final time for integration (used to initialize solver).
+        dt0: Step size for integration.
+        adjoint: Adjoint mode, either 'checkpointed' or 'reverse'.
 
     Returns:
-        The computed solution snapshots at the times specified by the saveat configuration.
+        Snapshots at each time in ts, as returned by solver.save_at().
+
+    Raises:
+        ValueError: If adjoint='reverse' is used with a non-reversible correction kernel.
     """
-    saveat = handle_saveat(saveat, t0, t1)
-    save_y = saveat.subs.fn
-    ts = saveat.subs.ts
+    # Validate reversibility compatibility
+    if adjoint == 'reverse':
+        if not solver.pgd_kernel.reversible:
+            raise ValueError(f"Cannot use adjoint='reverse' with {type(solver.pgd_kernel).__name__}. "
+                             f"Use SharpeningKernel for reversible integration, or use adjoint='checkpointed'.")
+
     (ts, ) = promote_dtypes_inexact(ts)
-    y0_args_ts = (y0, args, ts)
-    return integrate_impl(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
+
+    # Initialize solver OUTSIDE the loop
+    disp0, vel0 = displacements, velocities
+    t1_init = t0 + dt0
+    disp, vel, state, ts = solver.init(disp0, vel0, t0, t1_init, dt0, ts, cosmo)
+
+    # Bundle all differentiable args
+    y0_cosmo_ts_solver = ((disp, vel, state), cosmo, ts, solver)
+
+    if adjoint == 'checkpointed':
+        return _integrate_checkpointed(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0)
+    elif adjoint == 'reverse':
+        return _integrate_reverse_adjoint(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0)
+    else:
+        raise ValueError(f"Unknown adjoint type: {adjoint}")
 
 
-def _fwd_loop(
-    y0_args_ts: Any,
+def _integrate_checkpointed(
+    y0_cosmo_ts_solver: Tuple,
     *,
-    terms: tuple[ODETerm, ...],
-    solver: AbstractSolver,
     t0: float,
     t1: float,
     dt0: float,
-    save_y: Any,
 ) -> Any:
     """
-    Executes the forward integration loop for an ODE system and collects snapshots at specified times.
+    Simple forward pass with checkpointing for memory-efficient backprop.
+
+    Uses equinox's checkpointed scan to trade computation for memory during
+    automatic differentiation.
+
+    Args:
+        y0_cosmo_ts_solver: Bundled differentiable args (y0, cosmo, ts, solver).
+        t0: Initial time.
+        dt0: Step size.
+
+    Returns:
+        Snapshots at each time in ts.
+    """
+    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='checkpointed')
+    return snapshots
+
+
+@partial(jax.custom_vjp, nondiff_argnums=(1, 2, 3))
+def _integrate_reverse_adjoint(
+    y0_cosmo_ts_solver: Tuple,
+    t0: float,
+    t1: float,
+    dt0: float,
+) -> Any:
+    """
+    Integration with custom VJP using explicit backward pass.
+
+    The backward pass uses solver.reverse() to step backwards through time,
+    accumulating gradients. This requires the solver to implement reverse().
+
+    Args:
+        y0_cosmo_ts_solver: Bundled differentiable args (y0, cosmo, ts, solver).
+        t0: Initial time.
+        dt0: Step size.
+
+    Returns:
+        Snapshots at each time in ts.
+    """
+    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='lax')
+    return snapshots
+
+
+def _integrate_fwd(
+    y0_cosmo_ts_solver: Tuple,
+    t0: float,
+    t1: float,
+    dt0: float,
+) -> Tuple[Any, Tuple]:
+    """
+    Forward pass for the custom VJP.
+
+    Executes forward integration and saves residuals for the backward pass.
+
+    Args:
+        y0_cosmo_ts_solver: Bundled differentiable args.
+        t0: Initial time.
+        dt0: Step size.
+
+    Returns:
+        Tuple of (snapshots, residuals) where residuals contain state needed for backward.
+    """
+    snapshots, y_final = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='lax')
+    y0, cosmo, ts, solver = y0_cosmo_ts_solver
+    return snapshots, (y_final, cosmo, ts, solver)
+
+
+def _fwd_loop(y0_cosmo_ts_solver: Tuple[Tuple[ParticleField, ParticleField, NBodyState], Any, jnp.ndarray,
+                                        AbstractNBodySolver],
+              *,
+              t0: float,
+              t1: float,
+              dt0: float,
+              kind: str = 'lax') -> Tuple[Any, Tuple[ParticleField, ParticleField, NBodyState]]:
+    """
+    Forward integration loop for AbstractNBodySolver.
 
     The integration process is organized into two nested loops:
-      - The inner loop steps forward in uniform increments of dt0 until reaching the current snapshot time.
-      - The outer loop iterates over each snapshot time in ts, applying the snapshot function (save_y)
-        to record the system state.
+      - The inner loop steps forward in increments of dt0 until reaching the current snapshot time.
+      - The outer loop iterates over each snapshot time in ts, applying save_at to record the state.
 
     Args:
-        y0_args_ts: A tuple containing the initial state (y0), ODE parameters (args), and snapshot times (ts).
-        terms: A tuple of ODETerm instances defining the system dynamics.
-        solver: The solver instance responsible for performing each integration step.
+        y0_cosmo_ts_solver: A tuple containing:
+            - y0: (disp, vel, state) tuple after solver.init() has been called
+            - cosmo: Cosmology parameters (unused here, passed through for gradients)
+            - ts: Array of snapshot times
+            - solver: The AbstractNBodySolver instance
         t0: The starting time for integration.
-        t1: The final time for integration.
         dt0: The step size used for forward integration.
-        save_y: A user-defined function to process and record the state at snapshot times.
+        kind: Loop type ('lax' or 'checkpointed').
 
     Returns:
         A tuple containing:
-          - The collection of snapshots obtained via save_y.
-          - The final state achieved after integration.
+          - The collection of snapshots obtained via solver.save_at().
+          - The final state (disp, vel, state) after integration.
     """
-    y0, args, ts = y0_args_ts
-    if args is None:
-        args = ()
-    else:
-        args = jax.tree.map(jnp.asarray, args)
+    (disp, vel, state), cosmo, ts, solver = y0_cosmo_ts_solver
+    max_steps = int(jnp.ceil((t1 - t0) / dt0)) + 1
 
     def inner_forward_step(carry):
-        y, args_, tc, t1 = carry
-        t_next = tc + dt0
-        t_next = _clip_to_end(tc, t_next, t1)
-        # The solver call returns (y_next, solver_state, new_t, result, made_jump)
-        y_next, _, _, _, _ = solver.step(terms, tc, t_next, y, args_, solver_state=None, made_jump=False)
-        return (y_next, args_, t_next, t1)
+        """Single integration step."""
+        disp_, vel_, state_, t_curr, t_target = carry
+        t_next = t_curr + dt0
+        t_next = _clip_to_end(t_curr, t_next, t_target)
+        disp_next, vel_next, state_next = solver.step(disp_, vel_, t_curr, t_next, dt0, state_, cosmo)
+        return (disp_next, vel_next, state_next, t_next, t_target)
 
     def inner_forward_cond(carry):
-        # Continue the while_loop while the current time is less than the final time
-        _, _, tc, t1 = carry
-        return tc < t1
+        """Continue while t_curr < t_target."""
+        _, _, _, t_curr, t_target = carry
+        return t_curr < t_target
 
-    def outer_forward_step(outer_carry, t1):
+    def outer_forward_step(outer_carry, t_target):
         """
-        For each designated snapshot time, integrate from the current time up to that time,
-        then apply the snapshot function (save_y) to record the system state.
+        Integrate from the current time up to t_target, then save a snapshot.
 
         Args:
-            outer_carry: A tuple containing the current state, parameters, and time.
-            t1: The snapshot time at which to record the state.
+            outer_carry: (disp, vel, state, t_curr)
+            t_target: The snapshot time to integrate to.
 
         Returns:
-            A tuple where:
-              - The first element is the updated outer carry.
-              - The second element is the snapshot computed via save_y.
+            Updated outer carry and the snapshot.
         """
-        y, args_, t0 = outer_carry
-        inner_carry = (y, args_, t0, t1)
-        y, _, _, _ = jax.lax.while_loop(inner_forward_cond, inner_forward_step, inner_carry)
+        disp_, vel_, state_, t_curr = outer_carry
+        inner_carry = (disp_, vel_, state_, t_curr, t_target)
 
-        outer_carry = (y, args_, t1)
-        # Apply the user-defined function at this "snapshot" time
-        return outer_carry, save_y(t1, y, args_)
+        # Inner loop: step until reaching t_target
+        disp_, vel_, state_, _, _ = eqxi.while_loop(inner_forward_cond,
+                                                    inner_forward_step,
+                                                    inner_carry,
+                                                    max_steps=max_steps,
+                                                    kind=kind)
+
+        # Save snapshot at t_target
+        snapshot = solver.save_at(disp_, vel_, t_target, dt0, state_, cosmo)
+
+        outer_carry = (disp_, vel_, state_, t_target)
+        return outer_carry, snapshot
 
     # Initialize carry
-    init_carry = (y0, args, t0)
+    init_carry = (disp, vel, state, t0)
 
-    # The outer scan runs over each requested snapshot time
-    (y_final, _, _), ys_final = jax.lax.scan(outer_forward_step, init_carry, ts)
+    # Run outer scan over all snapshot times
+    (disp_final, vel_final, state_final,
+     _), snapshots = eqxi.scan(outer_forward_step,
+                               init_carry,
+                               ts,
+                               kind=kind,
+                               checkpoints=len(ts) if kind == 'checkpointed' else None)
 
-    # Return snapshots plus final state+args
-    return ys_final, y_final
+    y_final = (disp_final, vel_final, state_final)
+    return snapshots, y_final
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(1, 2, 3, 4, 5, 6))
-def integrate_impl(
-    y0_args_ts: Any,
-    terms: tuple[ODETerm, ...],
-    solver: AbstractSolver,
+from typing import Any, Tuple
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+
+
+def _integrate_bwd(
     t0: float,
     t1: float,
     dt0: float,
-    save_y: Any,
-) -> Any:
-    """
-    Core implementation of the ODE integration routine that wraps the forward integration loop
-    and supports custom vector-Jacobian product (VJP) rules for automatic differentiation.
-
-    Args:
-        y0_args_ts: A tuple containing the initial state, ODE parameters, and snapshot times.
-        terms: A tuple of ODETerm instances defining the system dynamics.
-        solver: The solver instance used to perform the integration.
-        t0: The starting time for integration.
-        t1: The final time for integration.
-        dt0: The integration step size.
-        save_y: A function to process and record the state at designated snapshot times.
-
-    Returns:
-        The collection of solution snapshots obtained from the forward integration loop.
-    """
-    ys_final, _ = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
-    return ys_final
-
-
-def integrate_fwd(
-    y0_args_ts: Any,
-    terms: tuple[ODETerm, ...],
-    solver: AbstractSolver,
-    t0: float,
-    t1: float,
-    dt0: float,
-    save_y: Any,
-) -> tuple[Any, tuple[Any, Any]]:
-    """
-    Forward pass for the custom VJP (vector-Jacobian product) of the integration process.
-
-    This function executes the forward integration loop, returning both the computed snapshots
-    and residuals required for the backward (adjoint) pass.
-
-    Args:
-        y0_args_ts: A tuple containing the initial state, parameters, and snapshot times.
-        terms: A tuple of ODETerm instances representing the system dynamics.
-        solver: The solver used to advance the integration.
-        t0: The initial time for integration.
-        t1: The final time for integration.
-        dt0: The step size used for the integration.
-        save_y: A function that records snapshots at specified times.
-
-    Returns:
-        A tuple containing:
-          - The snapshots from the forward integration.
-          - A residual tuple (final state, parameters, and snapshot times) for use in the backward pass.
-    """
-    ys_final, y_final = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
-    _, args, ts = y0_args_ts
-    return ys_final, (y_final, args, ts)
-
-
-def integrate_bwd(
-    terms: tuple[ODETerm, ...],
-    solver: AbstractSolver,
-    t0: float,
-    t1: float,
-    dt0: float,
-    save_y: Any,
-    residuals: tuple[Any, tuple[Any, Any]],
+    residuals: Tuple,
     cotangents: Any,
-) -> tuple[Any, Any]:
+) -> Tuple[Tuple]:
     """
-    Backward pass for the custom VJP of the integration routine, computing the adjoint sensitivities.
-
-    This function reverses the forward integration process to compute gradients with respect to the
-    initial state and parameters. It carefully accounts for the contributions of snapshots and
-    accumulates the adjoint values through a reverse scan.
-
-    Args:
-        terms: A tuple of ODETerm instances defining the system dynamics.
-        solver: The solver instance used for the integration.
-        t0: The initial time for integration.
-        t1: The final time for integration.
-        dt0: The step size used during integration.
-        save_y: A function that records the state at snapshot times.
-        residuals: A tuple containing the final state, parameters, and snapshot times from the forward pass.
-        cotangents: The gradient contributions (cotangents) corresponding to the forward pass snapshots.
-
-    Returns:
-        A tuple of gradients with respect to the initial state and parameters, formatted to match the custom VJP signature.
+    Backward pass for the custom VJP, computing adjoint sensitivities.
     """
-    y_final, args, ts = residuals
-    ys_ct = cotangents  # Gradient w.r.t. the forward pass snapshots
+    y_final, cosmo, ts, solver = residuals
+    ys_ct = cotangents
 
-    # Initialize adjoint for args and final y
-    args = jax.tree.map(jnp.asarray, args)
+    # Partition differentiable and non-differentiable parts
+    diff_cosmo, nondiff_cosmo = eqx.partition(cosmo, eqx.is_inexact_array_like)
+    diff_solver, nondiff_solver = eqx.partition(solver, eqx.is_inexact_array_like)
 
-    diff_args, nondiff_args = eqx.partition(args, eqx.is_inexact_array_like)
+    disp_final, vel_final, state_final = y_final
+    diff_state_final, nondiff_state_final = eqx.partition(state_final, eqx.is_inexact_array_like)
 
-    adj_y = jax.tree.map(lambda x: jnp.zeros_like(x), y_final)
-    adj_args = jax.tree.map(lambda x: jnp.zeros_like(x), diff_args)
-    adj_ts = jax.tree.map(lambda x: jnp.zeros_like(x), ts[0])
+    # Initialize zero adjoints
+    adj_disp = jax.tree.map(jnp.zeros_like, disp_final)
+    adj_vel = jax.tree.map(jnp.zeros_like, vel_final)
+    adj_state = jax.tree.map(jnp.zeros_like, diff_state_final)
+    adj_cosmo = jax.tree.map(jnp.zeros_like, diff_cosmo)
+    adj_solver = jax.tree.map(jnp.zeros_like, diff_solver)
+    adj_ts_scalar = jnp.zeros_like(ts[0])
 
     def inner_backward_step(carry):
-        """
-        Reverses a single forward integration step from time tc down to t_prev and updates adjoint values.
-
-        Args:
-            carry: A tuple containing the current state, differentiable parameters,
-                   current adjoints for state and parameters, the lower bound time t0_,
-                   and the current time tc.
-
-        Returns:
-            An updated carry tuple with the state and adjoints computed at the new time step.
-        """
-        y, diff_args, adj_y, adj_args, t0_, tc = carry
+        (disp, vel, state, diff_cosmo_, diff_solver_, adj_disp_, adj_vel_, adj_state_, adj_cosmo_, adj_solver_, t0_,
+         tc) = carry
 
         t_prev = tc - dt0
         t_prev = _clip_to_start(t_prev, tc, t0_)
-        # Reverse the forward step
-        y_prev = solver.reverse(terms, t_prev, tc, y, args, solver_state=None, made_jump=False)
 
-        # Differentiate with respect to the "forward step" to obtain partial derivatives.
-        def _to_vjp(y, diff_args):
-            args_ = eqx.combine(diff_args, nondiff_args)
-            y_next, _, _, _, _ = solver.step(terms, t_prev, tc, y, args_, solver_state=None, made_jump=False)
-            return y_next
+        # Reconstruct full objects for reverse
+        solver_ = eqx.combine(diff_solver_, nondiff_solver)
+        cosmo_ = eqx.combine(diff_cosmo_, nondiff_cosmo)
 
-        _, f_vjp = jax.vjp(_to_vjp, y_prev, diff_args)
-        adj_y, new_adj_args = f_vjp(adj_y)
+        # Reverse the forward step to get previous state
+        disp_prev, vel_prev, state_prev = solver_.reverse(disp, vel, t_prev, tc, dt0, state, cosmo_)
+        diff_state_prev, nondiff_state_prev = eqx.partition(state_prev, eqx.is_inexact_array_like)
 
-        # Accumulate these into the existing adjoints.
-        new_d_args = jax.tree.map(jnp.add, new_adj_args, adj_args)
+        # VJP for the step function
+        def _to_vjp_step(disp_in, vel_in, diff_cosmo_in, diff_solver_in, diff_state_in):
+            solver_in = eqx.combine(diff_solver_in, nondiff_solver)
+            cosmo_in = eqx.combine(diff_cosmo_in, nondiff_cosmo)
+            # IMPORTANT: Use the nondiff part from the PREVIOUS state (reconstructed above)
+            state_in = eqx.combine(diff_state_in, nondiff_state_prev)
+            disp_out, vel_out, state_out = solver_in.step(disp_in, vel_in, t_prev, tc, dt0, state_in, cosmo_in)
+            state_out, _ = eqx.partition(state_out, eqx.is_inexact_array_like)
+            return (disp_out, vel_out, state_out)
 
-        return (y_prev, diff_args, adj_y, new_d_args, t0_, t_prev)
+        _, f_vjp_step = jax.vjp(_to_vjp_step, disp_prev, vel_prev, diff_cosmo_, diff_solver_, diff_state_prev)
+
+        # Propagate adjoints backwards
+        new_adj_disp, new_adj_vel, new_adj_cosmo_step, new_adj_solver_step, new_adj_state_step = f_vjp_step(
+            (adj_disp_, adj_vel_, adj_state_))
+
+        # Accumulate parameter adjoints
+        adj_cosmo_new = jax.tree.map(jnp.add, adj_cosmo_, new_adj_cosmo_step)
+        adj_solver_new = jax.tree.map(jnp.add, adj_solver_, new_adj_solver_step)
+
+        # FIX: Return new_adj_state_step, not adj_state_
+        return (disp_prev, vel_prev, state_prev, diff_cosmo_, diff_solver_, new_adj_disp, new_adj_vel,
+                new_adj_state_step, adj_cosmo_new, adj_solver_new, t0_, t_prev)
 
     def inner_backward_cond(carry):
-        """
-        Determines whether to continue the backward integration loop by checking if the current time is above t0.
-
-        Args:
-            carry: A tuple containing the current state and time information.
-
-        Returns:
-            A boolean indicating if the backward loop should continue.
-        """
-        _, _, _, _, t0_, tc = carry
+        *_, t0_, tc = carry
         return tc > t0_
 
     def outer_backward_step(outer_carry, vals):
-        """
-        Processes each snapshot in reverse order, accumulating gradient contributions and stepping backward.
+        y_ct, t0_prev_snap = vals
+        (disp, vel, state, diff_cosmo_, diff_solver_, adj_disp_, adj_vel_, adj_state_, adj_cosmo_, adj_solver_,
+         adj_ts_scalar_, tc) = outer_carry
 
-        For each snapshot, this function adds the snapshot cotangent to the current adjoint,
-        performs a backward integration step, and differentiates the snapshot function to propagate gradients.
+        solver_ = eqx.combine(diff_solver_, nondiff_solver)
+        cosmo_ = eqx.combine(diff_cosmo_, nondiff_cosmo)
+        diff_state_, nondiff_state_ = eqx.partition(state, eqx.is_inexact_array_like)
 
-        Args:
-            outer_carry: A tuple containing the current state, differentiable parameters,
-                         current adjoints, snapshot adjoint, and current time.
-            vals: A tuple pairing the snapshot cotangent with its corresponding time value.
+        # VJP of the snapshot function
+        def _to_vjp_save(disp_in, vel_in, diff_state_in, diff_cosmo_in, diff_solver_in, tc_in):
+            s_in = eqx.combine(diff_solver_in, nondiff_solver)
+            c_in = eqx.combine(diff_cosmo_in, nondiff_cosmo)
+            s_in_state = eqx.combine(diff_state_in, nondiff_state_)
+            return s_in.save_at(disp_in, vel_in, tc_in, dt0, s_in_state, c_in)
 
-        Returns:
-            A tuple where:
-              - The first element is the updated outer carry.
-              - The second element is the computed gradient contribution for the snapshot.
-        """
-        y_ct, t0_ = vals
-        y, diff_args, adj_y, adj_args, adj_ts, tc = outer_carry
+        _, f_vjp_save = jax.vjp(_to_vjp_save, disp, vel, diff_state_, diff_cosmo_, diff_solver_, tc)
+        save_adj_disp, save_adj_vel, save_adj_state, save_adj_cosmo, save_adj_solver, adj_t_save = f_vjp_save(y_ct)
 
+        # ACCUMULATE: Add snapshot contributions to current adjoint carry
+        adj_disp_sum = jax.tree.map(jnp.add, adj_disp_, save_adj_disp)
+        adj_vel_sum = jax.tree.map(jnp.add, adj_vel_, save_adj_vel)
+        adj_state_sum = jax.tree.map(jnp.add, adj_state_, save_adj_state)
+        adj_cosmo_sum = jax.tree.map(jnp.add, adj_cosmo_, save_adj_cosmo)
+        adj_solver_sum = jax.tree.map(jnp.add, adj_solver_, save_adj_solver)
+
+        # Reverse to find the linearization point for the step VJP
         t_prev = tc - dt0
-        t_prev = _clip_to_start(t_prev, tc, t0_)
+        t_prev = _clip_to_start(t_prev, tc, t0_prev_snap)
+        disp_prev, vel_prev, state_prev = solver_.reverse(disp, vel, t_prev, tc, dt0, state, cosmo_)
 
-        # Reverse the forward step
-        y_prev = solver.reverse(terms, t_prev, tc, y, args, solver_state=None, made_jump=False)
+        diff_state_prev, nondiff_state_prev = eqx.partition(state_prev, eqx.is_inexact_array_like)
 
-        # Differentiate the "save function" at snapshot time tc:
-        def _to_vjp_snap(tc_, y_, diff_args_):
-            args_ = eqx.combine(diff_args_, nondiff_args)
-            return save_y(tc_, y_, args_)
+        # VJP of the forward step (includes time gradient)
+        def _to_vjp_step_full(disp_in, vel_in, diff_state_in, diff_cosmo_in, diff_solver_in, tc_in):
+            tp_local = tc_in - dt0
+            tp_local = _clip_to_start(tp_local, tc_in, t0_prev_snap)
+            s_in = eqx.combine(diff_solver_in, nondiff_solver)
+            c_in = eqx.combine(diff_cosmo_in, nondiff_cosmo)
+            s_in_state_prev = eqx.combine(diff_state_in, nondiff_state_prev)
 
-        def _to_vjp_step(tc_, y, diff_args):
-            t_prev = tc - dt0
-            t_prev = _clip_to_start(t_prev, tc, t0_)
-            args_ = eqx.combine(diff_args, nondiff_args)
-            y_next, _, _, _, _ = solver.step(terms, t_prev, tc_, y, args_, solver_state=None, made_jump=False)
-            return y_next
+            disp_out, vel_out, state_out = s_in.step(disp_in, vel_in, tp_local, tc_in, dt0, s_in_state_prev, c_in)
+            diff_state_out = eqx.filter(state_out, eqx.is_inexact_array_like)
+            return disp_out, vel_out, diff_state_out
 
-        # Compute the adjoints with respect to the snapshot function
-        _, f_vjp_snap = jax.vjp(_to_vjp_snap, tc, y, diff_args)
-        snap_adj_ts, new_adj_y, new_adj_args = f_vjp_snap(y_ct)
-        # Accumulate the adjoint for the snapshot time
-        adj_y = jax.tree.map(jnp.add, adj_y, new_adj_y)
-        adj_args = jax.tree.map(jnp.add, adj_args, new_adj_args)
+        _, f_vjp_step = jax.vjp(_to_vjp_step_full, disp_prev, vel_prev, diff_state_prev, diff_cosmo_, diff_solver_, tc)
 
-        # Compute the adjoints with respect to the forward step
-        _, f_vjp_step = jax.vjp(_to_vjp_step, tc, y_prev, diff_args)
-        step_adj_ts, adj_y, new_adj_args = f_vjp_step(adj_y)
-        # If we are at the initial time, set the gradient w.r.t. the time step to zero
+        # Pull the SUMMED adjoints through the step VJP
+        (step_adj_disp, step_adj_vel, step_adj_state, step_adj_cosmo, step_adj_solver, step_adj_ts) = f_vjp_step(
+            (adj_disp_sum, adj_vel_sum, adj_state_sum))
+
+        # Time gradient logic
         step_adj_ts = jnp.where(tc == t_prev, jnp.zeros_like(step_adj_ts), step_adj_ts)
-        # Accumulate the adjoint for the forward step
-        adj_args = jax.tree.map(jnp.add, adj_args, new_adj_args)
-        f_adj_ts = jax.tree.map(jnp.add, snap_adj_ts, step_adj_ts)
+        f_adj_ts = adj_t_save + step_adj_ts
+        adj_ts_out = f_adj_ts - adj_ts_scalar_
 
-        inner_carry = (y_prev, diff_args, adj_y, adj_args, t0_, t_prev)
-        y_prev, diff_args, adj_y, adj_args, tc, _ = jax.lax.while_loop(inner_backward_cond, inner_backward_step,
-                                                                       inner_carry)
+        # Update global param adjoints
+        adj_cosmo_final = jax.tree.map(jnp.add, adj_cosmo_sum, step_adj_cosmo)
+        adj_solver_final = jax.tree.map(jnp.add, adj_solver_sum, step_adj_solver)
 
-        # The gradient w.r.t. the snapshot time is the sum of adjoints at this time minus the adjoint at the previous step
-        adj_subs = jax.tree.map(jnp.subtract, f_adj_ts, adj_ts)
+        # Run inner backward loop
+        inner_carry = (
+            disp_prev,
+            vel_prev,
+            state_prev,
+            diff_cosmo_,
+            diff_solver_,
+            step_adj_disp,
+            step_adj_vel,
+            step_adj_state,  # Use step_adj_state as seed
+            adj_cosmo_final,
+            adj_solver_final,
+            t0_prev_snap,
+            t_prev)
 
-        outer_carry = (y_prev, diff_args, adj_y, adj_args, step_adj_ts, tc)
-        return outer_carry, adj_subs
+        (disp_out, vel_out, state_out, _, _, adj_disp_out, adj_vel_out, adj_state_out, adj_cosmo_out, adj_solver_out, _,
+         t_out) = jax.lax.while_loop(inner_backward_cond, inner_backward_step, inner_carry)
 
-    # Reverse through the snapshot times
+        outer_carry = (disp_out, vel_out, state_out, diff_cosmo_, diff_solver_, adj_disp_out, adj_vel_out,
+                       adj_state_out, adj_cosmo_out, adj_solver_out, step_adj_ts, t_out)
 
-    # Define t1 as the last snapshot if available
+        return outer_carry, adj_ts_out
+
+    # Set up reverse scan
     t1_ = ts[-1]
-
-    # Shift the array of snapshot times to incorporate the initial time
     t_steps = jnp.concatenate((jnp.asarray([t0]), ts[:-1]))
 
-    # Initial carry is the final state and final adjoint
-    init_carry = (y_final, diff_args, adj_y, adj_args, adj_ts, t1_)
+    init_carry = (disp_final, vel_final, state_final, diff_cosmo, diff_solver, adj_disp, adj_vel, adj_state, adj_cosmo,
+                  adj_solver, adj_ts_scalar, t1_)
 
-    # Pair the cotangents with the corresponding snapshot times
     vals = (ys_ct, t_steps)
-    # Perform the reverse scan over the snapshots
-    (_, _, adj_y, adj_args, _, _), adj_ts = jax.lax.scan(outer_backward_step, init_carry, vals, reverse=True)
-    zero_nondiff = jax.tree.map(jnp.zeros_like, nondiff_args)
-    adj_args = eqx.combine(adj_args, zero_nondiff)
 
-    # Return the adjoints for the initial state and parameters (others are placeholders).
-    return ((adj_y, adj_args, adj_ts), )
+    (_, _, _, _, _, adj_disp_final, adj_vel_final, adj_state_final, adj_cosmo_final, adj_solver_final, _,
+     _), adj_ts_contributions = jax.lax.scan(outer_backward_step, init_carry, vals, reverse=True)
+
+    adj_cosmo_full = eqx.combine(adj_cosmo_final, nondiff_cosmo)
+    adj_solver_full = eqx.combine(adj_solver_final, nondiff_solver)
+    adj_y0 = (adj_disp_final, adj_vel_final, adj_state_final)
+
+    return ((adj_y0, adj_cosmo_full, adj_ts_contributions, adj_solver_full), )
 
 
-integrate_impl.defvjp(integrate_fwd, integrate_bwd)
-
-
-def scan_integrate(
-    terms: tuple[ODETerm, ...],
-    solver: AbstractSolver,
-    t0: float,
-    t1: float,
-    dt0: float,
-    y0: Any,
-    args: Any,
-    saveat: SaveAt | None = None,
-) -> Any:
-    """
-    Integrates an ODE system using a scanning approach with uniform time steps and extracts snapshots
-    at specified times.
-
-    This "vanilla" integrator advances the solution from t0 to t1 in fixed increments of dt0,
-    storing the full state at each step. The final snapshots are then extracted at times defined by
-    the saveat configuration. This method is particularly useful for debugging or comparison with the
-    main integrator, though it may consume significant memory for fine-grained or long-duration integrations.
-
-    Args:
-        y0: The initial state of the system.
-        args: Parameters for the ODE system.
-        terms: A tuple of ODETerm instances defining the system's dynamics.
-        solver: The solver instance providing the .step method for integration.
-        t0: The initial time for integration.
-        t1: The final time for integration.
-        dt0: The fixed step size for the forward integration.
-        saveat: (Optional) A SaveAt object specifying the times at which to save snapshots.
-
-    Returns:
-        A PyTree containing the solution snapshots at the times specified in the saveat configuration.
-    """
-    saveat = handle_saveat(saveat, t0, t1)
-    save_y = saveat.subs.fn
-    ts = saveat.subs.ts
-    (ts, ) = promote_dtypes_inexact(ts)
-    y0_args_ts = (y0, args, ts)
-    ys_final, _ = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
-    return ys_final
+_integrate_reverse_adjoint.defvjp(_integrate_fwd, _integrate_bwd)
