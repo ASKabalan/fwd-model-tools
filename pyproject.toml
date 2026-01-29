@@ -10,7 +10,7 @@ authors = [
     { name = "Forward Model Tools Contributors" }
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["jax", "cosmology", "nbody", "sampling", "mcmc", "bayesian-inference"]
 classifiers = [
@@ -31,13 +31,13 @@ dependencies = [
     "blackjax",
     "numpyro",
     "jaxtyping",
-    "jaxpm",
+    "jaxpm@git+https://github.com/DifferentiableUniverseInitiative/JaxPM.git@41-spherical-lensing",
+    "jax_cosmo@git+https://github.com/ASKabalan/jax_cosmo@ALL-MODIF",
     "healpy",
+    "jax-healpy",
     "jax-cosmo",
-    "diffrax",
     "arviz",
     "getdist",
-    "rich",
     "orbax-checkpoint",
 ]
 
@@ -48,7 +48,20 @@ dev = [
     "ruff>=0.1.0",
     "pre-commit>=3.0",
 ]
-io = ["pyarrow>=14.0"]
+catalog = [
+    "datasets>=2.0",
+    "huggingface_hub>=0.20",
+]
+legacy = ["diffrax"]
+raytrace = ["dorian-raytrace@git+https://github.com/ASKabalan/Dorian.git@main"]
+
+examples = [
+    "matplotlib>=3.0",
+    "ipython",
+    "ipykernel",
+]
+
+all = ["fwd_model_tools[catalog, legacy, raytrace, examples]"]
 
 [project.urls]
 Homepage = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
@@ -59,6 +72,9 @@ Issues = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/is
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"fwd_model_tools.io" = ["data/*.txt"]
 
 [tool.ruff]
 line-length = 120
