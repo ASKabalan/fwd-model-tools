@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numbers
-from typing import Callable, Iterable, Union
+from collections.abc import Callable, Iterable
+from typing import Union
 
 import jax.numpy as jnp
 import jax_cosmo as jc
@@ -17,7 +18,7 @@ __all__ = ["compute_theory_cl", "tophat_z"]
 ZSourceType = Union[
     float,
     jc.redshift.redshift_distribution,
-    list[Union[float, jc.redshift.redshift_distribution]],
+    list[float | jc.redshift.redshift_distribution],
 ]
 
 

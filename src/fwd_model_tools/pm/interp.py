@@ -3,7 +3,6 @@ from __future__ import annotations
 import itertools
 import warnings
 from abc import abstractmethod
-from dataclasses import dataclass
 from typing import Any, Optional
 
 import equinox as eqx
@@ -11,23 +10,17 @@ import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
 import jax_healpy as jhp
-from jaxpm.growth import E, dGfa
+from jaxpm.growth import dGfa
 from jaxpm.growth import growth_factor as Gp
 
 from .._src.base._warn import warning_if
-from ..fields import (
-    AbstractField,
-    DensityField,
-    DensityUnit,
-    FieldStatus,
-    FlatDensity,
-    ParticleField,
-    PositionUnit,
-    SphericalDensity,
-)
+from ..fields import DensityUnit, FieldStatus, ParticleField, PositionUnit, SphericalDensity
 from ..fields.painting import PaintingOptions
 
-__all__ = ["InterpTilerState", "OnionTiler", "TelephotoInterp", "NoInterp", "get_all_47_symmetries", "AbstractInterp"]
+__all__ = [
+    "InterpTilerState", "OnionTiler", "TelephotoInterp", "NoInterp", "DriftInterp", "get_all_47_symmetries",
+    "AbstractInterp"
+]
 
 
 def get_all_47_symmetries() -> jnp.ndarray:
@@ -49,6 +42,7 @@ class InterpTilerState(eqx.Module):
     """
     Dynamic state for interpolation kernels.
     """
+
     rotation_idx: int = -1
     shell_idx: int = -1
     # Rotations are generated at init and stored here
@@ -60,6 +54,7 @@ class AbstractInterp(eqx.Module):
     Abstract base class for interpolation kernels (Executor).
     Holds configuration (Painting, Geometry).
     """
+
     painting: PaintingOptions
     ts: Optional[jnp.ndarray] = None
     r_centers: Optional[jnp.ndarray] = None
@@ -74,8 +69,12 @@ class AbstractInterp(eqx.Module):
         max_comoving_distance: float,
     ) -> AbstractInterp:
         """Update geometry configuration."""
-        return eqx.tree_at(lambda s: (s.ts, s.r_centers, s.density_widths, s.max_comoving_distance), self,
-                           (ts, r_centers, density_widths, max_comoving_distance))
+        return eqx.tree_at(
+            lambda s: (s.ts, s.r_centers, s.density_widths, s.max_comoving_distance),
+            self,
+            (ts, r_centers, density_widths, max_comoving_distance),
+            is_leaf=lambda x: x is None,
+        )
 
     @abstractmethod
     def init(self) -> InterpTilerState:
@@ -83,13 +82,13 @@ class AbstractInterp(eqx.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def advance(self, state: InterpTilerState) -> InterpTilerState:
-        """Advance the interpolation state to the next shell."""
+    def advance(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        """Advance the interpolation state to the next shell (only at snapshot times)."""
         raise NotImplementedError
 
     @abstractmethod
-    def rewind(self, state: InterpTilerState) -> InterpTilerState:
-        """Rewind the interpolation state to the previous shell (inverse of advance)."""
+    def rewind(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        """Rewind the interpolation state to the previous shell (only at snapshot times)."""
         raise NotImplementedError
 
     @abstractmethod
@@ -123,9 +122,22 @@ class NoInterp(AbstractInterp):
     def init(self) -> InterpTilerState:
         # Check geometry
         if self.r_centers is not None:
+            jax.debug.print("Furthest shell is {a} Mpc/h, box extends to {b} Mpc/h",
+                            a=self.r_centers,
+                            b=self.max_comoving_distance)
             furthest_shell = self.r_centers[0] + self.density_widths[0] / 2
-            # Warning logic here if needed, but warnings in JIT are tricky.
-            # Assuming update_geometry handles checks or we assume valid.
+            furthest_shell = warning_if(
+                furthest_shell,
+                furthest_shell > self.max_comoving_distance,
+                """
+                NoInterp does not support tiling.
+                Your furthest shell is at {:.2f} Mpc/h,
+                but your box only extends to {:.2f} Mpc/h.
+                Your simulations will run but will have artifacts for the far shells.
+            """,
+                furthest_shell,
+                self.max_comoving_distance,
+            )
 
         return InterpTilerState(
             rotation_idx=-1,
@@ -133,11 +145,15 @@ class NoInterp(AbstractInterp):
             rotations=None,
         )
 
-    def advance(self, state: InterpTilerState) -> InterpTilerState:
-        return eqx.tree_at(lambda s: s.shell_idx, state, state.shell_idx + 1)
+    def advance(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+        new_shell_idx = jnp.where(is_snapshot, state.shell_idx + 1, state.shell_idx)
+        return eqx.tree_at(lambda s: s.shell_idx, state, new_shell_idx)
 
-    def rewind(self, state: InterpTilerState) -> InterpTilerState:
-        return eqx.tree_at(lambda s: s.shell_idx, state, state.shell_idx - 1)
+    def rewind(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+        new_shell_idx = jnp.where(is_snapshot, state.shell_idx - 1, state.shell_idx)
+        return eqx.tree_at(lambda s: s.shell_idx, state, new_shell_idx)
 
     def paint(
         self,
@@ -150,7 +166,25 @@ class NoInterp(AbstractInterp):
 
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
+        jax.debug.print("Painting shell at comoving center {a} Mpc/h with width {b} Mpc/h and shell index is {c}",
+                        a=r_center,
+                        b=width,
+                        c=state.shell_idx)
 
+        # Check for drift
+        if self.painting.drift_on_lightcone and self.painting.target != "particles":
+            positions = dx.to(PositionUnit.MPC_H).array
+            velocities = p.array
+            observer_mpc = jnp.array(dx.observer_position_mpc)
+
+            dist_mpc = jnp.linalg.norm(positions - observer_mpc, axis=-1)
+            a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
+
+            p_drifted = self._drift_to_time(positions, velocities, t, a_target_particle, cosmo)
+            dx = dx.replace(array=p_drifted, unit=PositionUnit.MPC_H)
+
+        jax.debug.inspect_array_sharding(dx.array,
+                                         callback=lambda sharding: print("dx array sharding in NoInterp:", sharding))
         if self.painting is None or self.painting.target == "particles":
             result = dx
         elif self.painting.target == "spherical":
@@ -188,6 +222,112 @@ class NoInterp(AbstractInterp):
         return result
 
 
+class DriftInterp(AbstractInterp):
+    """
+    Painting without tiling, but drifting particles to the lightcone surface.
+    Useful when the simulation box is large enough to cover the lightcone
+    without replication, but we want to correct for the discrete time stepping
+    by drifting particles to their exact lightcone crossing time.
+    """
+
+    def init(self) -> InterpTilerState:
+        # Check geometry
+        if self.r_centers is not None:
+            furthest_shell = self.r_centers[0] + self.density_widths[0] / 2
+            furthest_shell = warning_if(
+                furthest_shell,
+                furthest_shell > self.max_comoving_distance,
+                """
+                DriftInterp does not support tiling.
+                Your furthest shell is at {:.2f} Mpc/h,
+                but your box only extends to {:.2f} Mpc/h.
+                Your simulations will run but will have artifacts for the far shells.
+            """,
+                furthest_shell,
+                self.max_comoving_distance,
+            )
+
+        return InterpTilerState(
+            rotation_idx=-1,
+            shell_idx=-1,
+            rotations=None,
+        )
+
+    def advance(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+        new_shell_idx = jnp.where(is_snapshot, state.shell_idx + 1, state.shell_idx)
+        return eqx.tree_at(lambda s: s.shell_idx, state, new_shell_idx)
+
+    def rewind(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+        new_shell_idx = jnp.where(is_snapshot, state.shell_idx - 1, state.shell_idx)
+        return eqx.tree_at(lambda s: s.shell_idx, state, new_shell_idx)
+
+    def paint(
+        self,
+        state: InterpTilerState,
+        t: float,
+        y: tuple[ParticleField, ParticleField],
+        cosmo,
+    ) -> Any:
+        dx, p = y
+
+        r_center = self.r_centers[state.shell_idx]
+        width = self.density_widths[state.shell_idx]
+
+        # Drift logic
+        observer_mpc = jnp.array(dx.observer_position_mpc)
+        positions = dx.to(PositionUnit.MPC_H).array
+        velocities = p.array
+
+        dist_mpc = jnp.linalg.norm(positions - observer_mpc, axis=-1)
+
+        # Calculate target scale factor for lightcone crossing
+        a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
+
+        # Drift
+        p_drifted = self._drift_to_time(positions, velocities, t, a_target_particle, cosmo)
+
+        # Update field with drifted positions
+        dx_drifted = dx.replace(array=p_drifted, unit=PositionUnit.MPC_H)
+
+        if self.painting.target == "particles":
+            result = dx_drifted
+        elif self.painting.target == "spherical":
+            result = dx_drifted.paint_spherical(
+                center=r_center,
+                density_plane_width=width,
+                scheme=self.painting.scheme,
+                weights=self.painting.weights,
+                kernel_width_arcmin=self.painting.kernel_width_arcmin,
+                smoothing_interpretation=self.painting.smoothing_interpretation,
+                paint_nside=self.painting.paint_nside,
+                ud_grade_power=self.painting.ud_grade_power,
+                ud_grade_order_in=self.painting.ud_grade_order_in,
+                ud_grade_order_out=self.painting.ud_grade_order_out,
+                ud_grade_pess=self.painting.ud_grade_pess,
+                batch_size=self.painting.batch_size,
+            )
+        elif self.painting.target == "flat":
+            result = dx_drifted.paint_2d(
+                center=r_center,
+                density_plane_width=width,
+                weights=self.painting.weights,
+                batch_size=self.painting.batch_size,
+            )
+        elif self.painting.target == "density":
+            result = dx_drifted.paint(
+                weights=self.painting.weights,
+                chunk_size=self.painting.chunk_size,
+                batch_size=self.painting.batch_size,
+            )
+        else:
+            result = dx_drifted
+
+        result = result.replace(scale_factors=t, comoving_centers=r_center, density_width=width)
+        return result
+
+
 class OnionTiler(AbstractInterp):
     """27-tile spherical painting with rotation decorrelation."""
 
@@ -207,11 +347,15 @@ class OnionTiler(AbstractInterp):
             rotations=selected_rotations,
         )
 
-    def advance(self, state: InterpTilerState) -> InterpTilerState:
-        return eqx.tree_at(lambda s: s.shell_idx, state, state.shell_idx + 1)
+    def advance(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+        new_shell_idx = jnp.where(is_snapshot, state.shell_idx + 1, state.shell_idx)
+        return eqx.tree_at(lambda s: s.shell_idx, state, new_shell_idx)
 
-    def rewind(self, state: InterpTilerState) -> InterpTilerState:
-        return eqx.tree_at(lambda s: s.shell_idx, state, state.shell_idx - 1)
+    def rewind(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+        new_shell_idx = jnp.where(is_snapshot, state.shell_idx - 1, state.shell_idx)
+        return eqx.tree_at(lambda s: s.shell_idx, state, new_shell_idx)
 
     def paint(
         self,
@@ -229,13 +373,15 @@ class OnionTiler(AbstractInterp):
 
         inside_box = (r_center + width / 2) <= self.max_comoving_distance
 
-        def inside_branch(current_state):
-            return self._paint_single(t, p, dx, cosmo, r_center, width, current_state)
+        def inside_branch(operand):
+            current_state, c = operand
+            return self._paint_single(t, p, dx, c, r_center, width, current_state)
 
-        def outside_branch(current_state):
-            return self._paint_tiled_27(t, p, dx, cosmo, r_center, R_min, R_max, current_state)
+        def outside_branch(operand):
+            current_state, c = operand
+            return self._paint_tiled_27(t, p, dx, c, r_center, R_min, R_max, current_state)
 
-        sph_map = jax.lax.cond(inside_box, inside_branch, outside_branch, state)
+        sph_map = jax.lax.cond(inside_box, inside_branch, outside_branch, (state, cosmo))
         sph_map = sph_map.replace(scale_factors=t, comoving_centers=r_center, density_width=width)
         return sph_map
 
@@ -249,6 +395,19 @@ class OnionTiler(AbstractInterp):
         width: float,
         state: InterpTilerState,
     ) -> SphericalDensity:
+        # Check for drift
+        if self.painting.drift_on_lightcone:
+            print("Drifting particles to lightcone crossing time for single-tile painting.")
+            positions = dx.to(PositionUnit.MPC_H).array
+            velocities = p.array
+            observer_mpc = jnp.array(dx.observer_position_mpc)
+
+            dist_mpc = jnp.linalg.norm(positions - observer_mpc, axis=-1)
+            a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
+
+            p_drifted = self._drift_to_time(positions, velocities, t, a_target_particle, cosmo)
+            dx = dx.replace(array=p_drifted, unit=PositionUnit.MPC_H)
+
         sph_map = dx.paint_spherical(
             center=R_center,
             density_plane_width=width,
@@ -263,11 +422,13 @@ class OnionTiler(AbstractInterp):
             ud_grade_pess=self.painting.ud_grade_pess,
             batch_size=self.painting.batch_size,
         )
-        return sph_map.replace(status=FieldStatus.LIGHTCONE,
-                               unit=DensityUnit.DENSITY,
-                               scale_factors=t,
-                               comoving_centers=R_center,
-                               density_width=width)
+        return sph_map.replace(
+            status=FieldStatus.LIGHTCONE,
+            unit=DensityUnit.DENSITY,
+            scale_factors=t,
+            comoving_centers=R_center,
+            density_width=width,
+        )
 
     def _paint_tiled_27(
         self,
@@ -288,12 +449,11 @@ class OnionTiler(AbstractInterp):
 
         positions = dx.to(PositionUnit.MPC_H).array
         positions_centered = positions - observer_mpc
-        velocities = p.array
 
         shifts = jnp.array(list(itertools.product([0, 1, -1], repeat=3)), dtype=jnp.int16)
         shifts = jnp.where(observer_relative == 0, shifts + 1, shifts)
         shifts = jnp.where(observer_relative == 1, shifts - 1, shifts)
-        shifts *= box_size
+        shifts = shifts * box_size
 
         rot_matrices = state.rotations
 
@@ -308,16 +468,19 @@ class OnionTiler(AbstractInterp):
             shift_idx, rot_mat = tile_data
             shift_vec = shift_idx.astype(jnp.float32)
 
-            p_rotated = jnp.einsum('ij,...j->...i', rot_mat, positions_centered)
+            p_rotated = jnp.einsum("ij,...j->...i", rot_mat, positions_centered)
             p_tiled = p_rotated + shift_vec
 
-            p_final = p_tiled
-            p_final = p_final + observer_mpc
-            p_final = ParticleField.FromDensityMetadata(
-                array=p_final,
-                field=dx,
-                unit=PositionUnit.MPC_H,
-            )
+            p_final_pos = p_tiled + observer_mpc
+
+            if self.painting.drift_on_lightcone:
+                velocities = p.array
+                v_rotated = jnp.einsum("ij,...j->...i", rot_mat, velocities)
+                dist_mpc = jnp.linalg.norm(p_final_pos - observer_mpc, axis=-1)
+                a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
+                p_final_pos = self._drift_to_time(p_final_pos, v_rotated, t, a_target_particle, cosmo)
+
+            p_final = dx.replace(array=p_final_pos, unit=PositionUnit.MPC_H)
 
             tile_map = p_final.paint_spherical(
                 center=r_center,
@@ -336,11 +499,13 @@ class OnionTiler(AbstractInterp):
             return accum_map + tile_map, None
 
         final_map, _ = jax.lax.scan(scan_body, init_map, (shifts, rot_matrices))
-        final_map = final_map.replace(status=FieldStatus.LIGHTCONE,
-                                      unit=DensityUnit.DENSITY,
-                                      scale_factors=t,
-                                      comoving_centers=r_center,
-                                      density_width=width)
+        final_map = final_map.replace(
+            status=FieldStatus.LIGHTCONE,
+            unit=DensityUnit.DENSITY,
+            scale_factors=t,
+            comoving_centers=r_center,
+            density_width=width,
+        )
         return final_map
 
 
@@ -366,32 +531,33 @@ class TelephotoInterp(AbstractInterp):
             rotations=get_all_47_symmetries(),
         )
 
-    def advance(self, state: InterpTilerState) -> InterpTilerState:
-        # 1. Update shell index to next
-        next_shell_idx = state.shell_idx + 1
+    def advance(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        jax.debug.print("Advancing from shell index {a} at time {b}", a=state.shell_idx, b=t)
+        jax.debug.print("is it snapshot time? {a}", a=jnp.isin(t, self.ts))
+        is_snapshot = jnp.isin(t, self.ts)
+        next_shell_idx = jnp.where(is_snapshot, state.shell_idx + 1, state.shell_idx)
 
-        # 2. Check geometry of this NEW shell
+        # Geometry check uses next_shell_idx (harmless when not snapshot — computed but discarded)
         r_center = self.r_centers[next_shell_idx]
         width = self.density_widths[next_shell_idx]
-        inside_box = (r_center + width / 2) <= self.max_comoving_distance
+        inside_box = (r_center) <= self.max_comoving_distance
 
-        # 3. Update rotation index
-        next_rot_idx = jnp.where(
-            inside_box,
-            state.rotation_idx,  # Keep current
-            state.rotation_idx + 1  # Increment
-        )
+        would_advance_rot = jnp.where(inside_box, state.rotation_idx, state.rotation_idx + 1)
+        next_rot_idx = jnp.where(is_snapshot, would_advance_rot, state.rotation_idx)
 
         return eqx.tree_at(lambda s: (s.shell_idx, s.rotation_idx), state, (next_shell_idx, next_rot_idx))
 
-    def rewind(self, state: InterpTilerState) -> InterpTilerState:
+    def rewind(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        is_snapshot = jnp.isin(t, self.ts)
+
         # Check if CURRENT shell is outside box (meaning we incremented rot_idx when entering)
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
         current_outside = (r_center + width / 2) > self.max_comoving_distance
 
-        prev_rot_idx = jnp.where(current_outside, state.rotation_idx - 1, state.rotation_idx)
-        prev_shell_idx = state.shell_idx - 1
+        would_rewind_rot = jnp.where(current_outside, state.rotation_idx - 1, state.rotation_idx)
+        prev_rot_idx = jnp.where(is_snapshot, would_rewind_rot, state.rotation_idx)
+        prev_shell_idx = jnp.where(is_snapshot, state.shell_idx - 1, state.shell_idx)
 
         return eqx.tree_at(lambda s: (s.shell_idx, s.rotation_idx), state, (prev_shell_idx, prev_rot_idx))
 
@@ -406,15 +572,26 @@ class TelephotoInterp(AbstractInterp):
 
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
-        inside_box = (r_center + width / 2) <= self.max_comoving_distance
+        inside_box = (r_center) <= self.max_comoving_distance
 
-        def inside_branch(current_state):
-            return self._paint_single(t, p, dx, cosmo, r_center, width, current_state)
+        jax.debug.print(
+            "Painting shell at comoving center {a} Mpc/h with width {b} Mpc/h and shell index is {c} with t {d}",
+            a=r_center,
+            b=width,
+            c=state.shell_idx,
+            d=t)
 
-        def outside_branch(current_state):
-            return self._paint_telephoto(t, p, dx, cosmo, r_center, width, current_state)
+        def inside_branch(operand):
+            current_state, c = operand
+            return self._paint_single(t, p, dx, c, r_center, width, current_state)
 
-        sph_map = jax.lax.cond(inside_box, inside_branch, outside_branch, state)
+        def outside_branch(operand):
+            current_state, c = operand
+            return self._paint_telephoto(t, p, dx, c, r_center, width, current_state)
+
+        # Clear jax_cosmo workspace before cond to prevent tracer leaks:
+        # traced values stored there escape the cond scope.
+        sph_map = jax.lax.cond(inside_box, inside_branch, outside_branch, (state, cosmo))
 
         sph_map = sph_map.replace(scale_factors=t, comoving_centers=r_center, density_width=width)
         return sph_map
@@ -425,13 +602,25 @@ class TelephotoInterp(AbstractInterp):
         p: ParticleField,
         dx: ParticleField,
         cosmo,
-        R_center: float,
+        r_center: float,
         width: float,
         state: InterpTilerState,
     ) -> SphericalDensity:
+        # Check for drift
+        if self.painting.drift_on_lightcone:
+            positions = dx.to(PositionUnit.MPC_H).array
+            velocities = p.array
+            observer_mpc = jnp.array(dx.observer_position_mpc)
+
+            dist_mpc = jnp.linalg.norm(positions - observer_mpc, axis=-1)
+            a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
+
+            p_drifted = self._drift_to_time(positions, velocities, t, a_target_particle, cosmo)
+            dx = dx.replace(array=p_drifted, unit=PositionUnit.MPC_H)
+
         if self.painting.target == "spherical":
             return dx.paint_spherical(
-                center=R_center,
+                center=r_center,
                 density_plane_width=width,
                 scheme=self.painting.scheme,
                 weights=self.painting.weights,
@@ -471,24 +660,22 @@ class TelephotoInterp(AbstractInterp):
 
         positions = dx.to(PositionUnit.MPC_H).array
         velocities = p.array
-        box_size = jnp.array(dx.box_size)
 
         p_centered = positions - observer_mpc
-        p_rotated = jnp.einsum('ij,...j->...i', M, p_centered)
-        z_axis = jnp.array([0., 0., 1.])
+        p_rotated = jnp.einsum("ij,...j->...i", M, p_centered)
+        z_axis = jnp.array([0.0, 0.0, 1.0])
         p_shifted = p_rotated + z_axis * shift_distance
-        v_rotated = jnp.einsum('ij,...j->...i', M, velocities)
+        v_rotated = jnp.einsum("ij,...j->...i", M, velocities)
 
-        a_current = t
-        dist_mpc = jnp.linalg.norm(p_shifted - observer_mpc, axis=-1)
-        a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
-        p_drifted = self._drift_to_time(p_shifted, v_rotated, a_current, a_target_particle, cosmo)
+        p_final_pos = p_shifted
 
-        dx_transformed = ParticleField.FromDensityMetadata(
-            array=p_drifted + observer_mpc,
-            field=dx,
-            unit=PositionUnit.MPC_H,
-        )
+        if self.painting.drift_on_lightcone:
+            a_current = t
+            dist_mpc = jnp.linalg.norm(p_shifted - observer_mpc, axis=-1)
+            a_target_particle = jc.background.a_of_chi(cosmo, dist_mpc)[..., None]
+            p_final_pos = self._drift_to_time(p_shifted, v_rotated, a_current, a_target_particle, cosmo)
+
+        dx_transformed = dx.replace(array=p_final_pos + observer_mpc, unit=PositionUnit.MPC_H)
 
         if self.painting.target == "spherical":
             return dx_transformed.paint_spherical(

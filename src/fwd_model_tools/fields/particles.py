@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import partial
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 import jax
 import jax.core
@@ -239,7 +239,10 @@ class ParticleField(AbstractField):
 
         self = self.to(PositionUnit.GRID_ABSOLUTE)  # ensure absolute for 2D painting
 
+        jax.debug.inspect_array_sharding(self.array, callback=lambda sharding: print("self.array sharding:", sharding))
         data = jnp.asarray(self.array)
+        jax.debug.inspect_array_sharding(self.array,
+                                         callback=lambda sharding: print("self.array sharding after cast:", sharding))
         center_arr = jnp.atleast_1d(center)
         width_arr = jnp.atleast_1d(density_plane_width)
         if width_arr.shape != center_arr.shape:
@@ -292,6 +295,7 @@ class ParticleField(AbstractField):
                 **kwargs,
             )
 
+        jax.debug.inspect_array_sharding(data, callback=lambda sharding: print("data sharding before map:", sharding))
         carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
         painted = jax.lax.map(paint_fn, carry, batch_size=batch_size)
@@ -303,8 +307,8 @@ class ParticleField(AbstractField):
             array=painted,
             field=self,
             status=FieldStatus.LIGHTCONE,
-            comoving_centers=center,
-            density_width=widths,
+            comoving_centers=jnp.atleast_1d(center),
+            density_width=jnp.atleast_1d(widths),
         )
         # Painting produced an actual density field in standard density units.
         return flat.replace(unit=DensityUnit.DENSITY)
@@ -422,8 +426,8 @@ class ParticleField(AbstractField):
             array=painted,
             field=self,
             status=FieldStatus.LIGHTCONE,
-            comoving_centers=center,
-            density_width=widths,
+            comoving_centers=jnp.atleast_1d(center),
+            density_width=jnp.atleast_1d(widths),
         )
         return sph.replace(unit=DensityUnit.DENSITY)
 
@@ -436,7 +440,7 @@ class ParticleField(AbstractField):
         cmap: str = "viridis",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         colorbar: bool = True,
@@ -514,6 +518,9 @@ class ParticleField(AbstractField):
         n_plots = data.shape[0]
         fig, axes = prepare_axes(ax, n_plots, ncols, projection="3d", figsize=figsize)
 
+        if isinstance(titles, str):
+            titles = [titles]
+
         if titles is None:
             titles = generate_titles("Particles", self.scale_factors, n_plots)
 
@@ -562,7 +569,7 @@ class ParticleField(AbstractField):
         cmap: str = "viridis",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         colorbar: bool = True,

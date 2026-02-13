@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from functools import partial
-from typing import Any, Optional
+from typing import Optional
 
 import jax
 import jax.core
@@ -12,7 +12,7 @@ import numpy as np
 from jaxtyping import Array
 
 from .._src.base._core import AbstractField
-from .._src.base._enums import DensityUnit, FieldStatus, PhysicalUnit
+from .._src.base._enums import DensityUnit, FieldStatus
 from .._src.base._tri_map import tri_map
 from .._src.fields._plotting import generate_titles, plot_3d_density, prepare_axes
 from ..power import PowerSpectrum, coherence
@@ -156,7 +156,7 @@ class DensityField(AbstractField):
         cmap: str = "magma",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -169,7 +169,6 @@ class DensityField(AbstractField):
         zoom: float = 0.8,
         edges: bool = True,
         levels: int = 64,
-        apply_log: bool = False,
     ):
         """Plot 3D density field as orthogonal slice visualization."""
 
@@ -187,13 +186,16 @@ class DensityField(AbstractField):
         n_plots = data.shape[0]
         fig, axes = prepare_axes(ax, n_plots, ncols, projection="3d", figsize=figsize)
 
+        if isinstance(titles, str):
+            titles = [titles]
+
         if titles is None:
             titles = generate_titles("3D Density", self.scale_factors, n_plots)
 
         for idx, ax_i in enumerate(axes[:n_plots]):
             plot_3d_density(
                 ax_i,
-                data[idx] if not apply_log else jnp.log10(data[idx] + 1),
+                data[idx],
                 project_slices=project_slices,
                 crop=crop,
                 labels=labels,
@@ -223,7 +225,7 @@ class DensityField(AbstractField):
         cmap: str = "magma",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -236,7 +238,6 @@ class DensityField(AbstractField):
         zoom: float = 0.8,
         edges: bool = True,
         levels: int = 64,
-        apply_log: bool = False,
     ) -> None:
         """Display 3D density using :meth:`plot`."""
 
@@ -258,7 +259,6 @@ class DensityField(AbstractField):
             zoom=zoom,
             edges=edges,
             levels=levels,
-            apply_log=apply_log,
         )
         plt.show()
 

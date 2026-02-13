@@ -2,7 +2,7 @@
 
 from .correction import AbstractCorrection, NoCorrection, PGDKernel, SharpeningKernel
 from .integrate import AdjointType, integrate
-from .interp import AbstractInterp, InterpTilerState, NoInterp, OnionTiler, TelephotoInterp
+from .interp import AbstractInterp, DriftInterp, InterpTilerState, NoInterp, OnionTiler, TelephotoInterp
 from .lpt import lpt
 from .nbody import nbody
 from .solvers import AbstractNBodySolver, EfficientDriftDoubleKick, NBodyState, ReversibleDoubleKickDrift
@@ -23,6 +23,7 @@ __all__ = [
     "OnionTiler",
     "TelephotoInterp",
     "NoInterp",
+    "DriftInterp",
     "InterpTilerState",
     "AbstractInterp",
 ]

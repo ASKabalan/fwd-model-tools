@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import jax.numpy as jnp
-from diffrax import RecursiveCheckpointAdjoint
 from jaxtyping import Array
 
 
@@ -23,7 +22,7 @@ class Configurations:
     t0: float
     dt0: float
     t1: float
-    adjoint: RecursiveCheckpointAdjoint = RecursiveCheckpointAdjoint(5)
+    adjoint: str = 'checkpointed'
     min_redshift: float = 0.01
     max_redshift: float = 3.0
     geometry: str = "spherical"
