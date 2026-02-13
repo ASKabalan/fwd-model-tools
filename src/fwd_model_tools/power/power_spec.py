@@ -8,7 +8,6 @@ import jax
 import jax.core
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import numpy as np
 
 from .._src.base._core import AbstractPytree
 from .._src.fields._plotting import generate_titles
@@ -136,6 +135,9 @@ class PowerSpectrum(AbstractPytree):
         if label is None:
             base_name = self.name or "spectrum"
             label = generate_titles(base_name, self.scale_factors, n_spec)
+
+        if isinstance(label, str):
+            label = [label] * n_spec
 
         if not isinstance(label, (list, tuple)):
             raise TypeError("label must be a list/tuple of strings or None.")
