@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
-import equinox as eqx
 import jax
 import jax.core
 import jax.numpy as jnp
@@ -11,16 +11,14 @@ import jax_cosmo as jc
 import numpy as np
 from scipy.integrate import simpson
 
-from .._src.base._core import AbstractField
-from .._src.base._enums import DensityUnit, FieldStatus
-from ..fields import DensityField, FlatDensity, ParticleField, SphericalDensity
+from ..fields import SphericalDensity
 
 try:
     from dorian.lensing import raytrace_from_density
 except ImportError:
     raytrace_from_density = None
 
-from ..fields import FieldStatus, SphericalDensity, SphericalKappaField
+from ..fields import FieldStatus, SphericalKappaField
 
 __all__ = ["raytrace"]
 
@@ -94,6 +92,7 @@ def _raytrace_z_grid(
     nside: int,
     interp: str,
     parallel_transport: bool,
+    born: bool,
 ) -> np.ndarray:
     """Run dorian ray-tracing for each source redshift.
 
@@ -142,7 +141,8 @@ def _raytrace_z_grid(
             interp=interp,
             parallel_transport=parallel_transport,
         )
-        kappa_list.append(result["convergence_raytraced"])
+        res = result["convergence_born" if born else "convergence_raytraced"]
+        kappa_list.append(res)
     return np.stack(kappa_list, axis=0)
 
 
@@ -170,7 +170,8 @@ def _integrate_nz(
     kappa_list = []
     for nz in nz_distributions:
         # Evaluate nz(z) at all grid points
-        nz_weights = np.array([float(nz(z)) for z in z_grid])
+        nz_of_ = nz(next(iter(z_grid)))
+        nz_weights = np.array(nz(z_grid))  # Shape (n_z,)
         # Weight kappa by nz: (n_z, npix) * (n_z, 1) -> (n_z, npix)
         weighted_kappa = kappa_grid * nz_weights[:, None]
         # Integrate over z using Simpson's rule
@@ -189,6 +190,7 @@ def raytrace(
     n_integrate=32,
     interp="bilinear",
     parallel_transport=True,
+    born=False,
 ):
     """Multi-plane ray-tracing using dorian.
 
@@ -293,13 +295,40 @@ def raytrace(
     scale_factors = np.atleast_1d(np.asarray(lightcone.scale_factors))
     shell_redshifts = 1.0 / scale_factors - 1.0
 
+    # Convert density (N/V) to particle counts (N) for Dorian
+    # Dorian's prepare_density_shells(unit='number_density') expects counts per pixel
+    if lightcone.comoving_centers is None or lightcone.density_width is None:
+        raise ValueError("Lightcone must have comoving_centers and density_width for raytracing")
+
+    comoving_centers = np.atleast_1d(np.asarray(lightcone.comoving_centers))
+    density_widths = np.atleast_1d(np.asarray(lightcone.density_width))
+
+    npix = 12 * nside**2
+    # Calculate pixel volume for each shell
+    # V_pix = (Omega_pix / 4pi) * V_shell = (1/npix) * (4/3 pi (Rmax^3 - Rmin^3))
+    # Note: density_maps is (n_shells, npix).
+
+    counts_maps = []
+    for i in range(len(density_maps)):
+        r = comoving_centers[i]
+        dr = density_widths[i]
+        rmax = r + dr / 2.0
+        rmin = max(0.0, r - dr / 2.0)
+        shell_vol = (4.0 / 3.0) * np.pi * (rmax**3 - rmin**3)
+        pixel_vol = shell_vol / npix
+
+        # density is N / V, so N = density * V
+        counts_maps.append(density_maps[i] * pixel_vol)
+
+    density_maps = np.stack(counts_maps)
+
     # 6. Normalize nz_shear sources
     source_kind, sources = _normalize_sources(nz_shear)
 
     # 7. Run ray-tracing
     if source_kind == "distribution":
         # For distributions: compute kappa on z_grid, then integrate with nz weights
-        z_grid = np.linspace(min_z, max_z, n_integrate)
+        z_grid = np.linspace(min_z, max_z, n_integrate + 1)
         kappa_grid = _raytrace_z_grid(
             density_maps,
             shell_redshifts,
@@ -312,6 +341,7 @@ def raytrace(
             nside,
             interp,
             parallel_transport,
+            born=born,
         )
         kappa_maps = _integrate_nz(kappa_grid, z_grid, sources)
     else:
@@ -328,6 +358,7 @@ def raytrace(
             nside,
             interp,
             parallel_transport,
+            born=born,
         )
 
     # Handle single source case - squeeze to 1D
