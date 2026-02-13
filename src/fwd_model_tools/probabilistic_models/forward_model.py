@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import jax_cosmo as jc
 
-from ..fields import DensityField, FieldStatus
+from ..fields import DensityField
 from ..fields.painting import PaintingOptions
 from ..initial import interpolate_initial_conditions
 from ..lensing import born, raytrace
-from ..parameters import Planck18
 from ..pm import EfficientDriftDoubleKick, NoCorrection, NoInterp, OnionTiler, lpt, nbody
 from .config import Configurations
 
@@ -28,7 +26,15 @@ def make_full_field_model(
     if geometry not in {"flat", "spherical"}:
         raise ValueError("geometry must be either 'flat' or 'spherical'")
 
+    # Pre-warm jax_cosmo redshift distributions to eagerly compute their
+    # normalization constants. Without this, the first call to nz(z) inside
+    # JIT mutates self._norm, leaking tracers outside the JIT scope.
+    for nz in config.nz_shear:
+        if callable(nz):
+            _ = nz(jnp.array(0.5))
+
     def forward_model(cosmo, initial_conditions):
+
         lin_field = interpolate_initial_conditions(
             initial_field=initial_conditions,
             mesh_size=meta_data.mesh_size,
