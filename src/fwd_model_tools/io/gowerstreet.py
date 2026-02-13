@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import math  # type: ignore
-import re
 from pathlib import Path
 from typing import Union
 
 import healpy as hp
-import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 
@@ -25,7 +22,7 @@ def _parse_control_par(control_file: Path) -> dict:
     """Parse control.par file for cosmology parameters."""
     keys = ['h', 'dOmega0', 'dOmegaDE', 'dSigma8', 'dSpectral', 'w0', 'dBoxSize', 'nGrid']
 
-    with open(control_file, 'r') as f:
+    with open(control_file) as f:
         content = f.read()
 
     local_scope = {}
@@ -98,7 +95,6 @@ def load_gowerstreet(
     else:
         mask = np.ones_like(z_far, dtype=bool)
 
-    print(f"shape of z_far, z_near, comoving_far, comoving_near, density_widths")
     print(f"[{z_far.shape}, {z_near.shape}, {comoving_far.shape}, {comoving_near.shape}, {density_widths.shape}]")
     indices, = np.where(mask)
     steps = steps[indices]

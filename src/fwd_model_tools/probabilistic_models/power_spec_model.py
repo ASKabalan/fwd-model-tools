@@ -121,7 +121,6 @@ def powerspec_probmodel(
             w0=-1.0,
             wa=0.0,
         )
-        cosmo._workspace = {}
 
         if config.geometry == "flat":
             if pixel_size_arcmin is None:

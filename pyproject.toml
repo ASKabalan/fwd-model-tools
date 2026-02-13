@@ -39,6 +39,7 @@ dependencies = [
     "arviz",
     "getdist",
     "orbax-checkpoint",
+    "h5py",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,7 @@ examples = [
     "matplotlib>=3.0",
     "ipython",
     "ipykernel",
+    "ipywidgets",
 ]
 
 all = ["fwd_model_tools[catalog, legacy, raytrace, examples]"]
@@ -87,7 +89,7 @@ select = [
     "UP",  # pyupgrade
     "T10", # flake8-debugger
     "I",   # isort
-    "T20", # flake8-print
+    #"T20", # flake8-print
 ]
 
 ignore = [
@@ -96,6 +98,7 @@ ignore = [
     "E731",  # do not assign a lambda expression, use a def
     "F722", # syntax error in type annotation
     "UP045", # allow "Optional" usage instead of "X | None"
+    "UP007"
 ]
 
 [tool.ruff.format]

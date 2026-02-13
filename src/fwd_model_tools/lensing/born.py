@@ -20,6 +20,13 @@ def born(
     if nz_shear is None:
         raise ValueError("nz_shear must be provided for lensing")
 
+    # Pre-warm jax_cosmo redshift distributions to eagerly compute their
+    # normalization constants, preventing mutation inside JIT traces.
+    if isinstance(nz_shear, (list, tuple)):
+        for nz in nz_shear:
+            if callable(nz) and hasattr(nz, '_norm') and nz._norm is None:
+                _ = nz(jnp.array(0.5))
+
     if lightcone.status != FieldStatus.LIGHTCONE:
         raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
 
@@ -30,7 +37,6 @@ def born(
         raise ValueError(f"Lightcone array must be 2D (spherical) or 3D (flat), got {lightcone.array.ndim}D")
 
     r_center = jc.background.radial_comoving_distance(cosmo, scale_factors)
-    cosmo._workspace = {}
 
     max_radius = lightcone.max_comoving_radius
     density_plane_width = max_radius / n_planes

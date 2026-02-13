@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
@@ -31,16 +32,16 @@ from .fields import DensityField, DensityUnit, FieldStatus
 )
 def gaussian_initial_conditions(
         key: PRNGKeyArray,
-        mesh_size: Tuple[int, int, int],
-        box_size: Tuple[float, float, float],
+        mesh_size: tuple[int, int, int],
+        box_size: tuple[float, float, float],
         *,
         cosmo: Optional[jc.Cosmology] = None,
         pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
-        observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-        flatsky_npix: Optional[Tuple[int, int]] = None,
+        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
+        flatsky_npix: Optional[tuple[int, int]] = None,
         nside: Optional[int] = None,
-        field_size: Optional[Tuple[int, int]] = None,
-        halo_size: int | Tuple[int, int] = (0, 0),
+        field_size: Optional[tuple[int, int]] = None,
+        halo_size: int | tuple[int, int] = (0, 0),
         sharding: Optional[Any] = None,
 ) -> DensityField:
     """
@@ -122,16 +123,16 @@ def gaussian_initial_conditions(
 )
 def interpolate_initial_conditions(
     initial_field: Array,
-    mesh_size: Tuple[int, int, int],
-    box_size: Tuple[float, float, float],
+    mesh_size: tuple[int, int, int],
+    box_size: tuple[float, float, float],
     *,
     cosmo: Optional[jc.Cosmology] = None,
     pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
-    observer_position: Tuple[float, float, float] = (0.5, 0.5, 0.5),
-    flatsky_npix: Optional[Tuple[int, int]] = None,
+    observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
+    flatsky_npix: Optional[tuple[int, int]] = None,
     nside: Optional[int] = None,
-    field_size: Optional[Tuple[int, int]] = None,
-    halo_size: int | Tuple[int, int] = 0,
+    field_size: Optional[tuple[int, int]] = None,
+    halo_size: int | tuple[int, int] = 0,
     sharding: Optional[Any] = None,
 ) -> DensityField:
     """
@@ -169,7 +170,7 @@ def interpolate_initial_conditions(
         else:
             k = jnp.logspace(-4, 1, 256)
             pk = jc.power.linear_matter_power(cosmo, k)
-            cosmo._workspace = {}
+            #cosmo._workspace = {}
             pk_fn = lambda x: interpolate_power_spectrum(x, k, pk, sharding)
 
     field = fft3d(initial_field)

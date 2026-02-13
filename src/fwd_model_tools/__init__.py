@@ -2,7 +2,7 @@
 fwd_model_tools: Forward-modeling and sampling on top of JAXPM + JAX-Decomp.
 """
 
-from . import fields, initial, io, lensing, pm, power, probabilistic_models, sampling, utils
+from . import fields, initial, io, lensing, pm, probabilistic_models, sampling, utils
 
 # From fields
 from .fields import (
@@ -36,6 +36,7 @@ from .parameters import Planck18
 # From pm
 from .pm import (
     AbstractNBodySolver,
+    DriftInterp,
     EfficientDriftDoubleKick,
     InterpTilerState,
     NoCorrection,
@@ -81,7 +82,6 @@ __all__ = [
     "io",
     "lensing",
     "pm",
-    "power",
     "probabilistic_models",
     "sampling",
     "utils",
@@ -119,6 +119,7 @@ __all__ = [
     "OnionTiler",
     "TelephotoInterp",
     "NoInterp",
+    "DriftInterp",
     "InterpTilerState",
     # From power
     "PowerSpectrum",

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Union
 
 import equinox as eqx
 import jax
@@ -10,7 +9,7 @@ import jax_cosmo as jc
 
 from ..fields import FieldStatus, ParticleField
 from ..fields.painting import PaintingOptions
-from ..utils import compute_lightcone_shells
+from ..utils import compute_lightcone_shells, distances
 from .correction import NoCorrection
 from .integrate import AdjointType, integrate
 from .interp import NoInterp
@@ -27,15 +26,15 @@ def _default_solver() -> EfficientDriftDoubleKick:
     )
 
 
-@partial(jax.jit, static_argnames=["t1", "dt0", "adjoint"])
+@partial(jax.jit, static_argnames=["t1", "dt0", "nb_shells", "adjoint"])
 def nbody(cosmo,
           dx_field: ParticleField,
           p_field: ParticleField,
           t1: float = 1.0,
           dt0: float = 0.05,
-          ts: Union[jnp.ndarray, None] = None,
-          nb_shells: Union[int, None] = None,
-          solver: Union[AbstractNBodySolver, None] = None,
+          ts: jnp.ndarray | None = None,
+          nb_shells: int | None = None,
+          solver: AbstractNBodySolver | None = None,
           adjoint: AdjointType = 'checkpointed') -> jax.Array:
     """
     Evolve particles forward in time and save lightcone density planes.
@@ -113,12 +112,7 @@ def nbody(cosmo,
         r_centers = jc.background.radial_comoving_distance(cosmo, ts)
 
     # Compute density widths
-    inner_edges = 0.5 * (r_centers[1:] + r_centers[:-1])
-    start_edge = r_centers[0] - (inner_edges[0] - r_centers[0])
-    end_edge = r_centers[-1] + (r_centers[-1] - inner_edges[-1])
-    r_edges = jnp.concatenate([jnp.array([start_edge]), inner_edges, jnp.array([end_edge])])
-    density_plane_width = r_edges[:-1] - r_edges[1:]
-
+    density_plane_width = distances(r_centers)
     max_comoving_distance = dx_field.max_comoving_radius
 
     # Update solver's interp_kernel with geometry
@@ -130,16 +124,35 @@ def nbody(cosmo,
     )
     solver = eqx.tree_at(lambda s: s.interp_kernel, solver, updated_interp_kernel)
 
+    # Pre-warm jax_cosmo radial_comoving_distance cache at JIT scope.
+    # DriftInterp/NoInterp call a_of_chi() inside the scan loop — if the
+    # cache is empty, a_of_chi populates it with scan-scoped tracers that
+    # leak to the outer JIT scope. Pre-warming here ensures the cache is
+    # populated at JIT scope so a_of_chi is just a read inside the scan.
+    _ = jc.background.radial_comoving_distance(cosmo, jnp.array([1.0]))
+
     # Run integration
-    y0 = (dx_field, p_field)
-    lightcone = integrate(y0=y0, cosmo=cosmo, ts=ts, solver=solver, t0=t0, t1=t1, dt0=dt0, adjoint=adjoint)
+    lightcone = integrate(displacements=dx_field,
+                          velocities=p_field,
+                          cosmo=cosmo,
+                          ts=ts,
+                          solver=solver,
+                          t0=t0,
+                          t1=t1,
+                          dt0=dt0,
+                          adjoint=adjoint)
 
     # Reverse to get near-to-far ordering
     lightcone = lightcone[::-1]
+    r_centers = r_centers[::-1]
+    density_plane_width = density_plane_width[::-1]
 
     # Set metadata
     scale_factors = lightcone.scale_factors
     z_sources = jc.utils.a2z(scale_factors)
-    lightcone = lightcone.replace(z_sources=z_sources, comoving_centers=r_centers, status=FieldStatus.LIGHTCONE)
+    lightcone = lightcone.replace(z_sources=z_sources,
+                                  comoving_centers=r_centers,
+                                  density_width=density_plane_width,
+                                  status=FieldStatus.LIGHTCONE)
 
     return lightcone
