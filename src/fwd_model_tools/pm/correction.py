@@ -11,7 +11,6 @@ Based on https://arxiv.org/abs/1804.00671
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Tuple
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -41,7 +40,7 @@ class AbstractCorrection(eqx.Module):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Apply correction to particle state.
 
@@ -72,7 +71,7 @@ class AbstractCorrection(eqx.Module):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Rewind correction from particle state.
 
@@ -110,7 +109,7 @@ class NoCorrection(AbstractCorrection):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Return unchanged positions and velocities.
         """
@@ -122,7 +121,7 @@ class NoCorrection(AbstractCorrection):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Return unchanged positions and velocities.
         """
@@ -161,7 +160,7 @@ class PGDKernel(AbstractCorrection):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Apply PGD correction to positions.
 
@@ -183,7 +182,7 @@ class PGDKernel(AbstractCorrection):
         ks4 = self.ks**4
         # Avoid division by zero at k=0
         kk_safe = jnp.where(kk == 0, 1, kk)
-        pgd_range = jnp.exp(-kl2 / kk_safe) * jnp.exp(-kk**2 / ks4)
+        pgd_range = jnp.exp(-kl2 / kk_safe) * jnp.exp(-(kk**2) / ks4)
         # Zero out the k=0 mode
         pgd_range = jnp.where(kk == 0, 0, pgd_range)
 
@@ -192,15 +191,12 @@ class PGDKernel(AbstractCorrection):
         # Compute PGD forces via gradient of potential
         forces_pgd = jnp.stack(
             [pos.read_out(delta.replace(array=ifft3d(-gradient_kernel(kvec, i) * pot_k_pgd))).array for i in range(3)],
-            axis=-1)
+            axis=-1,
+        )
 
         # Calculate displacement correction
         dpos_pgd_array = forces_pgd * self.alpha
-        dpos_pgd = ParticleField.FromDensityMetadata(
-            array=dpos_pgd_array,
-            field=pos,
-            unit=PositionUnit.GRID_RELATIVE,
-        )
+        dpos_pgd = pos.replace(array=dpos_pgd_array, unit=PositionUnit.GRID_RELATIVE)
 
         # Return corrected position, velocity unchanged
         return pos + dpos_pgd, vel
@@ -211,7 +207,7 @@ class PGDKernel(AbstractCorrection):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         raise NotImplementedError("PGDKernel is not reversible.")
 
 
@@ -256,7 +252,7 @@ class SharpeningKernel(AbstractCorrection):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Apply sharpening as velocity boost.
 
@@ -278,7 +274,7 @@ class SharpeningKernel(AbstractCorrection):
         pos: ParticleField,
         vel: ParticleField,
         full_drift_factor: float,
-    ) -> Tuple[ParticleField, ParticleField]:
+    ) -> tuple[ParticleField, ParticleField]:
         """
         Rewind sharpening boost.
 
@@ -316,7 +312,7 @@ class SharpeningKernel(AbstractCorrection):
         ks4 = self.ks**4
         # Avoid division by zero at k=0
         kk_safe = jnp.where(kk == 0, 1, kk)
-        pgd_range = jnp.exp(-kl2 / kk_safe) * jnp.exp(-kk**2 / ks4)
+        pgd_range = jnp.exp(-kl2 / kk_safe) * jnp.exp(-(kk**2) / ks4)
         # Zero out the k=0 mode
         pgd_range = jnp.where(kk == 0, 0, pgd_range)
 
@@ -325,16 +321,13 @@ class SharpeningKernel(AbstractCorrection):
         # Compute displacement correction S(x) in grid units
         forces_pgd = jnp.stack(
             [pos.read_out(delta.replace(array=ifft3d(-gradient_kernel(kvec, i) * pot_k_pgd))).array for i in range(3)],
-            axis=-1)
+            axis=-1,
+        )
 
         S_array = forces_pgd * self.alpha
 
         # Convert displacement to velocity boost
         # v_pgd = S / full_drift_factor
         v_pgd_array = S_array / full_drift_factor
-        v_pgd = ParticleField.FromDensityMetadata(
-            array=v_pgd_array,
-            field=vel,
-            unit=vel.unit,
-        )
+        v_pgd = vel.replace(array=v_pgd_array)
         return v_pgd
