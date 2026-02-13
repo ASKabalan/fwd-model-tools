@@ -6,7 +6,6 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-from jax import lax
 from jaxpm.distributed import uniform_particles
 from jaxpm.pm import lpt as jaxpm_lpt
 from jaxtyping import Array
@@ -70,6 +69,7 @@ def lpt(cosmo: Any,
         unit=PositionUnit.GRID_ABSOLUTE,
     )
     scale_factor_spec = jnp.asarray(scale_factor_spec)
+    r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
     if jnp.isscalar(scale_factor_spec):
         a = jnp.atleast_1d(scale_factor_spec)
         snapshot_r = None
@@ -84,7 +84,6 @@ def lpt(cosmo: Any,
     # Snapshots at specific times
     elif scale_factor_spec.ndim == 1:
         a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
-        r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
         # Width of bin i (centered at ri​):
         # Set snap info
         snapshot_r = r
