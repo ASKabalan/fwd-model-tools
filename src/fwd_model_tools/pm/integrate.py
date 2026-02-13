@@ -1,5 +1,6 @@
+import math
 from functools import partial
-from typing import Any, Literal, Tuple
+from typing import Any, Literal
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -109,7 +110,7 @@ def integrate(displacements: ParticleField,
 
 
 def _integrate_checkpointed(
-    y0_cosmo_ts_solver: Tuple,
+    y0_cosmo_ts_solver: tuple,
     *,
     t0: float,
     t1: float,
@@ -135,7 +136,7 @@ def _integrate_checkpointed(
 
 @partial(jax.custom_vjp, nondiff_argnums=(1, 2, 3))
 def _integrate_reverse_adjoint(
-    y0_cosmo_ts_solver: Tuple,
+    y0_cosmo_ts_solver: tuple,
     t0: float,
     t1: float,
     dt0: float,
@@ -159,11 +160,11 @@ def _integrate_reverse_adjoint(
 
 
 def _integrate_fwd(
-    y0_cosmo_ts_solver: Tuple,
+    y0_cosmo_ts_solver: tuple,
     t0: float,
     t1: float,
     dt0: float,
-) -> Tuple[Any, Tuple]:
+) -> tuple[Any, tuple]:
     """
     Forward pass for the custom VJP.
 
@@ -182,13 +183,13 @@ def _integrate_fwd(
     return snapshots, (y_final, cosmo, ts, solver)
 
 
-def _fwd_loop(y0_cosmo_ts_solver: Tuple[Tuple[ParticleField, ParticleField, NBodyState], Any, jnp.ndarray,
+def _fwd_loop(y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBodyState], Any, jnp.ndarray,
                                         AbstractNBodySolver],
               *,
               t0: float,
               t1: float,
               dt0: float,
-              kind: str = 'lax') -> Tuple[Any, Tuple[ParticleField, ParticleField, NBodyState]]:
+              kind: str = 'lax') -> tuple[Any, tuple[ParticleField, ParticleField, NBodyState]]:
     """
     Forward integration loop for AbstractNBodySolver.
 
@@ -212,7 +213,9 @@ def _fwd_loop(y0_cosmo_ts_solver: Tuple[Tuple[ParticleField, ParticleField, NBod
           - The final state (disp, vel, state) after integration.
     """
     (disp, vel, state), cosmo, ts, solver = y0_cosmo_ts_solver
-    max_steps = int(jnp.ceil((t1 - t0) / dt0)) + 1
+    # Use t1 for max_steps upper bound to avoid ConcretizationTypeError if t0 is traced
+    # We assume t0 >= 0.
+    max_steps = int(math.ceil(t1 / dt0)) + 5
 
     def inner_forward_step(carry):
         """Single integration step."""
@@ -269,9 +272,8 @@ def _fwd_loop(y0_cosmo_ts_solver: Tuple[Tuple[ParticleField, ParticleField, NBod
     return snapshots, y_final
 
 
-from typing import Any, Tuple
+from typing import Any
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 
@@ -280,9 +282,9 @@ def _integrate_bwd(
     t0: float,
     t1: float,
     dt0: float,
-    residuals: Tuple,
+    residuals: tuple,
     cotangents: Any,
-) -> Tuple[Tuple]:
+) -> tuple[tuple]:
     """
     Backward pass for the custom VJP, computing adjoint sensitivities.
     """
