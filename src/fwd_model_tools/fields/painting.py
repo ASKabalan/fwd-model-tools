@@ -94,3 +94,6 @@ class PaintingOptions(eqx.Module):
     # Shared
     weights: Optional[Array | float] = 1.0
     batch_size: Optional[int] = eqx.field(static=True, default=None)
+
+    # Physics
+    drift_on_lightcone: bool = eqx.field(static=True, default=False)
