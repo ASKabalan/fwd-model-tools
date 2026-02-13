@@ -169,6 +169,9 @@ def _single_paint_2d(
 
     xy = positions[..., :2]
     dz = positions[..., 2]
+    jax.debug.inspect_array_sharding(positions, callback=lambda sharding: print("positions sharding:", sharding))
+    jax.debug.inspect_array_sharding(xy, callback=lambda sharding: print("xy sharding:", sharding))
+    jax.debug.inspect_array_sharding(dz, callback=lambda sharding: print("dz sharding:", sharding))
 
     # Scale xy coordinates from mesh grid to flatsky_npix grid
     scale_x = flatsky_npix[0] / nx
@@ -182,11 +185,12 @@ def _single_paint_2d(
     weights_dz = jnp.where((dz > (center_grid - width_grid / 2)) & (dz <= (center_grid + width_grid / 2)), 1.0, 0.0)
     painting_weights = weights_dz if weights is None else weights * weights_dz
 
-    # Prepare the output flat-sky grid
+    # Prepare the output flat-sky
     grid = jnp.zeros(flatsky_npix, dtype=positions.dtype)
 
     if sharding is not None:
         xy = jax.lax.with_sharding_constraint(xy, sharding)
+        grid = jax.lax.with_sharding_constraint(grid, sharding)
 
     # Apply CIC painting
     painted = cic_paint_2d(grid, xy, painting_weights)
