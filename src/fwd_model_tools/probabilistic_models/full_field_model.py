@@ -7,9 +7,10 @@ import numpyro
 import numpyro.distributions as dist
 
 from ..fields import DensityField
+from ..parameters import Planck18
 from ..sampling import DistributedNormal
 from .config import Configurations
-from .forward_model import Planck18, make_full_field_model
+from .forward_model import make_full_field_model
 
 __all__ = ["Planck18", "make_full_field_model", "full_field_probmodel"]
 
