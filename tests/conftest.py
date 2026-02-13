@@ -22,11 +22,3 @@ def enable_x64():
 def cosmology():
     """Planck18 cosmology instance."""
     return Planck18()
-
-
-@pytest.fixture(scope="session")
-def kde_nz_obj():
-    """Unbatched ``jax_cosmo.redshift.kde_nz`` with 100-point redshift distribution."""
-    zcat = jnp.linspace(0.01, 2.0, 100)
-    weight = jnp.exp(-0.5 * ((zcat - 1.0) / 0.3) ** 2)
-    return jc.redshift.kde_nz(zcat, weight, bw=0.05, zmax=2.5, gals_per_arcmin2=30.0)
