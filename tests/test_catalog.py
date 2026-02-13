@@ -45,7 +45,7 @@ def error(tree1, tree2):
     """Compute max squared error across all leaves of two PyTrees."""
     return jax.tree.reduce(
         lambda x, y: x + y,
-        jax.tree_util.tree_map(lambda x, y: jnp.max((x - y) ** 2), tree1, tree2),
+        jax.tree_util.tree_map(lambda x, y: jnp.max((x - y)**2), tree1, tree2),
     )
 
 
@@ -60,7 +60,7 @@ def make_field(field_type: str, batched: bool, seed: int = 42):
 
     # Build array
     if field_type in ("SphericalDensity", "SphericalKappaField"):
-        shape = (B, npix_healpix) if batched else (npix_healpix,)
+        shape = (B, npix_healpix) if batched else (npix_healpix, )
     elif field_type in ("FlatDensity", "FlatKappaField"):
         shape = (B, *FLAT_NPIX) if batched else FLAT_NPIX
     elif field_type == "DensityField":
