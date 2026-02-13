@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Any, Optional
+from typing import Optional
 
 import jax
 import jax.core
@@ -9,10 +9,9 @@ import jax.numpy as jnp
 import jax_healpy as jhp
 import matplotlib.pyplot as plt
 from jax.image import resize
-from jaxtyping import Array
 
 from .._src.base._core import AbstractField
-from .._src.base._enums import FieldStatus, PhysicalUnit
+from .._src.base._enums import FieldStatus
 from .._src.base._tri_map import tri_map
 from .._src.fields._plotting import generate_titles, plot_flat_density, plot_spherical_density, prepare_axes
 from ..power import PowerSpectrum, angular_cl_flat, angular_cl_spherical, cross_angular_cl_spherical
@@ -104,12 +103,11 @@ class FlatDensity(AbstractField):
         cmap: str = "magma",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
         show_ticks: bool = True,
-        apply_log: bool = False,
     ):
         """
         Visualize one or more flat-sky maps using matplotlib.
@@ -125,6 +123,9 @@ class FlatDensity(AbstractField):
 
         n_maps = data.shape[0]
 
+        if isinstance(titles, str):
+            titles = [titles]
+
         if titles is None:
             titles = generate_titles("Flat Sky Density", self.scale_factors, n_maps)
 
@@ -134,7 +135,7 @@ class FlatDensity(AbstractField):
             if idx < n_maps:
                 plot_flat_density(
                     ax_i,
-                    data[idx] if not apply_log else jnp.log10(data[idx] + 1),
+                    data[idx],
                     cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
@@ -155,12 +156,11 @@ class FlatDensity(AbstractField):
         cmap: str = "magma",
         figsize: Optional[tuple[float, float]] = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
         show_ticks: bool = True,
-        apply_log: bool = False,
     ) -> None:
         """Plot and display flat maps using matplotlib."""
         import matplotlib.pyplot as plt
@@ -175,7 +175,6 @@ class FlatDensity(AbstractField):
             vmax=vmax,
             colorbar=colorbar,
             show_ticks=show_ticks,
-            apply_log=apply_log,
         )
         plt.show()
 
@@ -415,7 +414,7 @@ class FlatDensity(AbstractField):
         )
 
     @classmethod
-    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> DensityField:
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> FlatDensity:
         """
         Create a new DensityField with the same metadata as `field`
         and an array filled with `fill_value`.
@@ -444,10 +443,13 @@ class SphericalDensity(AbstractField):
         if self.array is not None:
             array_shape = getattr(self.array, "shape", ())
             npix = jhp.nside2npix(self.nside)
-            if array_shape != () and array_shape[-1] != npix:
-                raise ValueError(
-                    f"Array last dimension {array_shape[-1]} does not match HEALPix npix {npix} for nside {self.nside}."
-                )
+            if array_shape != ():
+                if len(array_shape) not in (1, 2):
+                    raise ValueError(f"SphericalDensity array must have shape (npix,) or (B, npix), "
+                                     f"got {len(array_shape)}D array with shape {array_shape}.")
+                if array_shape[-1] != npix:
+                    raise ValueError(f"Array last dimension {array_shape[-1]} does not match "
+                                     f"HEALPix npix {npix} for nside {self.nside}.")
 
     def __getitem__(self, key) -> SphericalDensity:
         if self.array.ndim < 2:
@@ -517,12 +519,11 @@ class SphericalDensity(AbstractField):
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
         show_ticks: bool = True,
-        apply_log: bool = False,
     ):
         """
         Visualize one or more spherical maps using ``healpy.mollview``.
@@ -540,6 +541,9 @@ class SphericalDensity(AbstractField):
 
         n_maps = data.shape[0]
 
+        if isinstance(titles, str):
+            titles = [titles]
+
         if titles is None:
             titles = generate_titles("Spherical Density", self.scale_factors, n_maps)
 
@@ -550,7 +554,7 @@ class SphericalDensity(AbstractField):
                 title = titles[idx] if titles and idx < len(titles) else ""
                 plot_spherical_density(
                     ax_i,
-                    data[idx] if not apply_log else jnp.log10(data[idx] + 1),
+                    data[idx],
                     cmap=cmap,
                     vmin=vmin,
                     vmax=vmax,
@@ -570,12 +574,11 @@ class SphericalDensity(AbstractField):
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[Sequence[str]] = None,
+        titles: Optional[str | Sequence[str]] = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
         show_ticks: bool = True,
-        apply_log: bool = False,
     ) -> None:
         """
         Plot and display spherical maps using healpy.
@@ -595,7 +598,6 @@ class SphericalDensity(AbstractField):
             vmax=vmax,
             colorbar=colorbar,
             show_ticks=show_ticks,
-            apply_log=apply_log,
         )
         plt.show()
 
@@ -809,7 +811,7 @@ class SphericalDensity(AbstractField):
         )
 
     @classmethod
-    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> DensityField:
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> SphericalDensity:
         """
         Create a new DensityField with the same metadata as `field`
         and an array filled with `fill_value`.
