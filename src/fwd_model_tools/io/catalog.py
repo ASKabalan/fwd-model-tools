@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import wraps
+from functools import partial, wraps
 from typing import ParamSpec, TypeVar
 
 import equinox as eqx
@@ -12,6 +12,7 @@ import jax.core
 import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
+from jax.experimental.multihost_utils import process_allgather
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import ConvergenceUnit, DensityUnit, FieldStatus, PositionUnit
@@ -30,6 +31,8 @@ __all__ = ["Catalog", "CATALOG_VERSION"]
 # Type variables for decorator
 Param = ParamSpec("Param")
 ReturnType = TypeVar("ReturnType")
+
+all_gather = partial(process_allgather, tiled=True)
 
 
 def requires_datasets(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnType]:
@@ -174,14 +177,18 @@ def _build_features(field: AbstractField) -> datasets.Features:
     return Features(feature_dict)
 
 
-def _catalog_to_row(field: AbstractField, cosmology: jc.Cosmology, version: int) -> dict:
+def _catalog_to_row(field: AbstractField, cosmology: jc.Cosmology, version: int) -> dict | None:
     """Convert a single field + cosmology into a 1-row column-oriented dict.
 
     The full batched array is stored in a single row. Each key maps to a
     **list of length 1** so that ``Dataset.from_dict`` creates one row.
     """
     field_type = type(field).__name__
-    array = np.asarray(_ensure_batch_dim(field.array, field_type))
+    array = all_gather(_ensure_batch_dim(field.array, field_type))
+
+    if jax.process_index() != 0:
+        return None
+
     batch_size = array.shape[0]
 
     # Normalize dynamic metadata to 1-D arrays of length batch_size
@@ -342,10 +349,26 @@ class Catalog(eqx.Module):
     version: int = eqx.field(static=True, default=CATALOG_VERSION)
 
     def __init__(self, field, cosmology, version=CATALOG_VERSION):
-        if isinstance(field, AbstractField):
-            field = [field]
-        if isinstance(cosmology, jc.Cosmology):
-            cosmology = [cosmology]
+        if isinstance(field, AbstractField) and isinstance(cosmology, jc.Cosmology):
+            cosmo_n = int(np.asarray(cosmology.Omega_c).size)  # 1 for scalar, N for batched
+            if cosmo_n > 1:
+                field_n = field.array.shape[0] if field.is_batched() else 1
+                if field_n != cosmo_n:
+                    raise ValueError(f"Cosmology batch size {cosmo_n} != field leading dimension {field_n}.")
+                field = [field[i] for i in range(cosmo_n)]
+                cosmology = [jax.tree.map(lambda p, i=i: p[i], cosmology) for i in range(cosmo_n)]
+            elif field.is_multi_batched() and field.array.shape[0] > 1:
+                raise ValueError(f"Scalar cosmology cannot pair with a multi-batched field "
+                                 f"(shape {field.array.shape}, N={field.array.shape[0]} > 1). "
+                                 "Pass a batched cosmology of size N, or split the field first.")
+            else:
+                field = [field]
+                cosmology = [cosmology]
+        else:
+            if isinstance(field, AbstractField):
+                field = [field]
+            if isinstance(cosmology, jc.Cosmology):
+                cosmology = [cosmology]
         self.field = list(field)
         self.cosmology = list(cosmology)
         self.version = int(version)
@@ -372,13 +395,13 @@ class Catalog(eqx.Module):
         return f"Catalog(n_entries={n}, field_types={field_types}, version={self.version})"
 
     @requires_datasets
-    def to_dataset(self) -> datasets.Dataset:
+    def to_dataset(self) -> datasets.Dataset | None:
         """Convert this Catalog to a HuggingFace Dataset (one row per entry).
 
         Returns
         -------
-        datasets.Dataset
-            Dataset with one row per (field, cosmology) pair.
+        datasets.Dataset | None
+            Dataset with one row per (field, cosmology) pair, or None on non-root processes.
         """
         for f in self.field:
             if not jax.core.is_concrete(f.array):
@@ -388,9 +411,13 @@ class Catalog(eqx.Module):
         for f, c in zip(self.field, self.cosmology):
             from datasets import Dataset
 
-            features = _build_features(f)
             data = _catalog_to_row(f, c, self.version)
-            ds_list.append(Dataset.from_dict(data, features=features))
+            if data is not None:
+                features = _build_features(f)
+                ds_list.append(Dataset.from_dict(data, features=features))
+
+        if not ds_list:
+            return None
 
         return datasets.concatenate_datasets(ds_list)
 
@@ -404,7 +431,8 @@ class Catalog(eqx.Module):
             Path to save the parquet file.
         """
         ds = self.to_dataset()
-        ds.to_parquet(path)
+        if ds is not None:
+            ds.to_parquet(path)
 
     @classmethod
     @requires_datasets

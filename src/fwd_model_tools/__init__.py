@@ -2,13 +2,16 @@
 fwd_model_tools: Forward-modeling and sampling on top of JAXPM + JAX-Decomp.
 """
 
-from . import fields, initial, io, lensing, pm, probabilistic_models, sampling, utils
+from . import fields, initial, io, lensing, pm
+from . import probabilistic_models as ppl
+from . import sampling, utils
 
 # From fields
 from .fields import (
     AbstractField,
     DensityField,
     DensityUnit,
+    FieldMetadata,
     FieldStatus,
     FlatDensity,
     FlatKappaField,
@@ -29,9 +32,6 @@ from .initial import gaussian_initial_conditions, interpolate_initial_conditions
 
 # From lensing
 from .lensing import born, raytrace
-
-# From parameters
-from .parameters import Planck18
 
 # From pm
 from .pm import (
@@ -82,16 +82,15 @@ __all__ = [
     "io",
     "lensing",
     "pm",
-    "probabilistic_models",
+    "ppl",
     "sampling",
     "utils",
     # From initial
     "gaussian_initial_conditions",
     "interpolate_initial_conditions",
-    # From parameters
-    "Planck18",
     # From fields
     "AbstractField",
+    "FieldMetadata",
     "DensityField",
     "DensityUnit",
     "FieldStatus",

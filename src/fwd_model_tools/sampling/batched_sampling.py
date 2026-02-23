@@ -1,8 +1,8 @@
 """Batched MCMC sampling utilities."""
 
 import os
+from collections.abc import Callable
 from functools import partial
-from pathlib import Path
 
 import blackjax
 import jax
@@ -28,6 +28,7 @@ def batched_sampling(
     backend: str = "numpyro",
     init_params: PyTree | None = None,
     progress_bar: bool = True,
+    save_callback: Callable[[dict, str, int], None] | None = None,
     *model_args,
     **model_kwargs,
 ):
@@ -171,7 +172,12 @@ def batched_sampling(
             },
         )
 
-        saved_state = load_sharded(state_path, abstract_pytree=abstract_state)
+        try:
+            saved_state = load_sharded(state_path, abstract_pytree=abstract_state)
+        except Exception as e:
+            raise RuntimeError(f"Saved sampling state at '{state_path}' was created by a different model "
+                               "configuration (e.g., different priors, kappa bins, or mesh size). "
+                               "Delete the directory or use a different output path.") from e
         nb_samples, last_state, parameters = (
             saved_state["nb_samples"],
             saved_state["last_state"],
@@ -232,140 +238,12 @@ def batched_sampling(
         if save:
             print(f"Saving batch {i + 1} samples and state...")
             samples["num_steps"] = jnp.array(nb_evals)
-            save_sharded(samples, f"{samples_prefix}_{i}", overwrite=True)
+            if save_callback is not None:
+                save_callback(samples, samples_prefix, i)
+            else:
+                save_sharded(samples, f"{samples_prefix}_{i}", overwrite=True)
             inference_state = {"nb_samples": jnp.array(nb_samples), "last_state": last_state, "parameters": parameters}
             save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
         del samples
 
 
-def load_samples(path: str,
-                 param_names: list[str] = None,
-                 last_n_batches: int = None,
-                 transform: str | tuple[str, str] | None = None) -> dict | tuple[dict, dict]:
-    """
-    Efficiently load and concatenate parameter samples from saved batches.
-
-    Parameters
-    ----------
-    path : str
-        Directory where samples are saved (e.g., "output/mcmc_run").
-    param_names : list of str, optional
-        List of parameter names to load. If None, load all available parameters.
-    last_n_batches : int, optional
-        Number of last batches to load. If None, load all batches.
-    transform : str, tuple of str, or None, optional
-        Transformation to apply across batches. Options:
-        - None: concatenate all samples along batch axis (default)
-        - "mean": compute mean across batches
-        - "std": compute population standard deviation across batches (ddof=0)
-        - ("mean", "std"): compute both mean and std
-
-    Returns
-    -------
-    result : dict or tuple of dict
-        If transform is None: dictionary mapping parameter names to concatenated JAX arrays.
-        If transform is "mean": dictionary mapping parameter names to mean arrays.
-        If transform is "std": dictionary mapping parameter names to std arrays.
-        If transform is ("mean", "std"): tuple of (mean_dict, std_dict).
-    """
-    path = Path(path)
-    checkpoint_dirs = sorted([d for d in path.glob("samples_*") if d.is_dir()])
-
-    if len(checkpoint_dirs) == 0:
-        raise FileNotFoundError(f"No sample batches found in {path}")
-
-    if last_n_batches is not None and last_n_batches > 0:
-        checkpoint_dirs = checkpoint_dirs[-last_n_batches:]
-
-    print(f"Loading {len(checkpoint_dirs)} sample batch(es) from {path}")
-
-    compute_mean = transform == "mean" or (isinstance(transform, tuple) and "mean" in transform)
-    compute_std = transform == "std" or (isinstance(transform, tuple) and "std" in transform)
-
-    B = len(checkpoint_dirs)
-    all_available_params = set()
-    params_to_load = None
-    result_dict = {}
-    mean_accumulators = {}
-    Ex2_accumulators = {}
-
-    for i, checkpoint_dir in enumerate(checkpoint_dirs):
-        print(f"  Loading batch {i + 1}/{len(checkpoint_dirs)}: {checkpoint_dir.name}")
-        batch_samples = load_sharded(str(checkpoint_dir))
-
-        if i == 0:
-            all_available_params = set(batch_samples.keys())
-            if param_names is not None:
-                missing_params = set(param_names) - all_available_params
-                if missing_params:
-                    print(f"  Warning: Parameters {missing_params} not found in samples. Skipping.")
-                params_to_load = [p for p in param_names if p in all_available_params]
-                if not params_to_load:
-                    print(f"  No requested parameters found. Available: {all_available_params}")
-            else:
-                params_to_load = list(all_available_params)
-
-        for param in params_to_load:
-            if param not in batch_samples:
-                continue
-
-            batch_data = jnp.asarray(batch_samples[param])
-
-            if transform is None:
-                if i == 0:
-                    if batch_data.ndim == 0:
-                        result_dict[param] = jnp.expand_dims(batch_data, axis=0)
-                    else:
-                        result_dict[param] = batch_data
-                else:
-                    if batch_data.ndim == 0:
-                        batch_data = jnp.expand_dims(batch_data, axis=0)
-                    result_dict[param] = jnp.concatenate([result_dict[param], batch_data], axis=0)
-
-            else:
-                if compute_mean:
-                    batch_mean = batch_data.mean(axis=0)
-                    if param not in mean_accumulators:
-                        mean_accumulators[param] = jnp.zeros_like(batch_mean)
-                    mean_accumulators[param] = mean_accumulators[param] + batch_mean
-
-                if compute_std:
-                    batch_Ex2 = (batch_data**2).mean(axis=0)
-                    if param not in Ex2_accumulators:
-                        Ex2_accumulators[param] = jnp.zeros_like(batch_Ex2)
-                    Ex2_accumulators[param] = Ex2_accumulators[param] + batch_Ex2
-
-        del batch_samples
-
-    if transform is None:
-        print(f"Loaded {len(result_dict)} parameter(s): {list(result_dict.keys())}")
-        if params_to_load:
-            print(f"Total samples: {result_dict[params_to_load[0]].shape[0]}")
-        return result_dict
-
-    mean_result = {}
-    std_result = {}
-
-    if compute_mean:
-        for param in mean_accumulators:
-            mean_result[param] = mean_accumulators[param] / B
-
-    if compute_std:
-        if not compute_mean:
-            for param in Ex2_accumulators:
-                mean_result[param] = mean_accumulators.get(param, jnp.zeros_like(Ex2_accumulators[param])) / B
-
-        for param in Ex2_accumulators:
-            Ex = mean_result[param]
-            Ex2 = Ex2_accumulators[param] / B
-            std_result[param] = jnp.sqrt(Ex2 - Ex**2)
-
-    if isinstance(transform, tuple):
-        print(f"Computed mean and std for {len(params_to_load)} parameter(s)")
-        return (mean_result, std_result)
-    if transform == "mean":
-        print(f"Computed mean for {len(params_to_load)} parameter(s)")
-        return mean_result
-    if transform == "std":
-        print(f"Computed std for {len(params_to_load)} parameter(s)")
-        return std_result

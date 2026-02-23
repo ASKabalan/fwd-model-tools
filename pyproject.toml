@@ -31,11 +31,10 @@ dependencies = [
     "blackjax",
     "numpyro",
     "jaxtyping",
-    "jaxpm@git+https://github.com/DifferentiableUniverseInitiative/JaxPM.git@41-spherical-lensing",
+    "jaxpm@git+https://github.com/DifferentiableUniverseInitiative/JaxPM.git@ALL-MODIF",
     "jax_cosmo@git+https://github.com/ASKabalan/jax_cosmo@ALL-MODIF",
     "healpy",
-    "jax-healpy",
-    "jax-cosmo",
+    "jax-healpy@git+https://github.com/CMBSciPol/jax-healpy.git@maintaint-shapes-batching",
     "arviz",
     "getdist",
     "orbax-checkpoint",
@@ -71,6 +70,9 @@ Documentation = "https://fwd-model-tools.readthedocs.io"
 Repository = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
 Issues = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/issues"
 
+
+[tool.setuptools]
+script-files = ["bin/ffi-simulate"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

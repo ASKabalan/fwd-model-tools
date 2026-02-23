@@ -3,7 +3,9 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax_cosmo as jc
 
-from .._src.lensing import _born_flat, _born_spherical
+from .._src.base import ConvergenceUnit
+from .._src.lensing import _attach_source_metadata, _born_flat, _born_spherical
+from .._src.lensing._normalize_nz import _normalize_sources
 from ..fields import FieldStatus, FlatKappaField, SphericalDensity, SphericalKappaField
 
 __all__ = ["born"]
@@ -19,13 +21,6 @@ def born(
 ):
     if nz_shear is None:
         raise ValueError("nz_shear must be provided for lensing")
-
-    # Pre-warm jax_cosmo redshift distributions to eagerly compute their
-    # normalization constants, preventing mutation inside JIT traces.
-    if isinstance(nz_shear, (list, tuple)):
-        for nz in nz_shear:
-            if callable(nz) and hasattr(nz, '_norm') and nz._norm is None:
-                _ = nz(jnp.array(0.5))
 
     if lightcone.status != FieldStatus.LIGHTCONE:
         raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
@@ -75,6 +70,7 @@ def born(
             array=source_map,
             field=base_field,
             status=FieldStatus.KAPPA,
+            unit=ConvergenceUnit.DIMENSIONLESS,
             z_sources=nz_shear,
         )
     else:
@@ -82,7 +78,12 @@ def born(
             array=source_map,
             field=base_field,
             status=FieldStatus.KAPPA,
+            unit=ConvergenceUnit.DIMENSIONLESS,
             z_sources=nz_shear,
         )
+
+    # Replace shell-level metadata (inherited from lightcone) with per-source-bin metadata
+    source_kind, sources = _normalize_sources(nz_shear)
+    kappas = _attach_source_metadata(kappas, cosmo, source_kind, sources, min_z, max_z, n_integrate)
 
     return kappas
