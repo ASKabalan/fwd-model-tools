@@ -4,63 +4,50 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax_cosmo as jc
 
 from ..fields import DensityField
 from ..fields.painting import PaintingOptions
-from ..initial import interpolate_initial_conditions
 from ..lensing import born, raytrace
-from ..pm import EfficientDriftDoubleKick, NoCorrection, NoInterp, OnionTiler, lpt, nbody
+from ..pm import DriftInterp, NoCorrection, NoInterp, ReversibleDoubleKickDrift, lpt, nbody
 from .config import Configurations
 
 __all__ = ["make_full_field_model"]
 
 
-def make_full_field_model(
-    meta_data: DensityField,
-    *,
-    config: Configurations,
-):
+def make_full_field_model(config: Configurations, ):
     """Build the deterministic forward model returning kappa maps and lightcone."""
 
     geometry = config.geometry
     if geometry not in {"flat", "spherical"}:
         raise ValueError("geometry must be either 'flat' or 'spherical'")
 
-    # Pre-warm jax_cosmo redshift distributions to eagerly compute their
-    # normalization constants. Without this, the first call to nz(z) inside
-    # JIT mutates self._norm, leaking tracers outside the JIT scope.
-    for nz in config.nz_shear:
-        if callable(nz):
-            _ = nz(jnp.array(0.5))
-
     def forward_model(cosmo, initial_conditions):
-
-        lin_field = interpolate_initial_conditions(
-            initial_field=initial_conditions,
-            mesh_size=meta_data.mesh_size,
-            box_size=meta_data.box_size,
-            cosmo=cosmo,
-            observer_position=meta_data.observer_position,
-            flatsky_npix=meta_data.flatsky_npix,
-            nside=meta_data.nside,
-            halo_size=meta_data.halo_size,
-            sharding=meta_data.sharding,
-        )
+        # warmstart NZ
+        if config.nz_shear is not None:
+            if isinstance(config.nz_shear, (list, tuple)):
+                for nz in config.nz_shear:
+                    if callable(nz) and hasattr(nz, '_norm'):
+                        nz._norm = None
+            else:
+                nz = config.nz_shear
+                if callable(nz) and hasattr(nz, '_norm'):
+                    nz._norm = None
 
         dx_field, p_field = lpt(
             cosmo,
-            lin_field,
-            scale_factor_spec=config.t0,
+            initial_conditions,
+            ts=config.t0,
             order=config.lpt_order,
         )
 
         # Create solver with appropriate interp_kernel based on geometry
-        if geometry == "spherical":
-            interp_kernel = OnionTiler(painting=PaintingOptions(target="spherical"))
+        if config.drift_on_lightcone:
+            interp_kernel = DriftInterp(painting=PaintingOptions(target=geometry))
         else:
-            interp_kernel = NoInterp(painting=PaintingOptions(target="flat"))
+            interp_kernel = NoInterp(painting=PaintingOptions(target=geometry))
 
-        solver = EfficientDriftDoubleKick(
+        solver = ReversibleDoubleKickDrift(
             pgd_kernel=NoCorrection(),
             interp_kernel=interp_kernel,
         )
@@ -74,10 +61,10 @@ def make_full_field_model(
             nb_shells=config.number_of_shells,
             solver=solver,
             adjoint=config.adjoint,
+            checkpoints=config.checkpoints,
         )
 
         lensing_fn = raytrace if config.lensing == "raytrace" else born
-        print(f"len of nz_shear: {len(config.nz_shear)}")
         kappa_fields = lensing_fn(
             cosmo,
             lightcone,
@@ -86,6 +73,6 @@ def make_full_field_model(
             max_z=config.max_redshift,
         )
 
-        return kappa_fields, lightcone, lin_field
+        return kappa_fields, lightcone
 
     return jax.jit(forward_model)
