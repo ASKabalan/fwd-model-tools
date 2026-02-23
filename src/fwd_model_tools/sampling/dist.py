@@ -1,114 +1,286 @@
 """Distributed probability distributions used in sampling workflows."""
-
 import jax
 import jax.numpy as jnp
-from jax.scipy.special import ndtr
-from jaxpm.distributed import normal_field
+import jax_cosmo as jc
+import numpyro
+from jax.scipy.special import ndtr, ndtri
+from jaxpm.distributed import fft3d, ifft3d, normal_field
+from jaxpm.kernels import fftk, interpolate_power_spectrum
 from jaxtyping import Key
-from numpyro.distributions import Normal, Uniform, constraints
+from numpyro.distributions import Normal, TransformedDistribution, constraints
+from numpyro.distributions.transforms import AffineTransform, Transform
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key
+
+from ..fields import DensityField, DensityUnit, FieldStatus
+
+
+class PowerSpectrumTransform(Transform):
+    """
+    NumPyro Transform that deterministically maps N(0,1) white noise
+    to a cosmological density field via Fourier-space interpolation.
+    """
+    domain = constraints.real
+    codomain = constraints.real
+
+    def __init__(self, mesh_size, box_size, cosmo=None, pk_fn=None, sharding=None):
+        self.mesh_size = mesh_size
+        self.box_size = box_size
+        self.cosmo = cosmo
+        self.pk_fn = pk_fn
+        self.sharding = sharding
+
+    def _get_pkmesh(self, field):
+        """Helper to run your exact power spectrum logic."""
+        if self.pk_fn is None:
+            if self.cosmo is None:
+                raise ValueError("Either pk_fn or cosmo must be provided to compute the power spectrum.")
+
+            # We import here to avoid global dependencies if pk_fn is provided
+            k = jnp.logspace(-4, 1, 256)
+            pk = jc.power.linear_matter_power(self.cosmo, k)
+
+            pk_fn = lambda x: interpolate_power_spectrum(x, k, pk, self.sharding)
+        else:
+            pk_fn = self.pk_fn
+
+        kvec = fftk(field)
+        kmesh = sum((kk / self.box_size[i] * self.mesh_size[i])**2 for i, kk in enumerate(kvec))**0.5
+
+        pkmesh = pk_fn(kmesh) * (self.mesh_size[0] * self.mesh_size[1] * self.mesh_size[2]) / \
+                 (self.box_size[0] * self.box_size[1] * self.box_size[2])
+
+        # Safeguard: The k=0 mode (mean density) often has P(k)=0.
+        # We replace it with 1.0 safely to prevent NaN gradients or division by zero.
+        pkmesh = jnp.where(kmesh == 0.0, 1.0, pkmesh)
+        return pkmesh
+
+    def __call__(self, x):
+        """Forward transform: White Noise -> Density Field"""
+        is_field = isinstance(x, DensityField)
+        arr = x.array if is_field else x
+        field = fft3d(arr)
+        pkmesh = self._get_pkmesh(field)
+        field = field * jnp.sqrt(pkmesh)
+        result = ifft3d(field).real
+        return x.replace(array=result) if is_field else result
+
+    def _inverse(self, y):
+        """Inverse transform: Density Field -> White Noise"""
+        is_field = isinstance(y, DensityField)
+        arr = y.array if is_field else y
+        field = fft3d(arr)
+        pkmesh = self._get_pkmesh(field)
+        field = field / jnp.sqrt(pkmesh)
+        result = ifft3d(field).real
+        return y.replace(array=result) if is_field else result
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        """
+        The determinant of the linear Fourier transform.
+        Required mathematically by NumPyro, but ignored by NUTS when reparameterized!
+        """
+        arr = x.array if isinstance(x, DensityField) else x
+        field = fft3d(arr)
+        pkmesh = self._get_pkmesh(field)
+        return 0.5 * jnp.sum(jnp.log(pkmesh))
+
+    # ---------------------------------------------------------
+    # PyTree registration to survive JAX compilation
+    # ---------------------------------------------------------
+    def tree_flatten(self):
+        # Cosmo goes in params because it is traced by MCMC.
+        # Everything else is static metadata.
+        return (self.cosmo, ), (self.mesh_size, self.box_size, self.pk_fn, self.sharding)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        cosmo, = params
+        mesh_size, box_size, pk_fn, sharding = aux_data
+        return cls(mesh_size, box_size, cosmo, pk_fn, sharding)
+
+
+class DistributedIC(TransformedDistribution):
+    """
+    Cosmological Initial Conditions Distribution.
+
+    Subclasses TransformedDistribution to naturally bridge DistributedNormal(0,1)
+    with the Fourier-space power spectrum geometry.
+    """
+    arg_constraints = {}
+
+    def __init__(self,
+                 mesh_size,
+                 box_size,
+                 observer_position=(0.5, 0.5, 0.5),
+                 halo_size=(0, 0),
+                 flatsky_npix=None,
+                 nside=None,
+                 field_size=None,
+                 cosmo=None,
+                 pk_fn=None,
+                 sharding=None,
+                 validate_args=None):
+        self.mesh_size = mesh_size
+        self.box_size = box_size
+        self.observer_position = observer_position
+        self.halo_size = halo_size
+        self.flatsky_npix = flatsky_npix
+        self.nside = nside
+        self.field_size = field_size
+        self.cosmo = cosmo
+        self.sharding = sharding
+
+        # 1. Base is the sharded N(0,1) noise
+        base_dist = DistributedNormal(
+            loc=0.0,
+            scale=1.0,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            halo_size=halo_size,
+            flatsky_npix=flatsky_npix,
+            nside=nside,
+            field_size=field_size,
+            sharding=sharding,
+        )
+
+        # 2. Transform applies the cosmology and FFT interpolation
+        transform = PowerSpectrumTransform(
+            mesh_size=mesh_size,
+            box_size=box_size,
+            cosmo=cosmo,
+            pk_fn=pk_fn,
+            sharding=sharding,
+        )
+
+        super().__init__(base_dist, [transform], validate_args=validate_args)
+
+
+# ==========================================
+# 1. Distributed White Noise
+# ==========================================
 
 
 class DistributedNormal(Normal):
     """
     Sharded normal distribution for distributed initial conditions.
 
-    This class extends NumPyro's Normal distribution to support distributed
-    sampling across multiple devices using JAX's sharding mechanism.
-
-    Parameters
-    ----------
-    loc : float or jax.Array, default=0.0
-        Mean of the normal distribution.
-    scale : float or jax.Array, default=1.0
-        Standard deviation of the normal distribution.
-    sharding : jax.sharding.Sharding, optional
-        Sharding specification for distributed sampling.
-    validate_args : bool, optional
-        Whether to validate input arguments.
+    Returns a ``DensityField`` from ``sample()`` so that downstream code
+    (forward models, transforms) can work with field metadata directly.
     """
-
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0.0, scale=1.0, sharding=None, *, validate_args=None):
+    def __init__(self,
+                 loc=0.0,
+                 scale=1.0,
+                 mesh_size=None,
+                 box_size=None,
+                 observer_position=(0.5, 0.5, 0.5),
+                 halo_size=(0, 0),
+                 flatsky_npix=None,
+                 nside=None,
+                 field_size=None,
+                 sharding=None,
+                 *,
+                 validate_args=None):
+        if mesh_size is not None:
+            loc = jnp.broadcast_to(jnp.asarray(loc), mesh_size)
+            scale = jnp.broadcast_to(jnp.asarray(scale), mesh_size)
         self.loc, self.scale = promote_shapes(loc, scale)
+        self.mesh_size = mesh_size
+        self.box_size = box_size
+        self.observer_position = observer_position
+        self.halo_size = halo_size
+        self.flatsky_npix = flatsky_npix
+        self.nside = nside
+        self.field_size = field_size
         self.sharding = sharding
-        batch_shape = jax.lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        super().__init__(loc, scale, validate_args=validate_args)
 
     def sample(self, key: Key, sample_shape=()):
-        """
-        Sample from the distributed normal distribution.
-
-        Parameters
-        ----------
-        key : jax.random.PRNGKey
-            Random number generator key.
-        sample_shape : tuple, default=()
-            Shape of samples to generate.
-
-        Returns
-        -------
-        jax.Array
-            Samples from the normal distribution.
-        """
         assert is_prng_key(key)
-
         eps = normal_field(
             key,
             sample_shape + self.batch_shape + self.event_shape,
             self.sharding,
         )
+        arr = self.loc + eps * self.scale
+        return DensityField(
+            array=arr,
+            mesh_size=self.mesh_size,
+            box_size=self.box_size,
+            observer_position=self.observer_position,
+            halo_size=self.halo_size,
+            flatsky_npix=self.flatsky_npix,
+            nside=self.nside,
+            field_size=self.field_size,
+            status=FieldStatus.INITIAL_FIELD,
+            unit=DensityUnit.DENSITY,
+            sharding=self.sharding,
+        )
 
-        return self.loc + eps * self.scale
+    def log_prob(self, value):
+        if isinstance(value, DensityField):
+            value = value.array
+        return super().log_prob(value)
+
+    # ---------------------------------------------------------
+    # PyTree registration to survive MCMC compilation
+    # ---------------------------------------------------------
+    def tree_flatten(self):
+        return (self.loc, self.scale), (self.mesh_size, self.box_size, self.sharding)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        loc, scale = params
+        mesh_size, box_size, sharding = aux_data
+        return cls(loc=loc, scale=scale, mesh_size=mesh_size, box_size=box_size, sharding=sharding)
 
 
-class PreconditionnedUniform(Uniform):
+# ==========================================
+# 2. Preconditioned Uniform boundaries
+# ==========================================
+
+
+class ProbitTransform(Transform):
+    domain = constraints.real
+    codomain = constraints.unit_interval
+
+    def __call__(self, x):
+        return ndtr(x)
+
+    def _inverse(self, y):
+        return ndtri(y)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return -0.5 * jnp.log(2 * jnp.pi) - 0.5 * jnp.square(x)
+
+    def tree_flatten(self):
+        return (), ((), {})
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls()
+
+
+class PreconditionnedUniform(TransformedDistribution):
     """
-    Uniform distribution backed by Gaussian sampling for HMC preconditioning.
-
-    Samples z ~ Normal(0, 1), transforms via CDF: u = ndtr(z),
-    then scales to [low, high]. NUTS sees smooth Gaussian density
-    instead of hard uniform boundaries.
-
-    Parameters
-    ----------
-    low : float or jax.Array, default=0.0
-        Lower bound of the uniform distribution.
-    high : float or jax.Array, default=1.0
-        Upper bound of the uniform distribution.
-    validate_args : bool, optional
-        Whether to validate input arguments.
+    Uniform distribution explicitly backed by a Gaussian space for HMC preconditioning.
+    NUTS traverses a standard Normal space, avoiding hard boundaries.
     """
-
     arg_constraints = {"low": constraints.real, "high": constraints.real}
     reparametrized_params = ["low", "high"]
 
     def __init__(self, low=0.0, high=1.0, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = jax.lax.broadcast_shapes(jnp.shape(self.low), jnp.shape(self.high))
-        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        base_dist = Normal(0.0, 1.0).expand(batch_shape)
+        transforms = [ProbitTransform(), AffineTransform(loc=self.low, scale=self.high - self.low)]
+        super().__init__(base_dist, transforms, validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
-        """
-        Sample from the preconditioned uniform distribution.
-
-        Parameters
-        ----------
-        key : jax.random.PRNGKey
-            Random number generator key.
-        sample_shape : tuple, default=()
-            Shape of samples to generate.
-
-        Returns
-        -------
-        jax.Array
-            Samples from the uniform distribution.
-        """
-        shape = sample_shape + self.batch_shape
-        z = jax.random.normal(key, shape=shape)
-        u = ndtr(z)
-        return self.low + u * (self.high - self.low)
+    @property
+    def support(self):
+        return constraints.interval(self.low, self.high)

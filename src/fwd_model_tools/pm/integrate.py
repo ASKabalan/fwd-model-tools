@@ -60,7 +60,8 @@ def integrate(displacements: ParticleField,
               t0: float,
               t1: float,
               dt0: float,
-              adjoint: AdjointType = 'checkpointed') -> Any:
+              adjoint: AdjointType = 'checkpointed',
+              checkpoints: int | None = None) -> Any:
     """
     Main integration entry point.
 
@@ -96,15 +97,19 @@ def integrate(displacements: ParticleField,
     # Initialize solver OUTSIDE the loop
     disp0, vel0 = displacements, velocities
     t1_init = t0 + dt0
-    disp, vel, state, ts = solver.init(disp0, vel0, t0, t1_init, dt0, ts, cosmo)
+    disp, vel, state = solver.init(disp0, vel0, t0, t1_init, dt0, cosmo)
 
     # Bundle all differentiable args
     y0_cosmo_ts_solver = ((disp, vel, state), cosmo, ts, solver)
 
     if adjoint == 'checkpointed':
-        return _integrate_checkpointed(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0)
+        return _integrate_checkpointed(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, checkpoints=checkpoints)
     elif adjoint == 'reverse':
         return _integrate_reverse_adjoint(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0)
+    elif adjoint == 'lax':
+        # For testing: just run the forward pass without custom VJP
+        snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='bounded')
+        return snapshots
     else:
         raise ValueError(f"Unknown adjoint type: {adjoint}")
 
@@ -115,6 +120,7 @@ def _integrate_checkpointed(
     t0: float,
     t1: float,
     dt0: float,
+    checkpoints: int | None = None,
 ) -> Any:
     """
     Simple forward pass with checkpointing for memory-efficient backprop.
@@ -130,7 +136,7 @@ def _integrate_checkpointed(
     Returns:
         Snapshots at each time in ts.
     """
-    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='checkpointed')
+    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='checkpointed', checkpoints=checkpoints)
     return snapshots
 
 
@@ -189,7 +195,8 @@ def _fwd_loop(y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBod
               t0: float,
               t1: float,
               dt0: float,
-              kind: str = 'lax') -> tuple[Any, tuple[ParticleField, ParticleField, NBodyState]]:
+              kind: str = 'lax',
+              checkpoints: int | None = None) -> tuple[Any, tuple[ParticleField, ParticleField, NBodyState]]:
     """
     Forward integration loop for AbstractNBodySolver.
 
@@ -266,7 +273,7 @@ def _fwd_loop(y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBod
                                init_carry,
                                ts,
                                kind=kind,
-                               checkpoints=len(ts) if kind == 'checkpointed' else None)
+                               checkpoints=checkpoints if kind == 'checkpointed' else None)
 
     y_final = (disp_final, vel_final, state_final)
     return snapshots, y_final

@@ -122,18 +122,18 @@ def gaussian_initial_conditions(
     ],
 )
 def interpolate_initial_conditions(
-    initial_field: Array,
-    mesh_size: tuple[int, int, int],
-    box_size: tuple[float, float, float],
-    *,
-    cosmo: Optional[jc.Cosmology] = None,
-    pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
-    observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
-    flatsky_npix: Optional[tuple[int, int]] = None,
-    nside: Optional[int] = None,
-    field_size: Optional[tuple[int, int]] = None,
-    halo_size: int | tuple[int, int] = 0,
-    sharding: Optional[Any] = None,
+        initial_field: Array,
+        mesh_size: tuple[int, int, int],
+        box_size: tuple[float, float, float],
+        *,
+        cosmo: Optional[jc.Cosmology] = None,
+        pk_fn: Callable[[jnp.ndarray], jnp.ndarray] = None,
+        observer_position: tuple[float, float, float] = (0.5, 0.5, 0.5),
+        flatsky_npix: Optional[tuple[int, int]] = None,
+        nside: Optional[int] = None,
+        field_size: Optional[tuple[int, int]] = None,
+        halo_size: int | tuple[int, int] = (0, 0),
+        sharding: Optional[Any] = None,
 ) -> DensityField:
     """
     Sample Gaussian initial conditions and package them as a Field PyTree.
@@ -168,9 +168,8 @@ def interpolate_initial_conditions(
         if cosmo is None:
             raise ValueError("Either pk_fn or cosmo must be provided to compute the power spectrum.")
         else:
-            k = jnp.logspace(-4, 1, 256)
+            k = jnp.logspace(-4, 1, 128)
             pk = jc.power.linear_matter_power(cosmo, k)
-            #cosmo._workspace = {}
             pk_fn = lambda x: interpolate_power_spectrum(x, k, pk, sharding)
 
     field = fft3d(initial_field)

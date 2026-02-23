@@ -94,6 +94,7 @@ class AbstractPytree(eqx.Module):
 
     # DO NOT IMPLEMENT THIS
     # IT BREAKS EQUINOX OMEGA
+    #TODO: implemented and make exception of other is of type Omega
     #def __pow__(self, other):
     #    return self.replace(array=self.array**other)
 
@@ -225,14 +226,32 @@ class AbstractField(AbstractPytree):
     def stack(cls, fields: Sequence[Self]) -> Self:
         """
         Stack multiple Field instances along axis 0.
+
+        Stacking (S, ...) inputs produces an (N, S, ...) multi-batched field.
+        Cannot stack already-multi-batched (N, S, ...) inputs; use concat() instead.
         """
         field_list = tuple(fields)
         if not field_list:
             raise ValueError("stack requires at least one field.")
+        if any(f.is_multi_batched() for f in field_list):
+            raise ValueError(
+                "Cannot stack multi-batched (N, S, ...) fields — this would create an ambiguous "
+                "extra leading dimension. Use <FieldClass>.concat(fields) to join along the N axis instead.")
         return jax.tree.map(
             lambda *arrays: jnp.stack(arrays, axis=0),
             *field_list,
         )
+
+    @classmethod
+    def concat(cls, fields: Sequence[Self]) -> Self:
+        """Concatenate multi-batched (N, S, ...) fields along the N axis (axis 0)."""
+        field_list = tuple(fields)
+        if not field_list:
+            raise ValueError("concat requires at least one field.")
+        if any(not f.is_multi_batched() for f in field_list):
+            raise ValueError("concat only works on multi-batched (N, S, ...) fields. "
+                             "Use stack() to create an (N, S, ...) field from (S, ...) inputs.")
+        return jax.tree.map(lambda *arrays: jnp.concatenate(arrays, axis=0), *field_list)
 
     @classmethod
     def FromDensityMetadata(
@@ -311,6 +330,26 @@ class AbstractField(AbstractPytree):
         """
         raise NotImplementedError("full_like must be implemented in subclasses.")
 
+    @abstractmethod
+    def is_batched(self) -> bool:
+        """
+        Return True if the field is batched (i.e. has a leading batch dimension).
+
+        This is used to determine whether to apply certain operations in a batched manner.
+        The exact definition of "batched" may depend on the context and should be implemented in subclasses.
+
+        Returns
+        -------
+        bool
+            True if the field is considered batched, False otherwise.
+        """
+        raise NotImplementedError("is_batched must be implemented in subclasses.")
+
+    @abstractmethod
+    def is_multi_batched(self) -> bool:
+        """Return True when the field has both a simulation-batch (N) and snapshot (S) dimension."""
+        raise NotImplementedError("is_multi_batched must be implemented in subclasses.")
+
     def block_until_ready(self) -> Self:
         """
         Block until the underlying array is ready.
@@ -325,9 +364,11 @@ class AbstractField(AbstractPytree):
 
     def __repr__(self) -> str:
         classname = type(self).__name__
+        array_shape = self.array.shape if self.array is not None else "(None)"
+        dtype = self.array.dtype if self.array is not None else None
         return (f"{classname}("
-                f"array  = Array{self.array.shape}\n, "
-                f"dtype  = {self.array.dtype}, "
+                f"array  = Array{array_shape}\n, "
+                f"dtype  = {dtype}, "
                 f"  mesh_size         ={self.mesh_size}, "
                 f"  box_size          ={self.box_size}, "
                 f"  observer_position ={self.observer_position}, "
@@ -387,6 +428,9 @@ class AbstractField(AbstractPytree):
 
         # ---- Array stats ----
         arr = self.array
+        if arr is None:
+            dbg.print("{} array is None", classname)
+            return
         mean = jnp.mean(arr)
         std = jnp.std(arr)
 
@@ -403,8 +447,42 @@ class AbstractField(AbstractPytree):
         dbg.print("{} array sharding:", classname)
         dbg.inspect_array_sharding(arr, callback=print)
 
+    def to_metadata(self) -> FieldMetadata:
+        """Return a AbstractField with array=None, preserving all metadata."""
+        return FieldMetadata(
+            array=None,
+            mesh_size=self.mesh_size,
+            box_size=self.box_size,
+            z_sources=self.z_sources,
+            scale_factors=self.scale_factors,
+            comoving_centers=self.comoving_centers,
+            density_width=self.density_width,
+            observer_position=self.observer_position,
+            sharding=self.sharding,
+            halo_size=self.halo_size,
+            nside=self.nside,
+            flatsky_npix=self.flatsky_npix,
+            field_size=self.field_size,
+            status=self.status,
+            unit=self.unit,
+        )
+
     # ------------------------------------------------------------------ Factory
     def __getitem__(self, key) -> Self:
         to_index, not_to_index = eqx.partition(self, lambda x: eqx.is_array(x) and x.ndim >= 1)
         to_index = jax.tree.map(lambda x: x[key], to_index)
         return eqx.combine(to_index, not_to_index)
+
+
+class FieldMetadata(AbstractField):
+    """Concrete metadata-only field (array=None). Produced by ``to_metadata()``."""
+
+    @classmethod
+    def full_like(cls, field: AbstractField, fill_value: float = 0.0) -> FieldMetadata:
+        raise NotImplementedError("FieldMetadata is metadata-only; use a concrete field class.")
+
+    def is_batched(self) -> bool:
+        return False
+
+    def is_multi_batched(self) -> bool:
+        return False

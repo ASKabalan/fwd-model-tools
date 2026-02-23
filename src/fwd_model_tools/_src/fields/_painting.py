@@ -169,9 +169,6 @@ def _single_paint_2d(
 
     xy = positions[..., :2]
     dz = positions[..., 2]
-    jax.debug.inspect_array_sharding(positions, callback=lambda sharding: print("positions sharding:", sharding))
-    jax.debug.inspect_array_sharding(xy, callback=lambda sharding: print("xy sharding:", sharding))
-    jax.debug.inspect_array_sharding(dz, callback=lambda sharding: print("dz sharding:", sharding))
 
     # Scale xy coordinates from mesh grid to flatsky_npix grid
     scale_x = flatsky_npix[0] / nx
@@ -187,7 +184,9 @@ def _single_paint_2d(
 
     # Prepare the output flat-sky
     grid = jnp.zeros(flatsky_npix, dtype=positions.dtype)
-
+    
+    # xy should already have that sharding but this is done for the gradient
+    # This way in the backward pass the gradient will also be sharded and not cause memory issues on a single device
     if sharding is not None:
         xy = jax.lax.with_sharding_constraint(xy, sharding)
         grid = jax.lax.with_sharding_constraint(grid, sharding)
@@ -323,7 +322,9 @@ def _single_paint_spherical(
 
     # Observer position in Mpc
     observer_position_mpc = tuple(frac * length for frac, length in zip(observer_position, box_size))
-
+    
+    # Position should be already sharded but this is done for the gradient
+    # This way in the backward pass the gradient will also be sharded and not cause memory
     if sharding is not None:
         positions = jax.lax.with_sharding_constraint(positions, sharding)
 
@@ -344,5 +345,6 @@ def _single_paint_spherical(
         ud_grade_order_in=ud_grade_order_in,
         ud_grade_order_out=ud_grade_order_out,
         ud_grade_pess=ud_grade_pess,
+        sharding=sharding,
     )
     return painted

@@ -4,8 +4,9 @@ from abc import abstractmethod
 from typing import Any
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
-from jaxpm.growth import E, Gf, dGfa
+from jaxpm.growth import E, Gf, dGfa, gp
 from jaxpm.growth import growth_factor as Gp
 from jaxpm.pm import pm_forces
 
@@ -36,9 +37,12 @@ class NBodyState(eqx.Module):
     ----------
     interp_state : InterpTilerState
         State for the interpolation kernel.
+    t_initial : float
+        Initial time of the simulation (used for clipping kicks).
     """
 
     interp_state: InterpTilerState
+    t_initial: float
 
 
 class AbstractNBodySolver(eqx.Module):
@@ -121,7 +125,6 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         t0: float,
         t1: float,
         dt: float,
-        ts: jnp.ndarray,
         cosmo: Any,
     ) -> tuple[ParticleField, ParticleField, NBodyState]:
         # Initialize sub-states
@@ -140,7 +143,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
 
         vel_new = (velocities + dvel).replace(scale_factors=jnp.atleast_1d(af))
 
-        return displacement, vel_new, NBodyState(interp_state=interp_state), ts
+        return displacement, vel_new, NBodyState(interp_state=interp_state, t_initial=t0)
 
     def step(
         self,
@@ -158,7 +161,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         # ai = t0, ac = t0t1, af = t1
         t0t1 = (t0 * t1)**0.5
         ai, ac, af = t0, t0t1, t1
-        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
+        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / gp(cosmo, ac)
         prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
 
         dpos = velocities * (prefactor_drift * drift_factor)
@@ -191,7 +194,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         # 4. Advance Interp
         new_interp_state = self.interp_kernel.advance(state.interp_state, t1)
 
-        new_state = NBodyState(interp_state=new_interp_state)
+        new_state = NBodyState(interp_state=new_interp_state, t_initial=state.t_initial)
 
         return x_corrected, v_new, new_state
 
@@ -224,12 +227,10 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
     Reversible symplectic KKD solver with PGD correction storage.
 
     Structure:
-    - Init: Kick (v0 -> v0.5) -> Boost (at x0) -> Drift (x0 -> x1)
-    - Step: Kick (v0.5 -> v1.5) -> Boost (at x1) -> Drift (x1 -> x2)
+    - Step: Kick (prev_mid -> current) + Kick (current -> next_mid) -> PGD Boost -> Drift
+    - Init: No-op physically, effectively sets up state such that the first 'prev' kick is zero.
 
-    Reversibility:
-    - Reverse uses exact Un-Drift -> Un-Boost -> Un-Kick.
-    - PGD is applied as a velocity boost before drift, calculated at the *current* position.
+    This ensures reversibility and correct time synchronization with the integrator loop.
     """
 
     def init(
@@ -239,48 +240,17 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         t0: float,
         t1: float,
         dt: float,
-        ts: jnp.ndarray,
         cosmo: Any,
     ) -> tuple[ParticleField, ParticleField, NBodyState]:
         """
-        Initialization: First Kick-Drift (KD)
-        Moves system from t0 -> t1, with velocity at t0t1.
+        Initialization: No physical update.
+        Sets t_initial in state to handle boundary conditions for kicks.
         """
-        # Initialize sub-states
         interp_state = self.interp_kernel.init()
-
-        t0t1 = (t0 * t1)**0.5
-
-        # 1. First Kick: v0 -> v0.5 (t0 -> t0t1)
-        ai, ac, af = t0, t0, t0t1
-
-        forces = _forces(displacement, cosmo)
-
-        kick_factor = (Gf(cosmo, af) - Gf(cosmo, ai)) / dGfa(cosmo, ac)
-        prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
-
-        dvel = forces * (prefactor_kick * kick_factor)
-
-        # v_half is v0.5
-        v_half = (velocities + dvel).replace(scale_factors=jnp.atleast_1d(af))
-
-        # 2. PGD Boost (at x0) + Drift (x0 -> x1)
-        ai, ac, af = t0, t0t1, t1
-
-        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
-        prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
-        full_drift_factor = prefactor_drift * drift_factor
-
-        # Apply PGD Boost.
-        # Note: We use t0 for PGD time as it depends on x0
-        x_curr, v_boosted = self.pgd_kernel.apply(t0, displacement, v_half, full_drift_factor=full_drift_factor)
-
-        dpos = v_boosted * full_drift_factor
-
-        x_new = (displacement + dpos).replace(scale_factors=jnp.atleast_1d(af))
-
-        # We return v_boosted so that 'velocities' in state carries the boost
-        return x_new, v_boosted, NBodyState(interp_state=interp_state), ts - dt
+        # Warm start the growth factor to ensure any JIT compilation happens here.
+        #_ = Gf(cosmo, t0)
+        # No physical evolution here.
+        return displacement, velocities, NBodyState(interp_state=interp_state, t_initial=t0)
 
     def step(
         self,
@@ -293,51 +263,61 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         cosmo: Any,
     ) -> tuple[ParticleField, ParticleField, NBodyState]:
         """
-        Step: Kick-Kick-Drift with PGD Boost
-        Input: x1, v0.5_boosted (from prev step)
+        Step: Forces -> Double Kick -> PGD Boost -> Drift
         """
-        t0t1 = (t0 * t1)**0.5
-        t2 = t1 + dt
-        t1t2 = (t1 * t2)**0.5
+        # Times
+        # t0 is current time (x_i), t1 is next time (x_{i+1})
+        # We need to construct the previous interval midpoint for the kick.
+        # We assume dt was constant or use t0-dt.
+        # t_prev = t0 - dt. Midpoint is geometric mean (t_prev * t0)^0.5
+        t_prev = t0 - dt
+        t_prev_clamped = jnp.maximum(t_prev, state.t_initial)
 
-        # 1. Forces at x1
+        # Midpoints
+        ac = t0  # Force evaluation time
+
+        # Previous half-step (K1)
+        ai_1 = (t_prev_clamped * t0)**0.5
+        af_1 = t0
+
+        # Next half-step (K2)
+        ai_2 = t0
+        af_2 = (t0 * t1)**0.5
+
+        # 1. Forces at current position (x_i at t0)
         forces = _forces(displacement, cosmo)
 
-        # 2. Double Kick: v(t0t1) -> v(t1t2)
-        # Note: input `velocities` is v0.5_boosted.
-        # We treat PGD as a kick, so we just add the next kick to it.
-        ac = t1
-        ai_1, af_1 = t0t1, t1
+        # 2. Compute Kick Factor
+        # Note: If t0 == t_initial, then t_prev_clamped = t0, ai_1 = t0.
+        # So K1 term Gf(t0)-Gf(t0) becomes 0.
         k1 = (Gf(cosmo, af_1) - Gf(cosmo, ai_1)) / dGfa(cosmo, ac)
-
-        ai_2, af_2 = t1, t1t2
         k2 = (Gf(cosmo, af_2) - Gf(cosmo, ai_2)) / dGfa(cosmo, ac)
 
         kick_factor = k1 + k2
         prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
+
         dvel = forces * (prefactor_kick * kick_factor)
 
-        v_new = (velocities + dvel).replace(scale_factors=jnp.atleast_1d(t1t2))
+        # v_mid: velocity updated to the middle of the drift interval (af_2)
+        v_mid = (velocities + dvel).replace(scale_factors=jnp.atleast_1d(af_2))
 
-        # 3. PGD Boost (at x1) + Drift (x1 -> x2)
-        ai, ac, af = t1, t1t2, t2
-        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
-        prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
+        # 3. PGD Boost (at x_i) + Drift (x_i -> x_{i+1})
+        ai, ac_drift, af = t0, af_2, t1
+        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / gp(cosmo, ac_drift)
+        prefactor_drift = 1.0 / (ac_drift**3 * E(cosmo, ac_drift))
         full_drift_factor = prefactor_drift * drift_factor
 
-        # Apply PGD Boost at t1 (current time/pos)
-        x_curr, v_boosted = self.pgd_kernel.apply(t1, displacement, v_new, full_drift_factor=full_drift_factor)
+        # Apply PGD Boost at t0
+        x_curr, v_boosted = self.pgd_kernel.apply(t0, displacement, v_mid, full_drift_factor=full_drift_factor)
 
         dpos = v_boosted * full_drift_factor
 
         x_new = (displacement + dpos).replace(scale_factors=jnp.atleast_1d(af))
 
         # 4. Advance Interp
-        # Clip t2 to max ts to prevent drifting past end of simulation
-        max_ts = self.interp_kernel.ts[-1]
-        t2_clipped = jnp.minimum(t2, max_ts)
-        new_interp_state = self.interp_kernel.advance(state.interp_state, t2_clipped)
-        new_state = NBodyState(interp_state=new_interp_state)
+        new_interp_state = self.interp_kernel.advance(state.interp_state, t1)
+
+        new_state = NBodyState(interp_state=new_interp_state, t_initial=state.t_initial)
 
         return x_new, v_boosted, new_state
 
@@ -350,7 +330,8 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         state: NBodyState,
         cosmo: Any,
     ) -> Any:
-        return self.interp_kernel.paint(state.interp_state, t1 + dt, (displacement, velocities), cosmo)
+        # In this scheme, t1 is the current time of the particles
+        return self.interp_kernel.paint(state.interp_state, t1, (displacement, velocities), cosmo)
 
     def reverse(
         self,
@@ -364,49 +345,64 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
     ) -> tuple[ParticleField, ParticleField, NBodyState]:
         """
         Reverse Step: Un-Drift -> Un-Boost -> Un-Kick
-        Input: x2, v1.5_boosted
+        Input: x_{i+1} (t1), v_{mid_boosted}
+        Target: x_i (t0), v_{old}
         """
-        t0t1 = (t0 * t1)**0.5
-        t2 = t1 + dt
-        t1t2 = (t1 * t2)**0.5
+        # Reconstruct drift parameters
+        # t0 is prev time (target), t1 is current time (source)
+        # Note: in reverse, t0 and t1 are swapped relative to forward sense in integration loop?
+        # integrate.py reverse loop passes: t_prev, tc.
+        # t_prev becomes t0 (target), tc becomes t1 (source).
 
-        # 1. Un-Drift (x2 -> x1) using v1.5_boosted
-        ai, ac, af = t1, t1t2, t2
-        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac)
-        prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
+        # Drift calc
+        t0t1 = (t0 * t1)**0.5
+        ai, ac_drift, af = t0, t0t1, t1
+
+        drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac_drift)
+        prefactor_drift = 1.0 / (ac_drift**3 * E(cosmo, ac_drift))
         full_drift_factor = prefactor_drift * drift_factor
 
+        # 1. Un-Drift (x_{i+1} -> x_i) using boosted velocity
         dpos = velocities * full_drift_factor
+        x_old = (displacement - dpos).replace(scale_factors=jnp.atleast_1d(t0))
 
-        # displacement here is x2
-        x_old = (displacement - dpos).replace(scale_factors=jnp.atleast_1d(t1))
+        # 2. Un-Boost (at x_i)
+        # Recover unboosted velocity. Note: rewinding at t0 (target time)
+        x_uncorrected, v_uncorrected = self.pgd_kernel.rewind(t0,
+                                                              x_old,
+                                                              velocities,
+                                                              full_drift_factor=full_drift_factor)
 
-        # 2. Un-Boost (at x1)
-        # Recompute boost at recovered x1
-        vel_zero = velocities * 0.0
-        # Note: pgd.apply returns (x, v_boosted). We need just the velocity boost part.
-        x_uncorrected, v_uncorrected = self.pgd_kernel.rewind(t1, x_old, vel_zero, full_drift_factor=drift_factor)
+        # 3. Un-Kick
+        # Need to reconstruct kick factors identical to forward pass
+        t_prev = t0 - dt
+        t_prev_clamped = jnp.maximum(t_prev, state.t_initial)
 
-        # 3. Un-Kick (v1.5 -> v0.5)
-        # Recompute forces at recovered position x1
-        forces = _forces(x_uncorrected, cosmo)
+        # Previous half-step (K1)
+        ai_1 = (t_prev_clamped * t0)**0.5
+        af_1 = t0
 
-        ac = t1
-        ai_1, af_1 = t0t1, t1
-        k1 = (Gf(cosmo, af_1) - Gf(cosmo, ai_1)) / dGfa(cosmo, ac)
-        ai_2, af_2 = t1, t1t2
-        k2 = (Gf(cosmo, af_2) - Gf(cosmo, ai_2)) / dGfa(cosmo, ac)
+        # Next half-step (K2)
+        ai_2 = t0
+        af_2 = t0t1  # (t0 * t1)**0.5
+
+        ac_kick = t0
+
+        k1 = (Gf(cosmo, af_1) - Gf(cosmo, ai_1)) / dGfa(cosmo, ac_kick)
+        k2 = (Gf(cosmo, af_2) - Gf(cosmo, ai_2)) / dGfa(cosmo, ac_kick)
 
         kick_factor = k1 + k2
-        prefactor_kick = 1.0 / (ac**2 * E(cosmo, ac))
+        prefactor_kick = 1.0 / (ac_kick**2 * E(cosmo, ac_kick))
+
+        forces = _forces(x_uncorrected, cosmo)
         dvel = forces * (prefactor_kick * kick_factor)
 
-        v_old = (v_uncorrected - dvel).replace(scale_factors=jnp.atleast_1d(t0t1))
+        v_old = (v_uncorrected - dvel)  # Time unit isn't critical for v return in reverse
 
         # 4. Rewind Interp State
         max_ts = self.interp_kernel.ts[-1]
-        t2_clipped = jnp.minimum(t2, max_ts)
-        prev_interp_state = self.interp_kernel.rewind(state.interp_state, t2_clipped)
-        prev_state = NBodyState(interp_state=prev_interp_state)
+        t1_clipped = jnp.minimum(t1, max_ts)
+        prev_interp_state = self.interp_kernel.rewind(state.interp_state, t1_clipped)
+        prev_state = NBodyState(interp_state=prev_interp_state, t_initial=state.t_initial)
 
         return x_old, v_old, prev_state

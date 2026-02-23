@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import jax
-import jax.core
 import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
@@ -18,6 +17,9 @@ try:
 except ImportError:
     raytrace_from_density = None
 
+from .._src.base import ConvergenceUnit
+from .._src.lensing import _attach_source_metadata
+from .._src.lensing._normalize_nz import _normalize_sources
 from ..fields import FieldStatus, SphericalKappaField
 
 __all__ = ["raytrace"]
@@ -44,42 +46,6 @@ def require_dorian(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
     return deferred_func
 
 
-def _normalize_sources(nz_shear: Any) -> tuple[str, list[Any]]:
-    """Accept either scalar redshifts or jc.redshift distributions (not both).
-
-    Parameters
-    ----------
-    nz_shear : Any
-        Either a scalar redshift, array of redshifts, or jax_cosmo redshift
-        distribution(s).
-
-    Returns
-    -------
-    tuple[str, list[Any]]
-        A tuple of (source_kind, sources) where source_kind is either
-        "distribution" or "redshift", and sources is the normalized list.
-    """
-    if isinstance(nz_shear, (list, tuple)):
-        entries = list(nz_shear)
-    else:
-        entries = [nz_shear]
-
-    if not entries:
-        raise ValueError("nz_shear must contain at least one entry")
-
-    first = entries[0]
-    first_is_distribution = isinstance(first, jc.redshift.redshift_distribution)
-
-    if first_is_distribution:
-        for entry in entries:
-            if not isinstance(entry, jc.redshift.redshift_distribution):
-                raise ValueError("Cannot mix redshift distributions with scalar sources")
-        return "distribution", entries
-
-    z_array = np.atleast_1d(np.asarray(entries)).flatten()
-    return "redshift", z_array
-
-
 def _raytrace_z_grid(
     density_maps: np.ndarray,
     shell_redshifts: np.ndarray,
@@ -93,6 +59,7 @@ def _raytrace_z_grid(
     interp: str,
     parallel_transport: bool,
     born: bool,
+    shell_widths: np.ndarray | None = None,
 ) -> np.ndarray:
     """Run dorian ray-tracing for each source redshift.
 
@@ -120,6 +87,10 @@ def _raytrace_z_grid(
         Interpolation method ('bilinear', 'ngp', 'nufft').
     parallel_transport : bool
         Whether to apply parallel transport of distortion matrix.
+    born : bool
+        Whether to return Born approximation convergence.
+    shell_widths : np.ndarray or None, optional
+        Shell thickness d_R per shell in Mpc/h.
 
     Returns
     -------
@@ -139,6 +110,7 @@ def _raytrace_z_grid(
             omega_l=omega_l,
             nside=nside,
             interp=interp,
+            shell_widths=list(shell_widths) if shell_widths is not None else None,
             parallel_transport=parallel_transport,
         )
         res = result["convergence_born" if born else "convergence_raytraced"]
@@ -199,7 +171,8 @@ def raytrace(
     distortion matrix.
 
     This function wraps dorian's ray-tracing and provides the same API as
-    :func:`fwd_model_tools.lensing.born`.
+    :func:`fwd_model_tools.lensing.born`. Unlike the previous version, this
+    function is JIT-compatible via :func:`jax.pure_callback`.
 
     Parameters
     ----------
@@ -228,7 +201,7 @@ def raytrace(
         - 'ngp': Nearest grid point (fastest, lowest accuracy)
         - 'nufft': Non-uniform FFT (highest accuracy, slowest)
     parallel_transport : bool, optional
-        Whether to parallel transport the distortion matrix along geodesics.
+        Whether to apply parallel transport of distortion matrix.
         Default: True.
 
     Returns
@@ -240,16 +213,15 @@ def raytrace(
     Raises
     ------
     ValueError
-        If called inside jit (requires concrete arrays).
         If lightcone status is not LIGHTCONE.
     TypeError
         If lightcone is not SphericalDensity (flat-sky not supported).
 
     Notes
     -----
-    Unlike :func:`born`, this function cannot be JIT-compiled because dorian
-    uses NumPy/healpy internally. The function will raise an error if called
-    with traced (non-concrete) arrays.
+    The dorian computation is wrapped in :func:`jax.pure_callback`, making
+    this function safe to call inside :func:`jax.jit`. JAX dispatches the
+    callback once per device shard, passing a concrete numpy array.
 
     The convergence is computed from the full ray-traced distortion matrix A:
     ``kappa = 1 - 0.5 * (A[0,0] + A[1,1])``, which includes all post-Born
@@ -265,111 +237,115 @@ def raytrace(
     >>> # With redshift distribution
     >>> nz = jc.redshift.smail_nz(1.0, 2.0, 1.0)
     >>> kappa = raytrace(cosmo, lightcone, nz_shear=nz)
+    >>> # JIT-compatible
+    >>> kappa = jax.jit(lambda lc: raytrace(cosmo, lc, [1.0]))(lightcone)
 
     See Also
     --------
-    born : Born approximation (faster, JAX-compatible, no post-Born corrections).
+    born : Born approximation (faster, fully-JAX, no post-Born corrections).
     """
-    # 1. Concrete check - cannot run inside jit
-    if not jax.core.is_concrete(lightcone.array):
-        raise ValueError("raytrace() requires concrete arrays. Use outside of jit.")
-
-    # 2. Validate input
+    if jax.process_count() > 1:
+        raise NotImplementedError(
+            "raytrace() does not currently support multi-process execution. Run with a single process (e.g. --pdim 1 1) or use the born() function for multi-process compatibility."
+        )
+    # 1. Validate on static metadata — safe inside JIT
     if lightcone.status != FieldStatus.LIGHTCONE:
         raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
     if not isinstance(lightcone, SphericalDensity):
         raise TypeError("raytrace() only supports SphericalDensity (HEALPix) lightcones")
+    if lightcone.density_width is None:
+        raise ValueError("Lightcone must have density_width for raytracing")
 
-    # 3. Extract cosmology from jax_cosmo
-    omega_m = float(cosmo.Omega_m)
-    h = float(cosmo.h)
-    omega_l = 1.0 - omega_m  # Assuming flat cosmology
-
-    # 4. Extract simulation parameters from lightcone
+    # 2. Static simulation parameters — from eqx.field(static=True) metadata
     box_size = lightcone.box_size[0]  # Assumes cubic box in Mpc/h
     n_particles = int(np.prod(lightcone.mesh_size))
-    nside = lightcone.nside
+    nside = lightcone.nside  # static=True field, always concrete at trace time
 
-    # 5. Convert JAX arrays to numpy
-    density_maps = np.asarray(lightcone.array)
-    scale_factors = np.atleast_1d(np.asarray(lightcone.scale_factors))
-    shell_redshifts = 1.0 / scale_factors - 1.0
-
-    # Convert density (N/V) to particle counts (N) for Dorian
-    # Dorian's prepare_density_shells(unit='number_density') expects counts per pixel
-    if lightcone.comoving_centers is None or lightcone.density_width is None:
-        raise ValueError("Lightcone must have comoving_centers and density_width for raytracing")
-
-    comoving_centers = np.atleast_1d(np.asarray(lightcone.comoving_centers))
-    density_widths = np.atleast_1d(np.asarray(lightcone.density_width))
-
-    npix = 12 * nside**2
-    # Calculate pixel volume for each shell
-    # V_pix = (Omega_pix / 4pi) * V_shell = (1/npix) * (4/3 pi (Rmax^3 - Rmin^3))
-    # Note: density_maps is (n_shells, npix).
-
-    counts_maps = []
-    for i in range(len(density_maps)):
-        r = comoving_centers[i]
-        dr = density_widths[i]
-        rmax = r + dr / 2.0
-        rmin = max(0.0, r - dr / 2.0)
-        shell_vol = (4.0 / 3.0) * np.pi * (rmax**3 - rmin**3)
-        pixel_vol = shell_vol / npix
-
-        # density is N / V, so N = density * V
-        counts_maps.append(density_maps[i] * pixel_vol)
-
-    density_maps = np.stack(counts_maps)
-
-    # 6. Normalize nz_shear sources
+    # 3. Normalize sources — determines output shape at trace time
     source_kind, sources = _normalize_sources(nz_shear)
+    n_sources = len(sources) if source_kind == "distribution" else sources.shape[0]
+    npix = 12 * nside**2
+    result_shape = jax.ShapeDtypeStruct((n_sources, npix), jnp.float32)
 
-    # 7. Run ray-tracing
+    # 4. Closure + pure_callback — split by source_kind because "distribution"
+    #    objects are concrete Python (safe in closures) while "redshift" sources
+    #    are JAX arrays (tracers) and must be passed as explicit positional args.
     if source_kind == "distribution":
-        # For distributions: compute kappa on z_grid, then integrate with nz weights
-        z_grid = np.linspace(min_z, max_z, n_integrate + 1)
-        kappa_grid = _raytrace_z_grid(
-            density_maps,
-            shell_redshifts,
-            z_grid,
-            box_size,
-            n_particles,
-            omega_m,
-            h,
-            omega_l,
-            nside,
-            interp,
-            parallel_transport,
-            born=born,
-        )
-        kappa_maps = _integrate_nz(kappa_grid, z_grid, sources)
+
+        def _callback_dist(density_maps, scale_factors, density_widths, omega_m_val, h_val):
+            omega_m = float(omega_m_val)
+            h = float(h_val)
+            omega_l = 1.0 - omega_m
+            shell_redshifts = 1.0 / np.atleast_1d(np.asarray(scale_factors)) - 1.0
+            density_maps_np = np.asarray(density_maps)
+            density_widths_np = np.atleast_1d(np.asarray(density_widths))
+            z_grid = np.linspace(min_z, max_z, n_integrate + 1)
+            kappa_grid = _raytrace_z_grid(
+                density_maps_np,
+                shell_redshifts,
+                z_grid,
+                box_size,
+                n_particles,
+                omega_m,
+                h,
+                omega_l,
+                nside,
+                interp,
+                parallel_transport,
+                born=born,
+                shell_widths=density_widths_np,
+            )
+            # sources is a list of jc.redshift distributions — concrete Python, safe in closure
+            kappa_maps = _integrate_nz(kappa_grid, z_grid, sources)
+            return kappa_maps.astype(np.float32)
+
+        kappa = jax.pure_callback(_callback_dist, result_shape, lightcone.array, lightcone.scale_factors,
+                                  lightcone.density_width, cosmo.Omega_m, cosmo.h)
     else:
-        # For scalar redshifts: compute kappa directly at each z
-        kappa_maps = _raytrace_z_grid(
-            density_maps,
-            shell_redshifts,
-            sources,
-            box_size,
-            n_particles,
-            omega_m,
-            h,
-            omega_l,
-            nside,
-            interp,
-            parallel_transport,
-            born=born,
-        )
+
+        def _callback_z(density_maps, scale_factors, density_widths, omega_m_val, h_val, z_sources):
+            omega_m = float(omega_m_val)
+            h = float(h_val)
+            omega_l = 1.0 - omega_m
+            shell_redshifts = 1.0 / np.atleast_1d(np.asarray(scale_factors)) - 1.0
+            density_maps_np = np.asarray(density_maps)
+            density_widths_np = np.atleast_1d(np.asarray(density_widths))
+            # z_sources is passed as a positional arg — JAX materializes it as concrete numpy
+            z_sources_np = np.atleast_1d(np.asarray(z_sources))
+            kappa_maps = _raytrace_z_grid(
+                density_maps_np,
+                shell_redshifts,
+                z_sources_np,
+                box_size,
+                n_particles,
+                omega_m,
+                h,
+                omega_l,
+                nside,
+                interp,
+                parallel_transport,
+                born=born,
+                shell_widths=density_widths_np,
+            )
+            return kappa_maps.astype(np.float32)
+
+        kappa = jax.pure_callback(_callback_z, result_shape, lightcone.array, lightcone.scale_factors,
+                                  lightcone.density_width, cosmo.Omega_m, cosmo.h, sources)
 
     # Handle single source case - squeeze to 1D
-    if kappa_maps.shape[0] == 1:
-        kappa_maps = kappa_maps[0]
+    if n_sources == 1:
+        kappa = kappa[0]
 
-    # 8. Return SphericalKappaField
+    # 7. Return SphericalKappaField
     base_field = lightcone.replace(status=FieldStatus.KAPPA)
-    return SphericalKappaField.FromDensityMetadata(
-        array=jnp.asarray(kappa_maps),
+    kappa_field = SphericalKappaField.FromDensityMetadata(
+        array=kappa,
         field=base_field,
         status=FieldStatus.KAPPA,
+        unit=ConvergenceUnit.DIMENSIONLESS,
         z_sources=nz_shear,
     )
+
+    # Replace shell-level metadata (inherited from lightcone) with per-source-bin metadata
+    kappa_field = _attach_source_metadata(kappa_field, cosmo, source_kind, sources, min_z, max_z, n_integrate)
+    return kappa_field

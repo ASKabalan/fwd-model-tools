@@ -9,7 +9,9 @@ import numpyro.distributions as dist
 
 from .config import Configurations
 
+# TODO THIS FILE IS WIP
 
+# TODO USE THE CROSS POWER FROM THE LIGHTCLONE.py function instead
 def compute_cl_from_convergence_map(kappas, lmax):
     nb_bins = len(kappas)
     pair_order = sorted(combinations_with_replacement(range(nb_bins), 2))

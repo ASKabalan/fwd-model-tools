@@ -8,11 +8,11 @@ from typing import Union
 import healpy as hp
 import jax_cosmo as jc
 import numpy as np
+from jax_cosmo.parameters import Planck18
 
 from .._src.base._enums import FieldStatus
 from ..fields import SphericalDensity
 from ..fields.units import DensityUnit
-from ..parameters import Planck18
 from .catalog import Catalog
 
 PathLike = Union[str, Path]
