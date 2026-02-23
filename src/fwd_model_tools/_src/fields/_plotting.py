@@ -293,11 +293,7 @@ def resolve_particle_weights(
             "scale_factors": scale_factors,
             "comoving_centers": comoving_centers,
         }
-        attr_value = attr_map[attr_name]
-        if attr_value is None:
-            raise ValueError(f"Cannot use weights='{weights}': {attr_name} is None. "
-                             f"Set {attr_name} on the ParticleField before plotting.")
-        weights = attr_value
+        weights = attr_map[attr_name]
         if weights_title is None:
             weights_title = default_title
 
@@ -350,12 +346,7 @@ def generate_titles(
     """
     sfs = None
     if scale_factors is not None:
-        try:
-            # Handle JAX arrays, lists, or scalars by converting to numpy
-            sfs = np.atleast_1d(np.array(scale_factors))
-        except Exception:
-            # If conversion fails (e.g. tracer), ignore scale factors
-            pass
+        sfs = np.atleast_1d(np.array(scale_factors))
 
     titles = []
     for i in range(n_plots):
