@@ -94,6 +94,7 @@ class AbstractPytree(eqx.Module):
 
     # DO NOT IMPLEMENT THIS
     # IT BREAKS EQUINOX OMEGA
+    #TODO: implemented and make exception of other is of type Omega
     #def __pow__(self, other):
     #    return self.replace(array=self.array**other)
 
