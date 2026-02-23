@@ -32,8 +32,9 @@ class DensityField(AbstractField):
         super().__check_init__()
         # Validate array shape
         if not ((self.array.ndim == 3 and self.array.shape == self.mesh_size) or
-                (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size)):
-            raise ValueError("DensityField array must have shape (mesh_size) or (N, mesh_size), "
+                (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size) or
+                (self.array.ndim == 5 and self.array.shape[2:] == self.mesh_size)):
+            raise ValueError("DensityField array must have shape (mesh_size), (S, mesh_size), or (N, S, mesh_size), "
                              f"got array shape {self.array.shape} and mesh_size {self.mesh_size}")
         # Validate unit type
         if not isinstance(self.unit, DensityUnit):
@@ -42,14 +43,15 @@ class DensityField(AbstractField):
 
     def __getitem__(self, key) -> DensityField:
         """
-        Index into batched ParticleField.
+        Index into batched DensityField.
 
-        For a 5D array, slices the leading batch dimension.
+        For a 4D array (S, X, Y, Z), slices the snapshot dimension.
+        For a 5D array (N, S, X, Y, Z), slices the simulation-batch dimension.
         """
-        if self.array.ndim != 4:
-            raise ValueError("Indexing only supported for batched DensityField with 4D array, "
+        if self.array.ndim not in (4, 5):
+            raise ValueError("Indexing only supported for batched DensityField with 4D or 5D array, "
                              f"got array with {self.array.ndim} dimensions")
-        # Use the DensityField __getitem__ implementation (tree.map).
+        # Use the AbstractField __getitem__ implementation (tree.map).
         return super().__getitem__(key)
 
     # --------------------------------------------------------------- properties
@@ -279,8 +281,6 @@ class DensityField(AbstractField):
         arguments are forwarded verbatim to that helper.
         """
         box_shape = tuple(self.box_size)
-        multipoles_static = tuple(multipoles) if isinstance(multipoles, (list, tuple)) else multipoles
-        los_tuple = None if multipoles_static == 0 else tuple(np.asarray(los, dtype=float))
 
         data1 = self.array
         data2 = mesh2.array if mesh2 is not None else None
@@ -301,8 +301,8 @@ class DensityField(AbstractField):
                 arr2,
                 box_shape=box_shape,
                 kedges=kedges,
-                multipoles=multipoles_static,
-                los=los_tuple,
+                multipoles=multipoles,
+                los=los,
             )
 
         k, pk = jax.lax.map(_power_fn, (data1, data2), batch_size=batch_size)
@@ -473,3 +473,11 @@ class DensityField(AbstractField):
             array=jnp.full(field.mesh_size, fill_value),
             field=field,
         )
+
+    def is_batched(self) -> bool:
+        """Return True if the DensityField has a leading batch dimension (S or N×S)."""
+        return self.array.ndim in (4, 5)
+
+    def is_multi_batched(self) -> bool:
+        """Return True when the field has both a simulation-batch (N) and snapshot (S) dimension."""
+        return self.array.ndim == 5
