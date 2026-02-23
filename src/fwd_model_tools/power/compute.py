@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from functools import partial
 
+import jax
 import jax.numpy as jnp
 
 from .._src.power import _coherence, _cross_spherical_cl, _flat_cl, _power, _spherical_cl, _transfer
 
 
+@partial(jax.jit, static_argnames=["box_shape", "multipoles", "los"])
 def power(
         mesh,
         mesh2=None,

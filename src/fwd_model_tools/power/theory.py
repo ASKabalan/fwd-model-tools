@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import numbers
 from collections.abc import Callable, Iterable
+from functools import partial
 from typing import Union
 
+import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
 from jax.tree_util import register_pytree_node_class
@@ -74,9 +76,11 @@ def _resolve_nonlinear_fn(nonlinear_fn: str | Callable) -> Callable:
     """Resolve nonlinear_fn parameter to a callable."""
     if nonlinear_fn == "linear":
         return jc.power.linear
-    if callable(nonlinear_fn):
+    elif nonlinear_fn == "halofit":
+        return jc.power.halofit
+    elif callable(nonlinear_fn):
         return nonlinear_fn
-    raise ValueError(f"nonlinear_fn must be 'linear' or a callable, got {nonlinear_fn}")
+    raise ValueError(f"nonlinear_fn must be 'linear', 'halofit', or a callable, got {nonlinear_fn}")
 
 
 def _create_probe(
@@ -106,6 +110,7 @@ def _get_auto_indices(n_bins: int) -> jnp.ndarray:
     return jnp.where(rows == cols, size=n_bins)[0]
 
 
+@partial(jax.jit, static_argnames=["probe_type", "nonlinear_fn", "cross"])
 def compute_theory_cl(
     cosmo: jc.Cosmology,
     ell: jnp.ndarray,
@@ -177,6 +182,7 @@ def compute_theory_cl(
     Linear power spectrum:
     >>> cl_linear = compute_theory_cl(cosmo, ell, z_source=1.0, nonlinear_fn="linear")
     """
+    
     ell = jnp.asarray(ell)
     nz_list = _normalize_z_source(z_source)
     n_bins = len(nz_list)
