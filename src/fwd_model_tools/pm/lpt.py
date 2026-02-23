@@ -4,26 +4,30 @@ from functools import partial
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 import jax_cosmo as jc
 from jaxpm.distributed import uniform_particles
 from jaxpm.pm import lpt as jaxpm_lpt
 from jaxtyping import Array
 
 from ..fields import DensityField, FieldStatus, PaintingOptions, ParticleField, PositionUnit
-from ..utils import compute_particle_scale_factors, distances
+from ..utils import compute_particle_scale_factors
+from ._resolve_geometry import resolve_ts_geometry
 
 __all__ = ["lpt"]
 
 
-@partial(jax.jit, static_argnames=["order", "painting"])
-def lpt(cosmo: Any,
+@partial(jax.jit, static_argnames=["order", "nb_shells", "painting"])
+def lpt(
+        cosmo: Any,
         initial_field: DensityField,
-        scale_factor_spec,
         *,
+        ts=None,
+        nb_shells: int | None = None,
+        density_widths=None,
         order: int = 1,
         initial_particles: Array = None,
-        painting: PaintingOptions | None = None) -> tuple[Any, ParticleField]:
+        painting: PaintingOptions = PaintingOptions(target="particles"),
+) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
 
@@ -33,20 +37,43 @@ def lpt(cosmo: Any,
         Cosmology describing the background expansion.
     initial_field : DensityField
         Linear density field packaged with mesh metadata.
-    a : float or array-like
-        Scale factor(s) at which to evaluate the growth.
-        - If scalar: returns ParticleField displacements/momenta on the 3D mesh.
-        - If array: returns (FlatDensity lightcone, ParticleField momenta).
+    ts : float, 1-D array, or 2-D ``(2, N)`` array, optional
+        Scale factor specification.  Mutually exclusive with *nb_shells*.
+
+        - **scalar** (no *density_width*): snapshot mode — returns ``ParticleField``
+          displacements/momenta at that single epoch.
+        - **scalar + density_width**: single-shell lightcone.
+        - **1-D array**: shell-centre scale factors; widths derived from
+          ``distances()`` or broadcast from *density_width*.
+        - **2-D (2, N)**: near/far scale factors per shell; centres and widths
+          are derived automatically.
+
+    nb_shells : int, optional
+        Number of radial lightcone shells (alternative to *ts*).
+    density_width : float or array, optional
+        Override shell widths.  When *ts* is a scalar this activates
+        single-shell lightcone mode.
+    t1 : float, default=1.0
+        End time or detailed time specification. Used if *ts* and *nb_shells* are None.
     order : int, default=1
         LPT order (1 or 2 supported via underlying JAXPM implementation).
+    initial_particles : Array, optional
+        Custom initial particle positions.
+    painting : PaintingOptions, optional
+        Painting configuration for lightcone output.
 
     Returns
     -------
     tuple
-        If `a` is scalar:
-            (dx_field: ParticleField, p_field: ParticleField)
-        If `a` is an array (lightcone mode):
-            (flat_lightcone: FlatDensity, p_field: ParticleField)
+        If snapshot mode:
+            ``(dx_field: ParticleField, p_field: ParticleField)``
+        If lightcone mode:
+            ``(lightcone_field, p_field: ParticleField)``
+
+    Raises
+    ------
+    ValueError
+        If both *ts* and *nb_shells* are ``None``, or both are set.
     """
     if not isinstance(initial_field, DensityField):
         raise TypeError("initial_field must be a DensityField instance.")
@@ -56,8 +83,6 @@ def lpt(cosmo: Any,
         raise ValueError("initial_field must have status FieldStatus.INITIAL_FIELD.")
 
     if initial_particles is None:
-        # positions in GRID_RELATIVE (0..1 over the box) or GRID_ABSOLUTE indices,
-        # depending on your convention in PositionUnit.
         initial_particles = uniform_particles(initial_field.mesh_size, sharding=initial_field.sharding)
         user_defined_particles = False
     else:
@@ -68,44 +93,22 @@ def lpt(cosmo: Any,
         field=initial_field,
         unit=PositionUnit.GRID_ABSOLUTE,
     )
-    scale_factor_spec = jnp.asarray(scale_factor_spec)
-    r = jc.background.radial_comoving_distance(cosmo, scale_factor_spec)
-    if jnp.isscalar(scale_factor_spec):
-        a = jnp.atleast_1d(scale_factor_spec)
-        snapshot_r = None
-        density_plane_width = None
-    elif scale_factor_spec.size == 2:
-        a_near, a_far = scale_factor_spec
-        # Find center scale factor for lightcone shell
-        a = 0.5 * (a_near + a_far)
-        r_near, r_far = r[0], r[1]
-        snapshot_r = r[None, ...]
-        density_plane_width = (r_far - r_near)[None, ...]
-    # Snapshots at specific times
-    elif scale_factor_spec.ndim == 1:
+
+    ts_resolved, r_centers, density_widths, is_lightcone = resolve_ts_geometry(cosmo,
+                                                                               initial_field,
+                                                                               painting=painting,
+                                                                               ts=ts,
+                                                                               nb_shells=nb_shells,
+                                                                               density_widths=density_widths)
+
+    if is_lightcone:
         a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
-        # Width of bin i (centered at ri​):
-        # Set snap info
-        snapshot_r = r
-        density_plane_width = distances(r, initial_particles.max_comoving_radius)
-    # Snapshot at near a and far a for each shell
-    elif scale_factor_spec.ndim == 2:
-        a_near, a_far = scale_factor_spec[:, 0], scale_factor_spec[:, 1]
-        a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
-        r_near = jc.background.radial_comoving_distance(cosmo, a_near)
-        r_far = jc.background.radial_comoving_distance(cosmo, a_far)
-        # Set snap info
-        snapshot_r = 0.5 * (r_near + r_far)
-        density_plane_width = r_far - r_near
-    # User specified scale factors for each particle
-    elif scale_factor_spec.ndim == 3:
-        a = scale_factor_spec[..., None]
-        # No snapshot ..
-        # in this case we return only the displacements with the requested redshifts/scale factors
-        snapshot_r = None
-        density_plane_width = None
+        snapshot_r = r_centers
+        density_plane_width = density_widths
     else:
-        raise ValueError("scale_factor_spec has invalid shape.")
+        a = ts_resolved
+        snapshot_r = None
+        density_plane_width = None
 
     dx, p, _ = jaxpm_lpt(
         cosmo,
@@ -159,7 +162,8 @@ def lpt(cosmo: Any,
                 scale_factors=a_snapshot,
                 z_sources=z_snapshot,
             )
-            dx_field = dx_field[::-1]
+            if dx_field.is_batched():
+                dx_field = dx_field[::-1]
         elif target == "spherical":
             dx_field = dx_field.paint_spherical(
                 center=snapshot_r,
@@ -181,24 +185,23 @@ def lpt(cosmo: Any,
                 scale_factors=a_snapshot,
                 z_sources=z_snapshot,
             )
-            dx_field = dx_field[::-1]
+            if dx_field.is_batched():
+                dx_field = dx_field[::-1]
         elif target == "density":
-            dx_field = dx_field.paint(
-                weights=painting.weights if painting else 1.0,
-                chunk_size=painting.chunk_size if painting else 2**24,
-                batch_size=painting.batch_size if painting else None,
-            )
+            pass
         elif target == "particles":
             pass
         else:
             raise ValueError(f"Unknown painting target {target}.")
 
     else:
-        target = painting.target if painting is not None else "particles"
-        if target != "particles":
-            raise ValueError("painting.target must be 'particles' when scale_factor_spec is a scalar or 3D array.")
+        if painting.target not in ("particles", "density"):
+            raise ValueError(
+                f"Painting target {painting.target} is incompatible with snapshot mode. Use 'particles' or 'density'.")
+
+    if painting.target == "density":
+        dx_field = dx_field.paint(weights=painting.weights,
+                                  chunk_size=painting.chunk_size,
+                                  batch_size=painting.batch_size)
 
     return dx_field, p_field
-
-
-# ==========================================================

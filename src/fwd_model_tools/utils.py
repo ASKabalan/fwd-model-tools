@@ -180,49 +180,68 @@ def compute_particle_scale_factors(
 
 
 @jax.jit
-def edges(centers, r_start=None):
+def edges(centers, r_left=None):
     """
-    Reconstructs all edges from centers.
-
-    Args:
-        centers: Array of center points.
-        r_start: (Optional) The starting edge coordinate.
-                 If None, assumes equal spacing between the first two points
-                 to derive the start.
-
-    Returns:
-        Array of edges (length = len(centers) + 1)
+    Computes (2, N) edges from centers.
+    Guarantees identical physical grids for ascending and descending inputs.
+    Row 0: Left edges (minimums)
+    Row 1: Right edges (maximums)
     """
-    # 1. Handle the 'None' case (Assumption: Equal Spacing)
-    # If spacing is equal: r[0] = c[0] - (half_width)
-    # half_width approx = (c[1] - c[0]) / 2
-    # r[0] = c[0] - 0.5 * (c[1] - c[0])  =>  1.5 * c[0] - 0.5 * c[1]
-    if r_start is None:
-        r_start = 1.5 * centers[0] - 0.5 * centers[1]
+    is_descending = centers[0] > centers[-1]
 
+    # 1. Flip to always work left-to-right (ascending)
+    c_asc = jnp.where(is_descending, centers[::-1], centers)
+
+    # 2. Calculate the physical left boundary anchor
+    if r_left is None:
+        r_left = 1.5 * c_asc[0] - 0.5 * c_asc[1]
+
+    # 3. Compute sequentially left-to-right
     def step_fn(r_prev, c):
         r_next = 2 * c - r_prev
-        return r_next, r_next  # carry, output
+        return r_next, r_next
 
-    _, edges_tail = jax.lax.scan(step_fn, r_start, centers)
-    return jnp.concatenate([jnp.atleast_1d(r_start), edges_tail])
+    _, edges_tail = jax.lax.scan(step_fn, r_left, c_asc)
+    edges_1d = jnp.concatenate([jnp.atleast_1d(r_left), edges_tail])
+
+    # 4. Extract left and right pairs
+    left_asc = edges_1d[:-1]
+    right_asc = edges_1d[1:]
+
+    # 5. Reverse the pairs back if the input was descending
+    left_final = jnp.where(is_descending, left_asc[::-1], left_asc)
+    right_final = jnp.where(is_descending, right_asc[::-1], right_asc)
+
+    # Returns shape (2, N)
+    return jnp.stack([left_final, right_final], axis=0)
 
 
 @jax.jit
-def distances(centers, r_start=None):
+def distances(centers, r_left=None):
     """
-    Computes cell widths (distances) from centers.
-    Calls get_edges internally.
+    Computes absolute cell widths from centers.
+    Output order perfectly matches the input centers.
     """
-    r = edges(centers, r_start)
-    return jnp.abs(r[1:] - r[:-1])
+    e = edges(centers, r_left)
+
+    # Edges guarantees Row 1 is always the right edge, Row 0 is the left.
+    return e[1] - e[0]
 
 
 @jax.jit
-def centers(distances, r_start):
+def centers(distances, r_left, is_descending=False):
     """
-    Computes centers from edges.
-    Calls get_edges internally.
+    Computes centers from absolute distances.
+    Builds the grid left-to-right to maintain physical symmetry.
     """
-    r_edges = jnp.concatenate([jnp.atleast_1d(r_start), r_start + jnp.cumsum(distances)])
-    return 0.5 * (r_edges[1:] + r_edges[:-1])
+    # 1. Ensure we are building the distances from left-to-right
+    d_asc = jnp.where(is_descending, distances[::-1], distances)
+
+    # 2. Build the contiguous edges
+    r_edges = jnp.concatenate([jnp.atleast_1d(r_left), r_left + jnp.cumsum(d_asc)])
+
+    # 3. Calculate ascending midpoints
+    c_asc = 0.5 * (r_edges[1:] + r_edges[:-1])
+
+    # 4. Flip back to match original order
+    return jnp.where(is_descending, c_asc[::-1], c_asc)
