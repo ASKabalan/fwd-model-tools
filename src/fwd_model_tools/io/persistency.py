@@ -126,17 +126,32 @@ def load_sharded(
     >>> data = load_sharded("checkpoint_path", sharding=get_sharding)
     """
     path = Path(path).absolute()
+    loaded_from_pkl = False
+    sharded_leaves = None
 
     if abstract_pytree is None:
         structure_path = Path(f"{path}_structure.pkl").absolute()
         with open(structure_path, "rb") as f:
             abstract_pytree, sharded_leaves = pickle.load(f)
+        loaded_from_pkl = True
 
-    # Apply sharding to abstract pytree
-    if sharding is not None:
+    # Apply sharding to abstract pytree (only possible when sharded_leaves is available)
+    if sharding is not None and sharded_leaves is not None:
         abstract_pytree = _apply_sharding_to_abstract_pytree(abstract_pytree, sharded_leaves, sharding)
+
+    checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
+
+    if not loaded_from_pkl:
+        # abstract_pytree was provided by the caller (e.g. batched_sampling).
+        # Do NOT swallow errors — structural mismatches must propagate so the
+        # caller can provide a clear error message.
+        restored = checkpointer.restore(path, args=ocp.args.StandardRestore(abstract_pytree))
+        checkpointer.wait_until_finished()
+        return restored
+
+    # abstract_pytree was loaded from the pkl structure file — retry with
+    # default sharding on failure (handles topology changes like 8-CPU → 1-GPU).
     try:
-        checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
         restored = checkpointer.restore(path, args=ocp.args.StandardRestore(abstract_pytree))
         checkpointer.wait_until_finished()
         return restored

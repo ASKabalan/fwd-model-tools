@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tarfile
 from pathlib import Path
 from typing import Union
 
@@ -95,8 +96,7 @@ def load_cosmogrid_lc(
     Catalog
         Contains SphericalDensity field and jc.Cosmology.
     """
-    if baryonified:
-        raise NotImplementedError("Baryonified shells not yet supported")
+    archive_name = "baryonified_shells.npz" if baryonified else "compressed_shells.npz"
 
     # Only one filter allowed
     if (max_shells, max_redshift, max_comoving_distance).count(None) < 2:
@@ -105,9 +105,9 @@ def load_cosmogrid_lc(
     run_dir = Path(path).resolve()
 
     # Load compressed shells
-    npz_file = run_dir / "compressed_shells.npz"
+    npz_file = run_dir / archive_name
     if not npz_file.exists():
-        raise FileNotFoundError(f"compressed_shells.npz not found in {run_dir}")
+        raise FileNotFoundError(f"{archive_name} not found in {run_dir}")
     if ud_nside == 512:
         npz_file = run_dir / "shells_nside=512.npz"
 
@@ -137,8 +137,40 @@ def load_cosmogrid_lc(
     upper_com = shell_info["upper_com"]
     shell_com = shell_info["shell_com"]
 
-    # Box size from max comoving distance
-    box_size = float(np.max(upper_com))
+    # Parse cosmology.par for simulation specs
+    cosmo_par_file_tar = run_dir / "param_files.tar.gz"
+    cosmo_par_file_flat = run_dir / "param_files" / "cosmology.par"
+
+    sim_specs = {}
+
+    if cosmo_par_file_flat.exists():
+        with open(cosmo_par_file_flat) as f:
+            for line in f:
+                line = line.split("#")[0].strip()
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    sim_specs[key.strip()] = val.strip()
+    elif cosmo_par_file_tar.exists():
+        with tarfile.open(cosmo_par_file_tar, "r:gz") as tar:
+            try:
+                member = tar.getmember("cosmology.par")
+                f = tar.extractfile(member)
+                if f is not None:
+                    content = f.read().decode("utf-8")
+                    for line in content.splitlines():
+                        line = line.split("#")[0].strip()
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            sim_specs[key.strip()] = val.strip()
+            except KeyError:
+                pass
+
+    # Box size and grid size from params
+    # Fallback to max comoving distance for box size if not found
+    d_box_size = float(sim_specs.get("dBoxSize", np.max(upper_com)))
+    n_grid = int(sim_specs.get("nGrid", 0))
+
+    box_size = d_box_size
 
     # Create mask based on filter
     if max_shells is not None:
@@ -169,7 +201,11 @@ def load_cosmogrid_lc(
         ud_nside = nside
 
     # Build SphericalDensity for each shell
-    mesh_size = (int(box_size), int(box_size), int(box_size))
+    if n_grid > 0:
+        mesh_size = (n_grid, n_grid, n_grid)
+    else:
+        mesh_size = (int(box_size), int(box_size), int(box_size))
+
     box_tuple = (box_size, box_size, box_size)
 
     sph_maps = []
@@ -241,7 +277,7 @@ def _nz_metadata(nz_obj, cosmo: jc.Cosmology) -> tuple[float, float, float]:
     chi_near = float(jc.background.radial_comoving_distance(cosmo, jnp.atleast_1d(1.0 / (1.0 + z_min)))[0])
     density_width = chi_far - chi_near
 
-    return scale_factor, comoving_center, density_width
+    return z_eff, scale_factor, comoving_center, density_width
 
 
 def _find_nz_support(zcat: np.ndarray, weight: np.ndarray, frac: float = 1e-3) -> tuple[float, float]:
@@ -309,7 +345,7 @@ def _resolve_cosmogrid_cosmology(path: Path) -> jc.Cosmology:
 
     # Look up the cosmology row by matching path_par containing the cosmo ID
     with h5py.File(metainfo_path, "r") as f:
-        params = f["parameters/all"]
+        params = f["parameters/grid"]
         path_pars = params["path_par"]
         row = None
         for i in range(len(path_pars)):
@@ -339,7 +375,6 @@ def _resolve_cosmogrid_cosmology(path: Path) -> jc.Cosmology:
 
 def load_cosmogrid_kappa(
     path: PathLike,
-    cosmology: jc.Cosmology | Catalog | None = None,
     *,
     baryonified: bool = False,
     probe: str = "kg",
@@ -379,12 +414,7 @@ def load_cosmogrid_kappa(
         raise FileNotFoundError(f"{h5_name} not found in {path}")
 
     # Resolve cosmology
-    if cosmology is None:
-        cosmo = _resolve_cosmogrid_cosmology(path)
-    elif isinstance(cosmology, Catalog):
-        cosmo = cosmology.cosmology
-    else:
-        cosmo = cosmology
+    cosmo = _resolve_cosmogrid_cosmology(path)
 
     # Determine bins
     if bins is None:
@@ -403,7 +433,7 @@ def load_cosmogrid_kappa(
             nside = jhp.npix2nside(len(data))
 
             nz_bin = nz_shear[bin_idx - 1]  # bins are 1-indexed
-            a_eff, chi_center, dwidth = _nz_metadata(nz_bin, cosmo)
+            z_eff, a_eff, chi_center, dwidth = _nz_metadata(nz_bin, cosmo)
 
             kappa_map = SphericalKappaField(
                 array=jnp.asarray(data, dtype=jnp.float32),
@@ -413,10 +443,10 @@ def load_cosmogrid_kappa(
                 sharding=None,
                 halo_size=(0, 0),
                 nside=nside,
-                z_sources=nz_bin,
-                scale_factors=jnp.array([a_eff]),
-                comoving_centers=jnp.array([chi_center]),
-                density_width=jnp.array([dwidth]),
+                z_sources=z_eff,
+                scale_factors=a_eff,
+                comoving_centers=chi_center,
+                density_width=dwidth,
                 status=FieldStatus.KAPPA,
                 unit=ConvergenceUnit.DIMENSIONLESS,
             )
