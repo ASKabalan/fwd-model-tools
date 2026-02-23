@@ -53,11 +53,13 @@ class ParticleField(AbstractField):
         # concrete array, so avoid forcing a materialization in that case.
         if self.array is not None:
             array_shape = getattr(self.array, "shape", ())
-            if not ((len(array_shape) == 4 and array_shape[-1] == 3) or (len(array_shape) == 5 and array_shape[-1] == 3)
+            if not ((len(array_shape) == 4 and array_shape[-1] == 3) or
+                    (len(array_shape) == 5 and array_shape[-1] == 3) or (len(array_shape) == 6 and array_shape[-1] == 3)
                     or array_shape == ()  # diffrax term compatibility traces shape ()
                     ):
                 raise ValueError(
-                    f"ParticleField array must have shape (X, Y, Z, 3) or (N, X, Y, Z, 3); got shape {array_shape}")
+                    f"ParticleField array must have shape (X, Y, Z, 3), (S, X, Y, Z, 3), or (N, S, X, Y, Z, 3); "
+                    f"got shape {array_shape}")
 
             if not isinstance(self.unit, PositionUnit):
                 raise TypeError(f"ParticleField.unit must be a PositionUnit, got {self.unit!r}")
@@ -68,12 +70,13 @@ class ParticleField(AbstractField):
         """
         Index into batched ParticleField.
 
-        For a 5D array, slices the leading batch dimension.
+        For a 5D array (S, X, Y, Z, 3), slices the snapshot dimension.
+        For a 6D array (N, S, X, Y, Z, 3), slices the simulation-batch dimension.
         """
-        if self.array.ndim != 5:
-            raise ValueError("Indexing only supported for batched ParticleField (5D array); "
+        if self.array.ndim not in (5, 6):
+            raise ValueError("Indexing only supported for batched ParticleField (5D or 6D array); "
                              f"got array with {self.array.ndim} dimensions")
-        # Use the DensityField __getitem__ implementation (tree.map).
+        # Use the AbstractField __getitem__ implementation (tree.map).
         return super().__getitem__(key)
 
         # ------------------------------------------------------------------ unit conversion
@@ -239,10 +242,7 @@ class ParticleField(AbstractField):
 
         self = self.to(PositionUnit.GRID_ABSOLUTE)  # ensure absolute for 2D painting
 
-        jax.debug.inspect_array_sharding(self.array, callback=lambda sharding: print("self.array sharding:", sharding))
         data = jnp.asarray(self.array)
-        jax.debug.inspect_array_sharding(self.array,
-                                         callback=lambda sharding: print("self.array sharding after cast:", sharding))
         center_arr = jnp.atleast_1d(center)
         width_arr = jnp.atleast_1d(density_plane_width)
         if width_arr.shape != center_arr.shape:
@@ -294,8 +294,6 @@ class ParticleField(AbstractField):
                 _single_paint_2d,
                 **kwargs,
             )
-
-        jax.debug.inspect_array_sharding(data, callback=lambda sharding: print("data sharding before map:", sharding))
         carry = (center_arr, width_arr) if LIGHTCONE_MODE else (data, center_arr, width_arr)
 
         painted = jax.lax.map(paint_fn, carry, batch_size=batch_size)
@@ -617,3 +615,11 @@ class ParticleField(AbstractField):
             array=jnp.full((field.mesh_size + (3, )), fill_value),
             field=field,
         )
+
+    def is_batched(self) -> bool:
+        """Return True if the ParticleField has a leading batch dimension (S or N×S)."""
+        return self.array.ndim in (5, 6)
+
+    def is_multi_batched(self) -> bool:
+        """Return True when the field has both a simulation-batch (N) and snapshot (S) dimension."""
+        return self.array.ndim == 6

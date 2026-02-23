@@ -169,9 +169,6 @@ def _single_paint_2d(
 
     xy = positions[..., :2]
     dz = positions[..., 2]
-    jax.debug.inspect_array_sharding(positions, callback=lambda sharding: print("positions sharding:", sharding))
-    jax.debug.inspect_array_sharding(xy, callback=lambda sharding: print("xy sharding:", sharding))
-    jax.debug.inspect_array_sharding(dz, callback=lambda sharding: print("dz sharding:", sharding))
 
     # Scale xy coordinates from mesh grid to flatsky_npix grid
     scale_x = flatsky_npix[0] / nx
@@ -344,5 +341,6 @@ def _single_paint_spherical(
         ud_grade_order_in=ud_grade_order_in,
         ud_grade_order_out=ud_grade_order_out,
         ud_grade_pess=ud_grade_pess,
+        sharding=sharding,
     )
     return painted

@@ -31,8 +31,10 @@ class FlatDensity(AbstractField):
             spatial_shape = self.array.shape
         elif self.array.ndim == 3:
             spatial_shape = self.array.shape[-2:]
+        elif self.array.ndim == 4:
+            spatial_shape = self.array.shape[-2:]
         else:
-            raise ValueError("FlatDensity array must have shape (ny, nx) or (n_planes, ny, nx).")
+            raise ValueError("FlatDensity array must have shape (ny, nx), (S, ny, nx), or (N, S, ny, nx).")
         # Validate required fields
         if self.flatsky_npix is None:
             raise ValueError("FlatDensity requires `flatsky_npix`.")
@@ -42,7 +44,7 @@ class FlatDensity(AbstractField):
 
     def __getitem__(self, key) -> FlatDensity:
         if self.array.ndim < 3:
-            raise ValueError(f"Indexing only supported for batched FlatDensity (3D array), "
+            raise ValueError(f"Indexing only supported for batched FlatDensity (3D or 4D array), "
                              f"got array with {self.array.ndim} dimensions")
         return super().__getitem__(key)
 
@@ -427,6 +429,14 @@ class FlatDensity(AbstractField):
             field=field,
         )
 
+    def is_batched(self) -> bool:
+        """Return True if the FlatDensity has a leading batch dimension (S or N×S)."""
+        return self.array.ndim in (3, 4)
+
+    def is_multi_batched(self) -> bool:
+        """Return True when the field has both a simulation-batch (N) and snapshot (S) dimension."""
+        return self.array.ndim == 4
+
 
 class SphericalDensity(AbstractField):
     """Spherical (HEALPix) density or shear maps produced from simulations."""
@@ -444,8 +454,8 @@ class SphericalDensity(AbstractField):
             array_shape = getattr(self.array, "shape", ())
             npix = jhp.nside2npix(self.nside)
             if array_shape != ():
-                if len(array_shape) not in (1, 2):
-                    raise ValueError(f"SphericalDensity array must have shape (npix,) or (B, npix), "
+                if len(array_shape) not in (1, 2, 3):
+                    raise ValueError(f"SphericalDensity array must have shape (npix,), (S, npix), or (N, S, npix), "
                                      f"got {len(array_shape)}D array with shape {array_shape}.")
                 if array_shape[-1] != npix:
                     raise ValueError(f"Array last dimension {array_shape[-1]} does not match "
@@ -453,7 +463,7 @@ class SphericalDensity(AbstractField):
 
     def __getitem__(self, key) -> SphericalDensity:
         if self.array.ndim < 2:
-            raise ValueError(f"Indexing only supported for batched SphericalDensity (2D array), "
+            raise ValueError(f"Indexing only supported for batched SphericalDensity (2D or 3D array), "
                              f"got array with {self.array.ndim} dimensions")
         return super().__getitem__(key)
 
@@ -823,3 +833,11 @@ class SphericalDensity(AbstractField):
             array=jnp.full((jhp.nside2npix(field.nside), ), fill_value),
             field=field,
         )
+
+    def is_batched(self) -> bool:
+        """Return True if the SphericalDensity has a leading batch dimension (S or N×S)."""
+        return self.array.ndim in (2, 3)
+
+    def is_multi_batched(self) -> bool:
+        """Return True when the field has both a simulation-batch (N) and snapshot (S) dimension."""
+        return self.array.ndim == 3
