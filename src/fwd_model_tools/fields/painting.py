@@ -65,14 +65,14 @@ class PaintingOptions(eqx.Module):
     --------
     >>> # Spherical painting with bilinear interpolation
     >>> painting = PaintingOptions(target="spherical", scheme="bilinear")
-    >>> lightcone = lpt(cosmo, field, a, painting=painting)
+    >>> lightcone = lpt(cosmo, field, ts=a_centers, painting=painting)
 
     >>> # Flat-sky painting
     >>> painting = PaintingOptions(target="flat")
-    >>> lightcone = nbody(cosmo, dx, p, painting=painting)
+    >>> lightcone = nbody(cosmo, dx, p, nb_shells=10, painting=painting)
 
     >>> # Return particles directly (default behavior when painting=None)
-    >>> dx, p = lpt(cosmo, field, a)
+    >>> dx, p = lpt(cosmo, field, ts=0.1)
     """
 
     # Output target
@@ -94,6 +94,3 @@ class PaintingOptions(eqx.Module):
     # Shared
     weights: Optional[Array | float] = 1.0
     batch_size: Optional[int] = eqx.field(static=True, default=None)
-
-    # Physics
-    drift_on_lightcone: bool = eqx.field(static=True, default=False)
