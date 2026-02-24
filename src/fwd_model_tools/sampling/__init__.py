@@ -1,19 +1,19 @@
 """Sampling utilities and distributed persistency helpers."""
 
-from .batched_sampling import batched_sampling
-from .catalog_io import load_samples
+from .analyze import analyze, requires_arviz
+from .batched_sampling import batched_sampling, requires_samplers
 from .dist import DistributedIC, DistributedNormal, PreconditionnedUniform
-from .plot import plot_chains, plot_ess, plot_ic, plot_pair, plot_rhat
+from .posterior import build_mcsamples, plot_posterior, requires_getdist
 
 __all__ = [
     "DistributedIC",
     "DistributedNormal",
     "PreconditionnedUniform",
+    "analyze",
     "batched_sampling",
-    "load_samples",
-    "plot_ic",
-    "plot_chains",
-    "plot_ess",
-    "plot_rhat",
-    "plot_pair",
+    "build_mcsamples",
+    "plot_posterior",
+    "requires_arviz",
+    "requires_blackjax",
+    "requires_getdist",
 ]
