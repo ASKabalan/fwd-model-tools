@@ -182,7 +182,7 @@ def compute_theory_cl(
     Linear power spectrum:
     >>> cl_linear = compute_theory_cl(cosmo, ell, z_source=1.0, nonlinear_fn="linear")
     """
-    
+
     ell = jnp.asarray(ell)
     nz_list = _normalize_z_source(z_source)
     n_bins = len(nz_list)
