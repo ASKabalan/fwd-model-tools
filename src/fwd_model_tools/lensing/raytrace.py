@@ -46,21 +46,21 @@ def require_dorian(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
     return deferred_func
 
 
-def _raytrace_z_grid(
-    density_maps: np.ndarray,
-    shell_redshifts: np.ndarray,
-    z_sources: np.ndarray,
-    box_size: float,
-    n_particles: int,
-    omega_m: float,
-    h: float,
-    omega_l: float,
-    nside: int,
-    interp: str,
-    parallel_transport: bool,
-    born: bool,
-    shell_widths: np.ndarray | None = None,
-) -> np.ndarray:
+def _raytrace_z_grid(density_maps: np.ndarray,
+                     shell_redshifts: np.ndarray,
+                     z_sources: np.ndarray,
+                     box_size: float,
+                     n_particles: int,
+                     omega_m: float,
+                     h: float,
+                     omega_l: float,
+                     nside: int,
+                     interp: str,
+                     parallel_transport: bool,
+                     born: bool,
+                     shell_widths: np.ndarray | None = None,
+                     nufft_threads: int = 4,
+                     n_workers=None) -> np.ndarray:
     """Run dorian ray-tracing for each source redshift.
 
     Parameters
@@ -97,25 +97,22 @@ def _raytrace_z_grid(
     np.ndarray
         Convergence maps, shape (n_sources, npix).
     """
-    kappa_list = []
-    for z_s in z_sources:
-        result = raytrace_from_density(
-            density_maps=list(density_maps),
-            redshifts=list(shell_redshifts),
-            z_source=float(z_s),
-            box_size=box_size,
-            n_particles=n_particles,
-            omega_m=omega_m,
-            h=h,
-            omega_l=omega_l,
-            nside=nside,
-            interp=interp,
-            shell_widths=list(shell_widths) if shell_widths is not None else None,
-            parallel_transport=parallel_transport,
-        )
-        res = result["convergence_born" if born else "convergence_raytraced"]
-        kappa_list.append(res)
-    return np.stack(kappa_list, axis=0)
+    result = raytrace_from_density(
+        density_maps=list(density_maps),
+        redshifts=list(shell_redshifts),
+        z_source=list(z_sources),
+        box_size=box_size,
+        n_particles=n_particles,
+        omega_m=omega_m,
+        h=h,
+        omega_l=omega_l,
+        nside=nside,
+        interp=interp,
+        shell_widths=list(shell_widths) if shell_widths is not None else None,
+        parallel_transport=parallel_transport,
+        n_workers=n_workers,
+    )
+    return result["convergence_born" if born else "convergence_raytraced"]
 
 
 def _integrate_nz(
@@ -160,9 +157,11 @@ def raytrace(
     min_z=0.01,
     max_z=3.0,
     n_integrate=32,
+    # Dorian options
     interp="bilinear",
     parallel_transport=True,
     born=False,
+    n_workers=None,
 ):
     """Multi-plane ray-tracing using dorian.
 
@@ -245,9 +244,12 @@ def raytrace(
     born : Born approximation (faster, fully-JAX, no post-Born corrections).
     """
     if jax.process_count() > 1:
-        raise NotImplementedError(
-            "raytrace() does not currently support multi-process execution. Run with a single process (e.g. --pdim 1 1) or use the born() function for multi-process compatibility."
-        )
+        raise NotImplementedError("""
+            raytrace() does not support multi-process execution.
+            Run with a single process (e.g. --pdim 1 1) or use the born() function for multi-process compatibility.
+            However it supports multi-processing by setting n_workers > 1, which uses multiprocessing within the dorian callback.
+            It does not support the JAX multi-process model where the entire function is replicated across processes
+            """)
     # 1. Validate on static metadata — safe inside JIT
     if lightcone.status != FieldStatus.LIGHTCONE:
         raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
@@ -294,6 +296,7 @@ def raytrace(
                 parallel_transport,
                 born=born,
                 shell_widths=density_widths_np,
+                n_workers=n_workers,
             )
             # sources is a list of jc.redshift distributions — concrete Python, safe in closure
             kappa_maps = _integrate_nz(kappa_grid, z_grid, sources)
