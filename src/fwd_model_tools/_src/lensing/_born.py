@@ -169,17 +169,15 @@ def _born_flat(
             kappa_maps.append(simps(integrand_fn, min_z, max_z, N=n_integrate))
         kappa_maps = jnp.stack(kappa_maps, axis=0)
     else:
-        kappa_maps = [
-            _born_core_impl(
-                cosmo,
-                lightcone.array,
-                r_center,
-                scale_factors,
-                z,
-                density_plane_width,
-                pixel_size=pixel_size,
-                field_size=field_size_tuple,
-            ) for z in sources
-        ]
+        kappa_maps = _born_core_impl(
+            cosmo,
+            lightcone.array,
+            r_center,
+            scale_factors,
+            sources,
+            density_plane_width,
+            pixel_size=pixel_size,
+            field_size=field_size_tuple,
+        )
 
-    return list(zip(sources, kappa_maps))
+    return kappa_maps
