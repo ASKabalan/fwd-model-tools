@@ -1,5 +1,5 @@
-#!/bin/bash  
-  
+#!/bin/bash
+
 
 
 CHAINS=(0)
@@ -17,6 +17,6 @@ for chain in "${CHAINS[@]}"; do
             --num-samples 10 \
             --seed $batch \
             --path test_ffi_samples/chain_$chain \
-            --batch-id $batch 
+            --batch-id $batch
     done
 done
