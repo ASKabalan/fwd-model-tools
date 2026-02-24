@@ -250,6 +250,7 @@ def extract_catalog(
                 cosmo_lists[key][chain_idx].append(float(getattr(cosmo, key)))
 
             # --- density field (cast to float64 for stable accumulation) ---
+            # Welfords online mean calculating is iterative and relies on the arithmetic operators of the object, so we convert to numpy arrays here to ensure all intermediate calculations are done in float64 precision.
             field = catalog.field[0].apply_fn(lambda x: np.asarray(x, dtype=np.float64))
 
             # --- field statistics ---
