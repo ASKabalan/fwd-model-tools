@@ -19,7 +19,7 @@ if [ -z "$SLURM_SCRIPT" ]; then
 fi
 
 # Simulation fixed parameters
-NZ_SHEAR="s3" 
+NZ_SHEAR="s3"
 SIMULATION_TYPE='nbody' # can also be lpt or lensing
 NSIDE=512
 NB_SHELLS=10
@@ -64,24 +64,24 @@ run_simulations() {
     # Loop 1: Box Sizes
     for BOX in "${BOX_SIZES[@]}"; do
         BOX_NAME=${BOX// /x}
-        BOX_NAME=${BOX_NAME//.0/} 
+        BOX_NAME=${BOX_NAME//.0/}
 
         # Loop 2: Mesh and Halo Sizes (Iterated together using array index)
         for i in "${!MESH_SIZES[@]}"; do
             MESH="${MESH_SIZES[$i]}"
             HALO="${HALO_SIZES[$i]}"
-            
+
             MESH_NAME=${MESH// /x}
 
             # Loop 3: Omega_c
             for OC in "${OMEGA_C[@]}"; do
-                
+
                 # Loop 4: sigma8
                 for S8 in "${SIGMA_8[@]}"; do
-                    
+
                     # Loop 5: Seed
                     for SD in "${SEED[@]}"; do
-                        
+
                         JOB_NAME="cosmo_M${MESH_NAME}_B${BOX_NAME}_Oc${OC}_S8${S8}_s${SD}"
 
                         echo "Submitting $JOB_NAME"
@@ -93,7 +93,7 @@ run_simulations() {
                         sbatch $BASE_SBATCH_ARGS \
                             --job-name="$JOB_NAME" \
                             --output="$OUTPUT_DIR/%x_%j.out" \
-                            $SLURM_SCRIPT ffi-simulate $SIMULATION_TYPE \
+                            $SLURM_SCRIPT LOGS ffi-simulate $SIMULATION_TYPE \
                             --mesh-size $MESH \
                             --box-size $BOX \
                             --pdim $PX $PY \
@@ -113,7 +113,7 @@ run_simulations() {
                             --h 0.6774 \
                             --output "$OUT_PARQUET_FILE"
 
-                            
+
                     done
                 done
             done
