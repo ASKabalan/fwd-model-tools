@@ -478,7 +478,7 @@ class Catalog(eqx.Module):
             raise ValueError("Cannot reconstruct Catalog from an empty dataset.")
 
         if isinstance(ds, dict):
-            f , c , v = _row_to_field_cosmo(ds)
+            f, c, v = _row_to_field_cosmo(ds)
             return cls(field=[f], cosmology=[c], version=v)
         elif isinstance(ds, datasets.Dataset | datasets.IterableDataset):
             ds_jax = ds.with_format("jax")

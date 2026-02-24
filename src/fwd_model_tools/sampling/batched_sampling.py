@@ -1,21 +1,52 @@
 """Batched MCMC sampling utilities."""
 
+from __future__ import annotations
+
 import os
 from collections.abc import Callable
-from functools import partial
+from functools import partial, wraps
+from typing import ParamSpec, TypeVar
 
-import blackjax
 import jax
 import jax.numpy as jnp
-import numpyro
 import orbax.checkpoint as ocp
 from jaxtyping import Key, PyTree
-from numpyro.infer import HMC, MCMC, NUTS
-from numpyro.infer.util import initialize_model
 
 from ..io import load_sharded, save_sharded
 
+try:
+    import blackjax
+    import numpyro
+    from numpyro.infer import HMC, MCMC, NUTS
+    from numpyro.infer.util import initialize_model
+except ImportError:
+    pass
 
+__all__ = ["batched_sampling", "requires_blackjax", "requires_numpyro"]
+
+_Param = ParamSpec("_Param")
+_Return = TypeVar("_Return")
+
+
+def requires_samplers(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]:
+    """Decorator that raises ImportError when 'blackjax' is not installed."""
+    try:
+        import blackjax  # noqa: F401
+        import numpyro  # noqa: F401
+
+        return func
+    except ImportError:
+        pass
+
+    @wraps(func)
+    def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
+        raise ImportError("Missing optional dependency 'blackjax'. "
+                          "Install with: pip install fwd-model-tools[sampling]")
+
+    return _deferred
+
+
+@requires_samplers
 def batched_sampling(
     model,
     path: str,
@@ -245,5 +276,3 @@ def batched_sampling(
             inference_state = {"nb_samples": jnp.array(nb_samples), "last_state": last_state, "parameters": parameters}
             save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
         del samples
-
-

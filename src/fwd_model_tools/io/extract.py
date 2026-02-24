@@ -31,10 +31,8 @@ def requires_datasets(func: Callable[_Param, _Return]) -> Callable[_Param, _Retu
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError(
-            "Missing optional dependency 'datasets'. "
-            "Install with: pip install fwd-model-tools[catalog]"
-        )
+        raise ImportError("Missing optional dependency 'datasets'. "
+                          "Install with: pip install fwd-model-tools[catalog]")
 
     return _deferred
 
@@ -111,11 +109,9 @@ def _detect_chains(path: Path) -> list[str]:
             chains.append(str(chain_samples_dir / "*.parquet"))
 
     if not chains:
-        raise FileNotFoundError(
-            f"No parquet files found under '{path}'. "
-            "Expected either 'path/samples/*.parquet' (single chain) "
-            "or 'path/chain_N/samples/*.parquet' (multi-chain)."
-        )
+        raise FileNotFoundError(f"No parquet files found under '{path}'. "
+                                "Expected either 'path/samples/*.parquet' (single chain) "
+                                "or 'path/chain_N/samples/*.parquet' (multi-chain).")
     return chains
 
 
@@ -127,7 +123,7 @@ class CatalogExtract(eqx.Module):
     this module is a plain data container (never JIT-compiled through).
     """
 
-    name : str = eqx.field(static=True)  # for pretty printing
+    name: str = eqx.field(static=True)  # for pretty printing
     cosmo: dict  # {key: np.ndarray (n_chains, n_samples)}
     true_ic: Optional[DensityField] = None  # reference IC if provided
     mean_field: Optional[DensityField] = None  # array shape (n_chains, X, Y, Z)
@@ -163,17 +159,12 @@ class CatalogExtract(eqx.Module):
 
         new_cosmo = {k: np.asarray(v)[idx] for k, v in self.cosmo.items()}
 
-        new_mean_field = (
-            self.mean_field.replace(array=self.mean_field.array[idx]) if self.mean_field is not None else None
-        )
-        new_std_field = (
-            self.std_field.replace(array=self.std_field.array[idx]) if self.std_field is not None else None
-        )
-        new_power_spectra = (
-            tuple(ps.replace(array=ps.array[idx]) for ps in self.power_spectra)
-            if self.power_spectra is not None
-            else None
-        )
+        new_mean_field = (self.mean_field.replace(
+            array=self.mean_field.array[idx]) if self.mean_field is not None else None)
+        new_std_field = (self.std_field.replace(
+            array=self.std_field.array[idx]) if self.std_field is not None else None)
+        new_power_spectra = (tuple(ps.replace(array=ps.array[idx])
+                                   for ps in self.power_spectra) if self.power_spectra is not None else None)
 
         return CatalogExtract(
             cosmo=new_cosmo,

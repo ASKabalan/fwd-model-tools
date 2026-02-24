@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 
 import jax
 import jax_cosmo as jc
+from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec, as
 from numpyro.infer import Predictive
-from functools import partial
 
 import fwd_model_tools as ffi
-from jax.sharding import AxisType, Mesh, NamedSharding
-from jax.sharding import PartitionSpec as 
 
 # ---------------------------------------------------------------------------
 # Sharding setup
