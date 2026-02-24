@@ -28,17 +28,12 @@ classifiers = [
 dependencies = [
     "jax>=0.6.0",
     "equinox",
-    "blackjax",
-    "numpyro",
     "jaxtyping",
     "jaxpm@git+https://github.com/DifferentiableUniverseInitiative/JaxPM.git@ALL-MODIF",
     "jax_cosmo@git+https://github.com/ASKabalan/jax_cosmo@ALL-MODIF",
     "healpy",
     "jax-healpy@git+https://github.com/CMBSciPol/jax-healpy.git@maintaint-shapes-batching",
-    "arviz",
-    "getdist",
     "orbax-checkpoint",
-    "h5py",
 ]
 
 [project.optional-dependencies]
@@ -51,18 +46,25 @@ dev = [
 catalog = [
     "datasets>=2.0",
     "huggingface_hub>=0.20",
+    "h5py",
 ]
-legacy = ["diffrax"]
-raytrace = ["dorian-raytrace@git+https://github.com/ASKabalan/Dorian.git@main"]
-
-examples = [
+sampling = [
+    "blackjax",
+    "numpyro",
+]
+plot = [
     "matplotlib>=3.0",
     "ipython",
     "ipykernel",
     "ipywidgets",
+    "getdist",
+    "arviz",
+    "tabulate",
 ]
+legacy = ["diffrax"]
+raytrace = ["dorian-raytrace@git+https://github.com/ASKabalan/Dorian.git@main"]
 
-all = ["fwd_model_tools[catalog, legacy, raytrace, examples]"]
+all = ["fwd_model_tools[catalog, sampling, legacy, raytrace, plot]"]
 
 [project.urls]
 Homepage = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
@@ -72,7 +74,7 @@ Issues = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/is
 
 
 [tool.setuptools]
-script-files = ["bin/ffi-simulate"]
+script-files = ["bin/ffi-simulate", "bin/ffi-samples"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
