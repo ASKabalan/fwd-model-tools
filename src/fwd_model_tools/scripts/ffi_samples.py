@@ -7,7 +7,8 @@ from functools import partial
 
 import jax
 import jax_cosmo as jc
-from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec, as
+from jax.sharding import AxisType, Mesh, NamedSharding
+from jax.sharding import PartitionSpec as P
 from numpyro.infer import Predictive
 
 import fwd_model_tools as ffi
@@ -29,6 +30,7 @@ def _build_sharding(args: Namespace):
     sharding = NamedSharding(mesh, P("x", "y"))
     return sharding
 
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -45,7 +47,8 @@ def parser() -> argparse.ArgumentParser:
         "--model",
         choices=["full", "mock"],
         default="full",
-        help="Probabilistic model to sample from: 'full' (full_field_probmodel) or 'mock' (mock_probmodel). (default: full)",
+        help=
+        "Probabilistic model to sample from: 'full' (full_field_probmodel) or 'mock' (mock_probmodel). (default: full)",
     )
 
     # Mesh / box
