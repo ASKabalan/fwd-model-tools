@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 from jax.experimental.multihost_utils import process_allgather
+from jaxtyping import ArrayLike
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import ConvergenceUnit, DensityUnit, FieldStatus, PositionUnit
@@ -325,7 +326,11 @@ def _row_to_field_cosmo(item: dict) -> tuple[AbstractField, jc.Cosmology, int]:
         Omega_nu=item["Omega_nu"],
     )
 
-    return field, cosmology, int(item["version"].squeeze())
+    version = item["version"]
+    if isinstance(version, ArrayLike):
+        version = int(version.squeeze())  # version should be scalar, but handle case where it's an array of shape (1,)
+
+    return field, cosmology, version
 
 
 class Catalog(eqx.Module):
@@ -472,14 +477,19 @@ class Catalog(eqx.Module):
         if len(ds) == 0:
             raise ValueError("Cannot reconstruct Catalog from an empty dataset.")
 
-        ds_jax = ds.with_format("jax")
-        fields = []
-        cosmologies = []
-        version = CATALOG_VERSION
-        for i in range(len(ds_jax)):
-            f, c, v = _row_to_field_cosmo(ds_jax[i])
-            fields.append(f)
-            cosmologies.append(c)
-            version = v
-
-        return cls(field=fields, cosmology=cosmologies, version=version)
+        if isinstance(ds, dict):
+            f , c , v = _row_to_field_cosmo(ds)
+            return cls(field=[f], cosmology=[c], version=v)
+        elif isinstance(ds, datasets.Dataset | datasets.IterableDataset):
+            ds_jax = ds.with_format("jax")
+            fields = []
+            cosmologies = []
+            version = CATALOG_VERSION
+            for i in range(len(ds_jax)):
+                f, c, v = _row_to_field_cosmo(ds_jax[i])
+                fields.append(f)
+                cosmologies.append(c)
+                version = v
+            return cls(field=fields, cosmology=cosmologies, version=version)
+        else:
+            raise ValueError(f"Unsupported dataset type: {type(ds)}")
