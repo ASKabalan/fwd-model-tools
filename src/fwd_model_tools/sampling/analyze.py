@@ -28,10 +28,8 @@ def requires_arviz(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError(
-            "Missing optional dependency 'arviz'. "
-            "Install with: pip install fwd-model-tools[plot]"
-        )
+        raise ImportError("Missing optional dependency 'arviz'. "
+                          "Install with: pip install fwd-model-tools[plot]")
 
     return _deferred
 
@@ -91,7 +89,7 @@ def analyze(
     if isinstance(catalog_extract, CatalogExtract):
         catalog_extract = [catalog_extract]
     n_models = len(catalog_extract)
-    
+
     outfolder = Path(outfolder)
     outfolder.mkdir(parents=True, exist_ok=True)
 
@@ -205,9 +203,7 @@ def analyze(
         for p in ce.cosmo_keys:
             row = [p]
             for c in range(n_chains):
-                chain_idata = az.from_dict(
-                    posterior={k: np.asarray(v)[c : c + 1] for k, v in ce.cosmo.items()}
-                )
+                chain_idata = az.from_dict(posterior={k: np.asarray(v)[c:c + 1] for k, v in ce.cosmo.items()})
                 chain_ess = az.ess(chain_idata, method="bulk")
                 row.append(f"{float(np.asarray(chain_ess[p]).flat[0]):.1f}")
             ess_rows.append(row)
@@ -218,11 +214,9 @@ def analyze(
             tablefmt="github",
         )
 
-        summary_parts.append(
-            f"## {lbl}\n\n"
-            f"### Aggregate Statistics\n\n{agg_table}\n\n"
-            f"### Per-Chain ESS (bulk)\n\n{ess_table}\n"
-        )
+        summary_parts.append(f"## {lbl}\n\n"
+                             f"### Aggregate Statistics\n\n{agg_table}\n\n"
+                             f"### Per-Chain ESS (bulk)\n\n{ess_table}\n")
 
     # --- Write combined summary.md ---
     summary_path = outfolder / "summary.md"
