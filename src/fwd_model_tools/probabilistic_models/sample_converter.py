@@ -12,7 +12,6 @@ from ..fields.lensing_maps import FlatKappaField, SphericalKappaField
 from ..io import Catalog, save_sharded
 from .config import Configurations
 
-
 __all__ = ["sample2catalog"]
 
 
@@ -60,10 +59,13 @@ def sample2catalog(config: Configurations):
         if not isinstance(initial_conditions, DensityField):
             initial_conditions = DensityField.FromDensityMetadata(
                 array=initial_conditions,
-                field=intitial_condition_meta_data,)
+                field=intitial_condition_meta_data,
+            )
 
-        
-        initial_conditions = initial_conditions.replace(z_sources=jnp.zeros(initial_conditions.shape[0]) , comoving_centers=jnp.zeros(initial_conditions.shape[0]),scale_factors=jnp.zeros(initial_conditions.shape[0]), density_width=jnp.zeros(initial_conditions.shape[0]))
+        initial_conditions = initial_conditions.replace(z_sources=jnp.zeros(initial_conditions.shape[0]),
+                                                        comoving_centers=jnp.zeros(initial_conditions.shape[0]),
+                                                        scale_factors=jnp.zeros(initial_conditions.shape[0]),
+                                                        density_width=jnp.zeros(initial_conditions.shape[0]))
 
         sample_catalog = Catalog(field=initial_conditions, cosmology=cosmo)
         sample_catalog.to_parquet(os.path.join(ic_dir, f"samples_{batch_id}.parquet"))
@@ -82,8 +84,9 @@ def sample2catalog(config: Configurations):
         kappa_array = jnp.stack([samples[f"kappa_{i}"] for i in range(n_bins)], axis=0)
         kappa_field = KappaFieldCls.FromDensityMetadata(
             array=kappa_array,
-            field=kappa_meta_data,)
-        
+            field=kappa_meta_data,
+        )
+
         kappa_catalog = Catalog(field=kappa_field, cosmology=cosmo)
         kappa_catalog.to_parquet(os.path.join(fields_dir, f"fields_{batch_id}.parquet"))
 

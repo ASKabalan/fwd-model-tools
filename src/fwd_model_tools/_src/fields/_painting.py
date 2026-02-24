@@ -184,7 +184,7 @@ def _single_paint_2d(
 
     # Prepare the output flat-sky
     grid = jnp.zeros(flatsky_npix, dtype=positions.dtype)
-    
+
     # xy should already have that sharding but this is done for the gradient
     # This way in the backward pass the gradient will also be sharded and not cause memory issues on a single device
     if sharding is not None:
@@ -322,7 +322,7 @@ def _single_paint_spherical(
 
     # Observer position in Mpc
     observer_position_mpc = tuple(frac * length for frac, length in zip(observer_position, box_size))
-    
+
     # Position should be already sharded but this is done for the gradient
     # This way in the backward pass the gradient will also be sharded and not cause memory
     if sharding is not None:
