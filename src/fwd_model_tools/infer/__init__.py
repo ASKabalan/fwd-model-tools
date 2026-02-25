@@ -14,6 +14,6 @@ __all__ = [
     "build_mcsamples",
     "plot_posterior",
     "requires_arviz",
-    "requires_blackjax",
+    "requires_samplers",
     "requires_getdist",
 ]

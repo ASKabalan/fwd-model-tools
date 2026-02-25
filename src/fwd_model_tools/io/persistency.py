@@ -3,10 +3,36 @@
 import pickle
 import warnings
 from collections.abc import Callable
+from functools import wraps
 from pathlib import Path
+from typing import ParamSpec, TypeVar
 
 import jax
-import orbax.checkpoint as ocp
+
+try:
+    import orbax.checkpoint as ocp
+except ImportError:
+    ocp = None
+
+
+_Param = ParamSpec("_Param")
+_Return = TypeVar("_Return")
+
+
+def requires_orbax(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]:
+    """Decorator that raises ImportError when 'orbax' is not installed."""
+    try:
+        import orbax.checkpoint  # noqa: F401
+
+        return func
+    except ImportError:
+        pass
+
+    @wraps(func)
+    def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
+        raise ImportError("Missing optional dependency 'orbax'. Install with: pip install fwd-model-tools[sampling]")
+
+    return _deferred
 
 
 def _get_default_sharding() -> jax.sharding.SingleDeviceSharding:
@@ -27,6 +53,7 @@ def _apply_sharding_to_abstract_pytree(abstract_pytree, sharded_leaves, sharding
     return jax.tree.map(apply_sharding, abstract_pytree, sharded_leaves)
 
 
+@requires_orbax
 def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = True):
     """
     Saves a (possibly sharded) PyTree to disk using Orbax Checkpoint.
@@ -42,6 +69,8 @@ def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = Tr
     dump_structure : bool, default=True
         If True, save a separate pickled abstract structure file.
     """
+    import orbax.checkpoint as ocp
+
     structure_path = Path(f"{path}_structure.pkl").absolute()
     path = Path(path).absolute()
     checkpointer = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
@@ -62,8 +91,11 @@ def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = Tr
             return x
 
         def get_sharded_leaves(x):
-            return (isinstance(x, jax.Array) and x.sharding is not None
-                    and not x.sharding.is_equivalent_to(_get_default_sharding(), 1))
+            return (
+                isinstance(x, jax.Array)
+                and x.sharding is not None
+                and not x.sharding.is_equivalent_to(_get_default_sharding(), 1)
+            )
 
         abstract_pytree = jax.tree.map(to_shape_dtype_struct_safe, pytree)
         abstract_pytree_no_sharding = jax.tree.map(strip_sharding, abstract_pytree)
@@ -73,6 +105,7 @@ def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = Tr
             pickle.dump((abstract_pytree_no_sharding, sharded_leaves), f)
 
 
+@requires_orbax
 def load_sharded(
     path,
     abstract_pytree=None,
@@ -125,6 +158,8 @@ def load_sharded(
     ...     return single_device_sharding
     >>> data = load_sharded("checkpoint_path", sharding=get_sharding)
     """
+    import orbax.checkpoint as ocp
+
     path = Path(path).absolute()
     loaded_from_pkl = False
     sharded_leaves = None

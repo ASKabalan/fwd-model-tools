@@ -13,6 +13,7 @@ class Configurations:
     configuration. Geometry and mesh/box metadata belong to DensityField
     instances or separate function arguments, not here.
     """
+
     # Mandatory parameters
     mesh_size: tuple[int, int, int]
     box_size: tuple[float, float, float]
@@ -40,7 +41,7 @@ class Configurations:
     t0: float = 0.01
     dt0: float = 0.01
     t1: float = 1.0
-    adjoint: str = 'checkpointed'
+    adjoint: str = "checkpointed"
     checkpoints: int = 10
     number_of_shells: int = 8
     geometry: str = "spherical"

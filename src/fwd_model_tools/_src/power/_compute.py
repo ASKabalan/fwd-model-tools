@@ -66,13 +66,13 @@ def _initialize_pk(mesh_shape, box_shape, kedges, los):
 
 
 def _power(
-        mesh,
-        mesh2=None,
-        *,
-        box_shape=None,
-        kedges=None,
-        multipoles=0,
-        los=jnp.array([0.0, 0.0, 1.0]),
+    mesh,
+    mesh2=None,
+    *,
+    box_shape=None,
+    kedges=None,
+    multipoles=0,
+    los=jnp.array([0.0, 0.0, 1.0]),
 ):
     """Compute auto/cross 3D power spectrum using distributed FFTs (no batching)."""
 
@@ -80,7 +80,7 @@ def _power(
     mesh_shape_arr = jnp.asarray(mesh_shape)
     box_shape = tuple(box_shape) if box_shape is not None else mesh_shape
     box_shape_arr = jnp.asarray(box_shape)
-    poles = multipoles if isinstance(multipoles, (list, tuple)) else (multipoles, )
+    poles = multipoles if isinstance(multipoles, (list | tuple)) else (multipoles,)
     los = None if multipoles == 0 else tuple(np.asarray(los) / np.linalg.norm(los))
 
     meshk = jnp.fft.fftn(mesh, norm="ortho")
@@ -105,7 +105,7 @@ def _power(
         else:
             psum_real = jnp.bincount(dig, weights=weights.real, length=n_bins)
             psum_imag = jnp.bincount(dig, weights=weights.imag, length=n_bins)
-            psum = (psum_real**2 + psum_imag**2)**0.5
+            psum = (psum_real**2 + psum_imag**2) ** 0.5
 
         pk_list.append(psum)
 
@@ -215,8 +215,10 @@ def _cross_spherical_cl(maps, *, lmax=None, method="healpy"):
         Ordering: (0,0), (0,1), ..., (0,B-1), (1,1), ..., (B-1,B-1)
     """
     if method != "healpy":
-        raise ValueError(f"cross_angular_cl_spherical only supports method='healpy', got method='{method}'. "
-                         "JAX method is not implemented for cross-spectra computation.")
+        raise ValueError(
+            f"cross_angular_cl_spherical only supports method='healpy', got method='{method}'. "
+            "JAX method is not implemented for cross-spectra computation."
+        )
 
     if not jax.core.is_concrete(maps):
         raise ValueError("method='healpy' requires concrete (non-traced) arrays")
@@ -238,7 +240,7 @@ def _transfer(mesh0, mesh1, *, box_shape, kedges=None):
     """Monopole transfer function sqrt(P1/P0)."""
     k, pk0 = _power(mesh0, None, box_shape=box_shape, kedges=kedges, multipoles=0)
     _, pk1 = _power(mesh1, None, box_shape=box_shape, kedges=kedges, multipoles=0)
-    return k, (pk1 / pk0)**0.5
+    return k, (pk1 / pk0) ** 0.5
 
 
 def _coherence(mesh0, mesh1, *, box_shape, kedges=None):
@@ -246,4 +248,4 @@ def _coherence(mesh0, mesh1, *, box_shape, kedges=None):
     k, pk01 = _power(mesh0, mesh1, box_shape=box_shape, kedges=kedges, multipoles=0)
     _, pk0 = _power(mesh0, None, box_shape=box_shape, kedges=kedges, multipoles=0)
     _, pk1 = _power(mesh1, None, box_shape=box_shape, kedges=kedges, multipoles=0)
-    return k, pk01 / (pk0 * pk1)**0.5
+    return k, pk01 / (pk0 * pk1) ** 0.5

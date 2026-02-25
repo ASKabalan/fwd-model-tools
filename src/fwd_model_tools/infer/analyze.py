@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Optional, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import numpy as np
 
@@ -28,8 +28,7 @@ def requires_arviz(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'arviz'. "
-                          "Install with: pip install fwd-model-tools[plot]")
+        raise ImportError("Missing optional dependency 'arviz'. Install with: pip install fwd-model-tools[plot]")
 
     return _deferred
 
@@ -39,9 +38,9 @@ def analyze(
     catalog_extract: list[CatalogExtract] | CatalogExtract,
     outfolder: str,
     outformat: str = "png",
-    extract_labels: Optional[list[str]] = None,
+    extract_labels: list[str] | None = None,
     dpi: int = 300,
-    truth: Optional[dict] = None,
+    truth: dict | None = None,
 ) -> None:
     """Produce a complete report folder from one or more CatalogExtracts.
 
@@ -88,7 +87,6 @@ def analyze(
     # --- Normalise to list ---
     if isinstance(catalog_extract, CatalogExtract):
         catalog_extract = [catalog_extract]
-    n_models = len(catalog_extract)
 
     outfolder = Path(outfolder)
     outfolder.mkdir(parents=True, exist_ok=True)
@@ -119,21 +117,27 @@ def analyze(
             for col_i, col_name in enumerate(col_names):
                 axes[0, col_i].set_title(col_name)
 
+            mean_field = ce.mean_field
+            std_field = ce.std_field
+            assert mean_field is not None
+            assert std_field is not None
+
             for c in range(n_chains):
                 axes[c, 0].set_ylabel(f"Chain {c}")
 
                 if has_true_ic:
+                    assert ce.true_ic is not None
                     ce.true_ic.project().plot(ax=axes[c, 0])
-                    mean_c = ce.mean_field.replace(array=ce.mean_field.array[c])
+                    mean_c = mean_field.replace(array=mean_field.array[c])
                     mean_c.project().plot(ax=axes[c, 1])
-                    std_c = ce.std_field.replace(array=ce.std_field.array[c])
+                    std_c = std_field.replace(array=std_field.array[c])
                     std_c.project().plot(ax=axes[c, 2])
                     diff_c = ce.true_ic - mean_c
                     diff_c.project().plot(ax=axes[c, 3])
                 else:
-                    mean_c = ce.mean_field.replace(array=ce.mean_field.array[c])
+                    mean_c = mean_field.replace(array=mean_field.array[c])
                     mean_c.project().plot(ax=axes[c, 0])
-                    std_c = ce.std_field.replace(array=ce.std_field.array[c])
+                    std_c = std_field.replace(array=std_field.array[c])
                     std_c.project().plot(ax=axes[c, 1])
 
             fig.tight_layout()
@@ -181,7 +185,7 @@ def analyze(
         # Output 3: ArviZ rank plot
         # --------------------------------------------------------------
         az.plot_rank(idata, var_names=ce.cosmo_keys)
-        plt.suptitle(f"Rank Plots — {lbl}", y=1.02)
+        plt.suptitle(f"Rank Plots — {safe}", y=1.02)
         plt.savefig(outfolder / f"rank_plot_{safe}.{outformat}", dpi=dpi, bbox_inches="tight")
         plt.close()
 
@@ -189,7 +193,7 @@ def analyze(
         # Output 4: ArviZ trace plot
         # --------------------------------------------------------------
         az.plot_trace(idata, var_names=ce.cosmo_keys)
-        plt.suptitle(f"Chain Traces — {lbl}", y=1.02)
+        plt.suptitle(f"Chain Traces — {safe}", y=1.02)
         plt.savefig(outfolder / f"trace_plot_{safe}.{outformat}", dpi=dpi, bbox_inches="tight")
         plt.close()
 
@@ -203,7 +207,7 @@ def analyze(
         for p in ce.cosmo_keys:
             row = [p]
             for c in range(n_chains):
-                chain_idata = az.from_dict(posterior={k: np.asarray(v)[c:c + 1] for k, v in ce.cosmo.items()})
+                chain_idata = az.from_dict(posterior={k: np.asarray(v)[c : c + 1] for k, v in ce.cosmo.items()})
                 chain_ess = az.ess(chain_idata, method="bulk")
                 row.append(f"{float(np.asarray(chain_ess[p]).flat[0]):.1f}")
             ess_rows.append(row)
@@ -214,9 +218,9 @@ def analyze(
             tablefmt="github",
         )
 
-        summary_parts.append(f"## {lbl}\n\n"
-                             f"### Aggregate Statistics\n\n{agg_table}\n\n"
-                             f"### Per-Chain ESS (bulk)\n\n{ess_table}\n")
+        summary_parts.append(
+            f"## {safe}\n\n### Aggregate Statistics\n\n{agg_table}\n\n### Per-Chain ESS (bulk)\n\n{ess_table}\n"
+        )
 
     # --- Write combined summary.md ---
     summary_path = outfolder / "summary.md"

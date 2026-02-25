@@ -100,8 +100,10 @@ def test_extract_cosmo_shape(tmp_path):
     cosmo = result.cosmo
     for key in COSMO_KEYS:
         assert key in cosmo
-        assert cosmo[key].shape == (N_CHAINS, N_SAMPLES_PER_CHAIN), (
-            f"cosmo['{key}'].shape = {cosmo[key].shape}, expected ({N_CHAINS}, {N_SAMPLES_PER_CHAIN})")
+        assert cosmo[key].shape == (
+            N_CHAINS,
+            N_SAMPLES_PER_CHAIN,
+        ), f"cosmo['{key}'].shape = {cosmo[key].shape}, expected ({N_CHAINS}, {N_SAMPLES_PER_CHAIN})"
 
 
 def test_extract_field_statistic_shapes(tmp_path):
@@ -164,8 +166,7 @@ def test_extract_singlechain_layout(tmp_path):
     result = extract_catalog(str(root), cosmo_keys=COSMO_KEYS, field_statistic=True)
 
     for key in COSMO_KEYS:
-        assert result.cosmo[key].shape == (1,
-                                           N_SAMPLES_PER_CHAIN), (f"cosmo['{key}'].shape = {result.cosmo[key].shape}")
+        assert result.cosmo[key].shape == (1, N_SAMPLES_PER_CHAIN), f"cosmo['{key}'].shape = {result.cosmo[key].shape}"
 
     assert result.mean_field.array.shape == (1, *MESH_SIZE)
     assert result.std_field.array.shape == (1, *MESH_SIZE)

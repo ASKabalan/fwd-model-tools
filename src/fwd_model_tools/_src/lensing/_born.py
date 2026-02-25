@@ -6,6 +6,7 @@ import jax_cosmo as jc
 import jax_cosmo.constants as constants
 from jax.scipy.ndimage import map_coordinates
 from jax_cosmo.scipy.integrate import simps
+from jaxtyping import ArrayLike
 
 from ...fields import FlatDensity, SphericalDensity
 from ._normalize_nz import _normalize_sources
@@ -24,7 +25,7 @@ def _born_core_impl(
     coords=None,
     field_size=None,
 ):
-    constant_factor = 3 / 2 * cosmo.Omega_m * (constants.H0 / constants.c)**2
+    constant_factor = 3 / 2 * cosmo.Omega_m * (constants.H0 / constants.c) ** 2
     chi_s = jc.background.radial_comoving_distance(cosmo, jc.utils.z2a(z_source))
     n_planes = len(r)
 
@@ -39,7 +40,7 @@ def _born_core_impl(
             if field_size is None:
                 raise AssertionError("field_size is required when coords not provided")
             ny, nx = density_planes.shape[-2:]
-            if isinstance(field_size, (tuple, list, jnp.ndarray)):
+            if isinstance(field_size, (tuple | list | ArrayLike)):
                 fx, fy = field_size
             else:
                 fx = fy = field_size
@@ -49,8 +50,8 @@ def _born_core_impl(
             )
             coords = jnp.stack([xgrid, ygrid], axis=0) * (jnp.pi / 180)
 
-    r_b = r.reshape(n_planes, *((1, ) * (density_planes.ndim - 1)))
-    a_b = a.reshape(n_planes, *((1, ) * (density_planes.ndim - 1)))
+    r_b = r.reshape(n_planes, *((1,) * (density_planes.ndim - 1)))
+    a_b = a.reshape(n_planes, *((1,) * (density_planes.ndim - 1)))
 
     mean_axes = tuple(range(1, density_planes.ndim))
     rho_mean = jnp.mean(density_planes, axis=mean_axes, keepdims=True)
@@ -64,6 +65,7 @@ def _born_core_impl(
     if not is_spherical:
 
         def interpolate_plane(delta_plane, chi_plane):
+            assert pixel_size is not None and coords is not None, "pixel_size and coords are required for interpolation"
             physical_coords = coords * chi_plane / pixel_size[:, None, None]
             return map_coordinates(delta_plane, physical_coords - 0.5, order=1, mode="wrap")
 
@@ -135,7 +137,7 @@ def _born_flat(
     source_kind, sources = _normalize_sources(nz_shear)
 
     field_size = lightcone.field_size
-    if isinstance(field_size, (tuple, list, jnp.ndarray)):
+    if isinstance(field_size, (tuple | list | ArrayLike)):
         field_size_tuple = tuple(field_size)
     else:
         field_size_tuple = (field_size, field_size)

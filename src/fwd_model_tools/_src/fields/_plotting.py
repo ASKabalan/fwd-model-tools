@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from math import ceil
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,11 +19,9 @@ WEIGHT_KEYWORDS = {
 }
 
 
-def prepare_axes(ax,
-                 n_plots: int,
-                 ncols: int,
-                 projection: Optional[str] = None,
-                 figsize: Optional[tuple[float, float]] = None):
+def prepare_axes(
+    ax, n_plots: int, ncols: int, projection: str | None = None, figsize: tuple[float, float] | None = None
+):
     """
     Prepare matplotlib axes for batch plotting.
 
@@ -56,11 +53,9 @@ def prepare_axes(ax,
         nrows = ceil(n_plots / ncols_eff)
         if figsize is None:
             figsize = (6 * ncols_eff, 6 * nrows)
-        fig, axes = plt.subplots(nrows,
-                                 ncols_eff,
-                                 figsize=figsize,
-                                 subplot_kw={"projection": projection},
-                                 squeeze=False)
+        fig, axes = plt.subplots(
+            nrows, ncols_eff, figsize=figsize, subplot_kw={"projection": projection}, squeeze=False
+        )
         return fig, axes.ravel()
     else:
         # Flatten provided axes
@@ -82,9 +77,11 @@ def prepare_axes(ax,
 
             for i, ax_i in enumerate(axes_flat[:n_plots]):
                 if not isinstance(ax_i, Axes3D):
-                    raise TypeError(f"Expected Axes3D for 3D plotting, got {type(ax_i).__name__}. "
-                                    f"Create axes with projection='3d', e.g.: "
-                                    f"fig.add_subplot(..., projection='3d')")
+                    raise TypeError(
+                        f"Expected Axes3D for 3D plotting, got {type(ax_i).__name__}. "
+                        f"Create axes with projection='3d', e.g.: "
+                        f"fig.add_subplot(..., projection='3d')"
+                    )
 
         return fig, axes_flat
 
@@ -242,8 +239,8 @@ def resolve_particle_weights(
     z_sources=None,
     scale_factors=None,
     comoving_centers=None,
-    weights_title: Optional[str] = None,
-) -> tuple[Optional[np.ndarray], Optional[str]]:
+    weights_title: str | None = None,
+) -> tuple[np.ndarray | None, str | None]:
     """
     Resolve weights parameter to array and title for particle plotting.
 
@@ -324,7 +321,7 @@ def resolve_particle_weights(
 
 def generate_titles(
     base_title: str,
-    scale_factors: Optional[float | Sequence[float] | np.ndarray],
+    scale_factors: float | Sequence[float] | np.ndarray | None,
     n_plots: int,
 ) -> list[str]:
     """
@@ -361,22 +358,22 @@ def generate_titles(
 
 
 def plot_3d_particles(
-        ax,
-        particles,
-        weights=None,
-        thinning=1,
-        cmap="viridis",
-        point_size=5,
-        alpha=0.6,
-        elev=40,
-        azim=-30,
-        zoom=0.8,
-        weights_title=None,
-        labels=("X", "Y", "Z"),
-        ticks=([], [], []),
-        colorbar=True,
-        vmin=None,
-        vmax=None,
+    ax,
+    particles,
+    weights=None,
+    thinning=1,
+    cmap="viridis",
+    point_size=5,
+    alpha=0.6,
+    elev=40,
+    azim=-30,
+    zoom=0.8,
+    weights_title=None,
+    labels=("X", "Y", "Z"),
+    ticks=([], [], []),
+    colorbar=True,
+    vmin=None,
+    vmax=None,
 ):
     """
     Plot a 3D scatter of particles with uniform spatial thinning.
@@ -566,11 +563,12 @@ def plot_spherical_density(
         sub=sub,
         cmap=cmap,
         title=title,
-        bgcolor=(0.0, ) * 4,
+        bgcolor=(0.0,) * 4,
         cbar=show_colorbar,
         min=vmin if vmin is not None else 0,
-        max=vmax if vmax is not None else
-        (np.percentile(map_np[map_np > 0], 95) if np.any(map_np > 0) else np.max(map_np)),
+        max=vmax
+        if vmax is not None
+        else (np.percentile(map_np[map_np > 0], 95) if np.any(map_np > 0) else np.max(map_np)),
     )
     if delegate is None:
         delegate = next(

@@ -143,29 +143,31 @@ def _build_features(field: AbstractField) -> datasets.Features:
         "density_width": Sequence(Value("float64")),
     }
 
-    feature_dict.update({
-        # Static metadata - tuples (same every row)
-        "mesh_size": Sequence(Value("int32"), length=3),
-        "box_size": Sequence(Value("float32"), length=3),
-        "observer_position": Sequence(Value("float32"), length=3),
-        "halo_size": Sequence(Value("int32"), length=2),
-        # Enum fields stored as strings
-        "status": Value("string"),
-        "unit": Value("string"),
-        # Cosmology parameters
-        "Omega_c": Value("float32"),
-        "Omega_b": Value("float32"),
-        "h": Value("float32"),
-        "n_s": Value("float32"),
-        "sigma8": Value("float32"),
-        "w0": Value("float32"),
-        "wa": Value("float32"),
-        "Omega_k": Value("float32"),
-        "Omega_nu": Value("float32"),
-        # Version and field type
-        "version": Value("int32"),
-        "field_type": Value("string"),
-    })
+    feature_dict.update(
+        {
+            # Static metadata - tuples (same every row)
+            "mesh_size": Sequence(Value("int32"), length=3),
+            "box_size": Sequence(Value("float32"), length=3),
+            "observer_position": Sequence(Value("float32"), length=3),
+            "halo_size": Sequence(Value("int32"), length=2),
+            # Enum fields stored as strings
+            "status": Value("string"),
+            "unit": Value("string"),
+            # Cosmology parameters
+            "Omega_c": Value("float32"),
+            "Omega_b": Value("float32"),
+            "h": Value("float32"),
+            "n_s": Value("float32"),
+            "sigma8": Value("float32"),
+            "w0": Value("float32"),
+            "wa": Value("float32"),
+            "Omega_k": Value("float32"),
+            "Omega_nu": Value("float32"),
+            # Version and field type
+            "version": Value("int32"),
+            "field_type": Value("string"),
+        }
+    )
 
     # Optional fields - only add if not None
     if field.nside is not None:
@@ -303,9 +305,11 @@ def _row_to_field_cosmo(item: dict) -> tuple[AbstractField, jc.Cosmology, int]:
         halo_size=_to_static_tuple(item["halo_size"], float),
         nside=int(item["nside"]) if "nside" in item and item["nside"] is not None else None,
         flatsky_npix=_to_static_tuple(item["flatsky_npix"], int)
-        if "flatsky_npix" in item and item["flatsky_npix"] is not None else None,
+        if "flatsky_npix" in item and item["flatsky_npix"] is not None
+        else None,
         field_size=_to_static_tuple(item["field_size"], float)
-        if "field_size" in item and item["field_size"] is not None else None,
+        if "field_size" in item and item["field_size"] is not None
+        else None,
         z_sources=z_sources,
         scale_factors=_read_dynamic("scale_factors") if "scale_factors" in item else None,
         comoving_centers=_read_dynamic("comoving_centers") if "comoving_centers" in item else None,
@@ -363,9 +367,11 @@ class Catalog(eqx.Module):
                 field = [field[i] for i in range(cosmo_n)]
                 cosmology = [jax.tree.map(lambda p, i=i: p[i], cosmology) for i in range(cosmo_n)]
             elif field.is_multi_batched() and field.array.shape[0] > 1:
-                raise ValueError(f"Scalar cosmology cannot pair with a multi-batched field "
-                                 f"(shape {field.array.shape}, N={field.array.shape[0]} > 1). "
-                                 "Pass a batched cosmology of size N, or split the field first.")
+                raise ValueError(
+                    f"Scalar cosmology cannot pair with a multi-batched field "
+                    f"(shape {field.array.shape}, N={field.array.shape[0]} > 1). "
+                    "Pass a batched cosmology of size N, or split the field first."
+                )
             else:
                 field = [field]
                 cosmology = [cosmology]
@@ -381,7 +387,8 @@ class Catalog(eqx.Module):
     def __check_init__(self):
         if len(self.field) != len(self.cosmology):
             raise ValueError(
-                f"field and cosmology must have the same length, got {len(self.field)} and {len(self.cosmology)}.")
+                f"field and cosmology must have the same length, got {len(self.field)} and {len(self.cosmology)}."
+            )
         if not self.field:
             raise ValueError("Catalog must contain at least one field.")
 

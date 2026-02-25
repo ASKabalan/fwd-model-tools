@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any
 
 import equinox as eqx
 import jax
 import jax.core
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from .._src.base._core import AbstractPytree
 from .._src.fields._plotting import generate_titles
@@ -28,8 +30,8 @@ class PowerSpectrum(AbstractPytree):
 
     # array is inherited from AbstractPytree (the power spectrum values)
     wavenumber: jax.Array
-    name: Optional[str] = eqx.field(static=True, default=None)
-    scale_factors: Optional[Any] = None
+    name: str | None = eqx.field(static=True, default=None)
+    scale_factors: Any | None = None
 
     @property
     def spectra(self) -> jax.Array:
@@ -51,18 +53,21 @@ class PowerSpectrum(AbstractPytree):
         if self.array.ndim == 2:
             if self.array.shape[1] != n_k:
                 raise ValueError(
-                    f"Spectra shape {self.array.shape} incompatible with wavenumber {n_k}. Use shape (n_spec, n_k).")
+                    f"Spectra shape {self.array.shape} incompatible with wavenumber {n_k}. Use shape (n_spec, n_k)."
+                )
             return
 
         raise ValueError("Spectra must be 1D or 2D.")
 
     # ---- Representation ---------------------------------------------------
     def __repr__(self) -> str:
-        return ("PowerSpectrum("
-                f"wavenumber=Array{tuple(self.wavenumber.shape)}, "
-                f"array=Array{tuple(self.array.shape)}, "
-                f"name={self.name!r}, "
-                f"scale_factors={self.scale_factors})")
+        return (
+            "PowerSpectrum("
+            f"wavenumber=Array{tuple(self.wavenumber.shape)}, "
+            f"array=Array{tuple(self.array.shape)}, "
+            f"name={self.name!r}, "
+            f"scale_factors={self.scale_factors})"
+        )
 
     def __getitem__(self, key) -> PowerSpectrum:
         """
@@ -98,7 +103,7 @@ class PowerSpectrum(AbstractPytree):
     def plot(
         self,
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         label: Sequence[str] | None = None,
@@ -106,7 +111,7 @@ class PowerSpectrum(AbstractPytree):
         figsize: tuple[float, float] | None = None,
         grid: bool = True,
         **kwargs: Any,
-    ) -> tuple[plt.Figure, plt.Axes, list[Any]]:
+    ) -> tuple[Figure, Axes, list[Any]]:
         """
         Overlay all spectra in this object on a single axis.
 
@@ -139,7 +144,7 @@ class PowerSpectrum(AbstractPytree):
         if isinstance(label, str):
             label = [label] * n_spec
 
-        if not isinstance(label, (list, tuple)):
+        if not isinstance(label, (list | tuple)):
             raise TypeError("label must be a list/tuple of strings or None.")
         if len(label) != n_spec:
             # Fallback if length mismatch (e.g. if generate_titles produced something different, though it shouldn't)
@@ -150,11 +155,12 @@ class PowerSpectrum(AbstractPytree):
             fig, ax = plt.subplots(figsize=figsize or (8, 6))
         else:
             fig = ax.get_figure()
+        assert ax is not None
 
         artists: list[Any] = []
         for i in range(n_spec):
             lab = label[i]
-            (line, ) = ax.plot(k_1d, pk_2d[i], label=lab, color=color, **kwargs)
+            (line,) = ax.plot(k_1d, pk_2d[i], label=lab, color=color, **kwargs)
             artists.append(line)
 
         if logx:
@@ -175,7 +181,7 @@ class PowerSpectrum(AbstractPytree):
     def show(
         self,
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         label: Sequence[str] | None = None,
@@ -200,7 +206,7 @@ class PowerSpectrum(AbstractPytree):
     def mean_std_plot(
         self,
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         label: Sequence[str] | None = None,
@@ -209,7 +215,7 @@ class PowerSpectrum(AbstractPytree):
         figsize: tuple[float, float] | None = None,
         grid: bool = True,
         **kwargs: Any,
-    ) -> tuple[plt.Figure, plt.Axes, list[Any]]:
+    ) -> tuple[Figure, Axes, list[Any]]:
         """
         Plot mean and ±1σ band for a batched spectrum.
 
@@ -223,7 +229,7 @@ class PowerSpectrum(AbstractPytree):
         n_spec = pk_2d.shape[0]
 
         if label is not None:
-            if not isinstance(label, (list, tuple)):
+            if not isinstance(label, (list | tuple)):
                 raise TypeError("label must be a list/tuple of strings or None.")
             if len(label) != n_spec:
                 raise ValueError(f"label must have length {n_spec}, got {len(label)}.")
@@ -232,17 +238,18 @@ class PowerSpectrum(AbstractPytree):
             fig, ax = plt.subplots(figsize=figsize or (8, 6))
         else:
             fig = ax.get_figure()
+        assert ax is not None
 
         artists: list[Any] = []
         if n_spec == 1:
             lab = (label[0] if label is not None else self.name) or "spectrum"
-            (line, ) = ax.plot(k_1d, pk_2d[0], label=lab, color=color, **kwargs)
+            (line,) = ax.plot(k_1d, pk_2d[0], label=lab, color=color, **kwargs)
             artists.append(line)
         else:
             mean_pk = pk_2d.mean(axis=0)
             std_pk = pk_2d.std(axis=0)
             lab = (label[0] if label is not None else self.name) or "mean"
-            (line, ) = ax.plot(k_1d, mean_pk, label=lab, color=color, **kwargs)
+            (line,) = ax.plot(k_1d, mean_pk, label=lab, color=color, **kwargs)
             band = ax.fill_between(k_1d, mean_pk - std_pk, mean_pk + std_pk, color=color, alpha=alpha)
             artists.extend([line, band])
 
@@ -265,7 +272,7 @@ class PowerSpectrum(AbstractPytree):
         self,
         others: Sequence[PowerSpectrum],
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         grid: bool = True,
@@ -275,7 +282,7 @@ class PowerSpectrum(AbstractPytree):
         ratio_ylim: tuple[float, float] | None = None,
         figsize: tuple[float, float] | None = None,
         **kwargs: Any,
-    ) -> tuple[plt.Figure, plt.Axes, list[Any]]:
+    ) -> tuple[Figure, Axes, list[Any]]:
         """
         Overlay this spectrum and others on one axis; optionally add ratios on a twin y-axis.
 
@@ -299,7 +306,8 @@ class PowerSpectrum(AbstractPytree):
                 pk_other = others[i].array[None, :] if others[i].array.ndim == 1 else others[i].array
                 if len(lbls) != pk_other.shape[0]:
                     raise ValueError(
-                        f"labels[{i}] length {len(lbls)} does not match spectra batch {pk_other.shape[0]}.")
+                        f"labels[{i}] length {len(lbls)} does not match spectra batch {pk_other.shape[0]}."
+                    )
 
         if colors is not None:
             if len(colors) != len(others):
@@ -309,10 +317,11 @@ class PowerSpectrum(AbstractPytree):
             fig, ax = plt.subplots(figsize=figsize or (8, 6))
         else:
             fig = ax.get_figure()
+        assert ax is not None
 
         artists: list[Any] = []
         # plot reference
-        (ref_line, ) = ax.plot(k_ref, pk_ref, color="k", lw=2, label=self.name or "reference", **kwargs)
+        (ref_line,) = ax.plot(k_ref, pk_ref, color="k", lw=2, label=self.name or "reference", **kwargs)
         artists.append(ref_line)
 
         # optional ratio axis
@@ -327,14 +336,12 @@ class PowerSpectrum(AbstractPytree):
             for j in range(pk_other.shape[0]):
                 color = colors[i][j] if colors else None
                 lab = labels[i][j] if labels else (other.name or f"spectrum {i}[{j}]")
-                (line, ) = ax.plot(k_ref, pk_other[j], label=lab, color=color, **kwargs)
+                (line,) = ax.plot(k_ref, pk_other[j], label=lab, color=color, **kwargs)
                 artists.append(line)
                 if ax_ratio:
-                    (ratio_line, ) = ax_ratio.plot(k_ref,
-                                                   pk_other[j] / pk_ref,
-                                                   label=f"{lab} / ref",
-                                                   color=color,
-                                                   ls="--")
+                    (ratio_line,) = ax_ratio.plot(
+                        k_ref, pk_other[j] / pk_ref, label=f"{lab} / ref", color=color, ls="--"
+                    )
                     artists.append(ratio_line)
 
         if logx:

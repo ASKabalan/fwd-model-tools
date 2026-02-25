@@ -18,15 +18,15 @@ __all__ = ["lpt"]
 
 @partial(jax.jit, static_argnames=["order", "nb_shells", "painting"])
 def lpt(
-        cosmo: Any,
-        initial_field: DensityField,
-        *,
-        ts=None,
-        nb_shells: int | None = None,
-        density_widths=None,
-        order: int = 1,
-        initial_particles: Array = None,
-        painting: PaintingOptions = PaintingOptions(target="particles"),
+    cosmo: Any,
+    initial_field: DensityField,
+    *,
+    ts=None,
+    nb_shells: int | None = None,
+    density_widths=None,
+    order: int = 1,
+    initial_particles: Array = None,
+    painting: PaintingOptions = PaintingOptions(target="particles"),
 ) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
@@ -94,12 +94,9 @@ def lpt(
         unit=PositionUnit.GRID_ABSOLUTE,
     )
 
-    ts_resolved, r_centers, density_widths, is_lightcone = resolve_ts_geometry(cosmo,
-                                                                               initial_field,
-                                                                               painting=painting,
-                                                                               ts=ts,
-                                                                               nb_shells=nb_shells,
-                                                                               density_widths=density_widths)
+    ts_resolved, r_centers, density_widths, is_lightcone = resolve_ts_geometry(
+        cosmo, initial_field, painting=painting, ts=ts, nb_shells=nb_shells, density_widths=density_widths
+    )
 
     if is_lightcone:
         a = compute_particle_scale_factors(cosmo, initial_particles)[..., None]
@@ -197,11 +194,12 @@ def lpt(
     else:
         if painting.target not in ("particles", "density"):
             raise ValueError(
-                f"Painting target {painting.target} is incompatible with snapshot mode. Use 'particles' or 'density'.")
+                f"Painting target {painting.target} is incompatible with snapshot mode. Use 'particles' or 'density'."
+            )
 
     if painting.target == "density":
-        dx_field = dx_field.paint(weights=painting.weights,
-                                  chunk_size=painting.chunk_size,
-                                  batch_size=painting.batch_size)
+        dx_field = dx_field.paint(
+            weights=painting.weights, chunk_size=painting.chunk_size, batch_size=painting.batch_size
+        )
 
     return dx_field, p_field

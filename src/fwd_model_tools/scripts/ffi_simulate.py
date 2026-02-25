@@ -8,19 +8,19 @@ Provides subcommands:
 JAX is imported lazily (after argument parsing) so --help is instantaneous.
 """
 
+import os
 import sys
-import time
 from argparse import ArgumentParser, Namespace
 from functools import partial
 
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-from jax.sharding import AxisType, Mesh, NamedSharding
-from jax.sharding import PartitionSpec as P
-import os
-import fwd_model_tools as ffi
 from jax.experimental.multihost_utils import sync_global_devices
+from jax.sharding import AxisType, NamedSharding
+from jax.sharding import PartitionSpec as P
+
+import fwd_model_tools as ffi
 
 # ---------------------------------------------------------------------------
 # Cosmology builder
@@ -210,19 +210,20 @@ def parser() -> ArgumentParser:
         metavar=("H0", "H1"),
         help="Halo exchange depth for distributed painting (default: 0 0)",
     )
-    common.add_argument('--observer-position',
-                        type=float,
-                        nargs=3,
-                        default=[0.5, 0.5, 0.5],
-                        metavar=('OX', 'OY', 'OZ'),
-                        help='Observer position in box coordinates (default: 0.5 0.5 0.5, i.e. center of the box)')
+    common.add_argument(
+        "--observer-position",
+        type=float,
+        nargs=3,
+        default=[0.5, 0.5, 0.5],
+        metavar=("OX", "OY", "OZ"),
+        help="Observer position in box coordinates (default: 0.5 0.5 0.5, i.e. center of the box)",
+    )
 
     # Random seed and output
     common.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
-    common.add_argument("--output",
-                        "-o",
-                        default="sim_output.parquet",
-                        help="Output file path (default: sim_output.parquet)")
+    common.add_argument(
+        "--output", "-o", default="sim_output.parquet", help="Output file path (default: sim_output.parquet)"
+    )
 
     # Performance
     common.add_argument("--perf", action="store_true", help="Benchmark: warmup + N timed iterations")
@@ -235,9 +236,9 @@ def parser() -> ArgumentParser:
         help="Number of timed iterations for --perf (default: 5)",
     )
     common.add_argument("--trace", action="store_true", help="Run with JAX profiler trace")
-    common.add_argument("--trace-dir",
-                        default="/tmp/jax_trace",
-                        help="Directory for profiler trace (default: /tmp/jax_trace)")
+    common.add_argument(
+        "--trace-dir", default="/tmp/jax_trace", help="Directory for profiler trace (default: /tmp/jax_trace)"
+    )
     common.add_argument("--enable-x64", action="store_true", help="Enable JAX 64-bit precision (default: False)")
 
     # Cosmology
@@ -263,12 +264,14 @@ def parser() -> ArgumentParser:
         metavar=("H", "W"),
         help="Flat-sky pixel resolution (height width)",
     )
-    paint_group.add_argument("--field-size",
-                             type=int,
-                             nargs=2,
-                             default=None,
-                             metavar=("H", "W"),
-                             help="2D field pixel resolution (alternative to --flatsky-npix)")
+    paint_group.add_argument(
+        "--field-size",
+        type=int,
+        nargs=2,
+        default=None,
+        metavar=("H", "W"),
+        help="2D field pixel resolution (alternative to --flatsky-npix)",
+    )
     paint_group.add_argument("--density", action="store_true", default=False, help="3D density field painting")
 
     # ------------------------------------------------------------------
@@ -278,20 +281,14 @@ def parser() -> ArgumentParser:
     lpt_parent.add_argument("--t0", type=float, default=0.1, help="LPT starting scale factor (default: 0.1)")
     lpt_parent.add_argument("--order", type=int, default=2, choices=[1, 2], help="LPT order (default: 2)")
     lpt_parent.add_argument("--nb-shells", type=int, default=None, help="Number of lightcone shells")
-    lpt_parent.add_argument("--density-widths",
-                            type=float,
-                            nargs="+",
-                            default=None,
-                            metavar="W",
-                            help="Override shell widths (Mpc/h)")
+    lpt_parent.add_argument(
+        "--density-widths", type=float, nargs="+", default=None, metavar="W", help="Override shell widths (Mpc/h)"
+    )
     # Mutually exclusive ts group
     ts_group = lpt_parent.add_mutually_exclusive_group()
-    ts_group.add_argument("--ts",
-                          type=float,
-                          nargs="+",
-                          default=None,
-                          metavar="A",
-                          help="Scale factors for snapshot/shell output")
+    ts_group.add_argument(
+        "--ts", type=float, nargs="+", default=None, metavar="A", help="Scale factors for snapshot/shell output"
+    )
     ts_group.add_argument(
         "--ts-near",
         type=float,
@@ -321,9 +318,9 @@ def parser() -> ArgumentParser:
         default="none",
         help="Interpolation kernel (default: none)",
     )
-    nbody_parent.add_argument("--drift-on-lightcone",
-                              action="store_true",
-                              help="Apply drift correction when painting lightcone shells")
+    nbody_parent.add_argument(
+        "--drift-on-lightcone", action="store_true", help="Apply drift correction when painting lightcone shells"
+    )
 
     # ------------------------------------------------------------------
     # Top-level parser
@@ -366,31 +363,27 @@ def parser() -> ArgumentParser:
     )
     lensing_method = lensing_p.add_mutually_exclusive_group()
     lensing_method.add_argument("--born", action="store_true", default=True, help="Use Born approximation (default)")
-    lensing_method.add_argument("--raytrace",
-                                action="store_true",
-                                default=False,
-                                help="Use multi-plane ray-tracing via dorian")
-    lensing_p.add_argument("--min-z",
-                           type=float,
-                           default=0.01,
-                           help="Minimum redshift for nz integration (default: 0.01)")
-    lensing_p.add_argument("--max-z",
-                           type=float,
-                           default=3.0,
-                           help="Maximum redshift for nz integration (default: 3.0)")
-    lensing_p.add_argument("--n-integrate",
-                           type=int,
-                           default=32,
-                           help="Number of integration points for nz distributions (default: 32)")
+    lensing_method.add_argument(
+        "--raytrace", action="store_true", default=False, help="Use multi-plane ray-tracing via dorian"
+    )
+    lensing_p.add_argument(
+        "--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)"
+    )
+    lensing_p.add_argument(
+        "--max-z", type=float, default=3.0, help="Maximum redshift for nz integration (default: 3.0)"
+    )
+    lensing_p.add_argument(
+        "--n-integrate", type=int, default=32, help="Number of integration points for nz distributions (default: 32)"
+    )
     lensing_p.add_argument(
         "--rt-interp",
         choices=["bilinear", "ngp", "nufft"],
         default="bilinear",
         help="Interpolation method for raytrace (default: bilinear)",
     )
-    lensing_p.add_argument("--no-parallel-transport",
-                           action="store_true",
-                           help="Disable parallel transport in raytrace")
+    lensing_p.add_argument(
+        "--no-parallel-transport", action="store_true", help="Disable parallel transport in raytrace"
+    )
 
     return parser
 
@@ -405,14 +398,14 @@ def _validate_args(args: Namespace, parser: ArgumentParser) -> None:
     # --ts-near requires --ts-far and --nb-shells
     ts_near = getattr(args, "ts_near", None)
     ts_far = getattr(args, "ts_far", None)
-    nb_shells = getattr(args, "nb_shells", None)
 
     if ts_near is not None:
         if ts_far is None:
             parser.error("--ts-near requires --ts-far")
         if len(ts_near) != len(ts_far):
             parser.error(
-                f"--ts-near and --ts-far must have the same number of values ({len(ts_near)} vs {len(ts_far)})")
+                f"--ts-near and --ts-far must have the same number of values ({len(ts_near)} vs {len(ts_far)})"
+            )
 
     # lensing requires a projection target
     if args.subcommand == "lensing":
@@ -531,7 +524,8 @@ def main() -> None:
         nside=args.nside,
         flatsky_npix=tuple(args.flatsky_npix) if args.flatsky_npix is not None else None,
         field_size=tuple(args.field_size) if args.field_size is not None else None,
-        sharding=sharding)
+        sharding=sharding,
+    )
 
     sim_type = args.subcommand
     lpt_order = args.order
@@ -572,20 +566,20 @@ def main() -> None:
             result = timer.chrono_fun(run_simulations, **run_kwargs)
 
         metadata = {
-            'precision': 'float64' if jax.config.jax_enable_x64 else 'float32',
-            'x': str(args.mesh_size[0]),
-            'y': str(args.mesh_size[1]),
-            'z': str(args.mesh_size[2]),
-            'px': str(args.pdim[0]),
-            'py': str(args.pdim[1]),
-            'nodes': str(args.nodes)
+            "precision": "float64" if jax.config.jax_enable_x64 else "float32",
+            "x": str(args.mesh_size[0]),
+            "y": str(args.mesh_size[1]),
+            "z": str(args.mesh_size[2]),
+            "px": str(args.pdim[0]),
+            "py": str(args.pdim[1]),
+            "nodes": str(args.nodes),
         }
         extra_info = {
-            'halo_size': str(args.halo_size),
-            'painting_target': painting.target,
-            'ts': str(args.ts) if args.ts is not None else f"near={args.ts_near}, far={args.ts_far}",
-            'nb_shells': str(args.nb_shells),
-            'lpt_order': str(args.order),
+            "halo_size": str(args.halo_size),
+            "painting_target": painting.target,
+            "ts": str(args.ts) if args.ts is not None else f"near={args.ts_near}, far={args.ts_far}",
+            "nb_shells": str(args.nb_shells),
+            "lpt_order": str(args.order),
         }
 
         report_file = f"perf_{sim_type}.csv"

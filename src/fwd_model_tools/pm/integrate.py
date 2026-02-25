@@ -11,7 +11,7 @@ from jax._src.numpy.util import promote_dtypes_inexact
 from ..fields import ParticleField
 from .solvers import AbstractNBodySolver, NBodyState
 
-AdjointType = Literal['reverse', 'checkpointed']
+AdjointType = Literal["reverse", "checkpointed"]
 
 
 def _clip_to_end(tprev, tnext, t1):
@@ -52,16 +52,18 @@ def _clip_to_start(tprev, tnext, t0):
     return jnp.where(clip, t0, tprev)
 
 
-def integrate(displacements: ParticleField,
-              velocities: ParticleField,
-              cosmo: Any,
-              ts: jnp.ndarray,
-              solver: AbstractNBodySolver,
-              t0: float,
-              t1: float,
-              dt0: float,
-              adjoint: AdjointType = 'checkpointed',
-              checkpoints: int | None = None) -> Any:
+def integrate(
+    displacements: ParticleField,
+    velocities: ParticleField,
+    cosmo: Any,
+    ts: jnp.ndarray,
+    solver: AbstractNBodySolver,
+    t0: float,
+    t1: float,
+    dt0: float,
+    adjoint: AdjointType = "checkpointed",
+    checkpoints: int | None = None,
+) -> Any:
     """
     Main integration entry point.
 
@@ -87,12 +89,14 @@ def integrate(displacements: ParticleField,
         ValueError: If adjoint='reverse' is used with a non-reversible correction kernel.
     """
     # Validate reversibility compatibility
-    if adjoint == 'reverse':
+    if adjoint == "reverse":
         if not solver.pgd_kernel.reversible:
-            raise ValueError(f"Cannot use adjoint='reverse' with {type(solver.pgd_kernel).__name__}. "
-                             f"Use SharpeningKernel for reversible integration, or use adjoint='checkpointed'.")
+            raise ValueError(
+                f"Cannot use adjoint='reverse' with {type(solver.pgd_kernel).__name__}. "
+                f"Use SharpeningKernel for reversible integration, or use adjoint='checkpointed'."
+            )
 
-    (ts, ) = promote_dtypes_inexact(ts)
+    (ts,) = promote_dtypes_inexact(ts)
 
     # Initialize solver OUTSIDE the loop
     disp0, vel0 = displacements, velocities
@@ -102,13 +106,13 @@ def integrate(displacements: ParticleField,
     # Bundle all differentiable args
     y0_cosmo_ts_solver = ((disp, vel, state), cosmo, ts, solver)
 
-    if adjoint == 'checkpointed':
+    if adjoint == "checkpointed":
         return _integrate_checkpointed(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, checkpoints=checkpoints)
-    elif adjoint == 'reverse':
+    elif adjoint == "reverse":
         return _integrate_reverse_adjoint(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0)
-    elif adjoint == 'lax':
+    elif adjoint == "lax":
         # For testing: just run the forward pass without custom VJP
-        snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='bounded')
+        snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind="bounded")
         return snapshots
     else:
         raise ValueError(f"Unknown adjoint type: {adjoint}")
@@ -136,7 +140,7 @@ def _integrate_checkpointed(
     Returns:
         Snapshots at each time in ts.
     """
-    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='checkpointed', checkpoints=checkpoints)
+    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind="checkpointed", checkpoints=checkpoints)
     return snapshots
 
 
@@ -161,7 +165,7 @@ def _integrate_reverse_adjoint(
     Returns:
         Snapshots at each time in ts.
     """
-    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='lax')
+    snapshots, _ = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind="lax")
     return snapshots
 
 
@@ -184,19 +188,20 @@ def _integrate_fwd(
     Returns:
         Tuple of (snapshots, residuals) where residuals contain state needed for backward.
     """
-    snapshots, y_final = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind='lax')
+    snapshots, y_final = _fwd_loop(y0_cosmo_ts_solver, t0=t0, t1=t1, dt0=dt0, kind="lax")
     y0, cosmo, ts, solver = y0_cosmo_ts_solver
     return snapshots, (y_final, cosmo, ts, solver)
 
 
-def _fwd_loop(y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBodyState], Any, jnp.ndarray,
-                                        AbstractNBodySolver],
-              *,
-              t0: float,
-              t1: float,
-              dt0: float,
-              kind: str = 'lax',
-              checkpoints: int | None = None) -> tuple[Any, tuple[ParticleField, ParticleField, NBodyState]]:
+def _fwd_loop(
+    y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBodyState], Any, jnp.ndarray, AbstractNBodySolver],
+    *,
+    t0: float,
+    t1: float,
+    dt0: float,
+    kind: str = "lax",
+    checkpoints: int | None = None,
+) -> tuple[Any, tuple[ParticleField, ParticleField, NBodyState]]:
     """
     Forward integration loop for AbstractNBodySolver.
 
@@ -252,11 +257,9 @@ def _fwd_loop(y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBod
         inner_carry = (disp_, vel_, state_, t_curr, t_target)
 
         # Inner loop: step until reaching t_target
-        disp_, vel_, state_, _, _ = eqxi.while_loop(inner_forward_cond,
-                                                    inner_forward_step,
-                                                    inner_carry,
-                                                    max_steps=max_steps,
-                                                    kind=kind)
+        disp_, vel_, state_, _, _ = eqxi.while_loop(
+            inner_forward_cond, inner_forward_step, inner_carry, max_steps=max_steps, kind=kind
+        )
 
         # Save snapshot at t_target
         snapshot = solver.save_at(disp_, vel_, t_target, dt0, state_, cosmo)
@@ -268,12 +271,9 @@ def _fwd_loop(y0_cosmo_ts_solver: tuple[tuple[ParticleField, ParticleField, NBod
     init_carry = (disp, vel, state, t0)
 
     # Run outer scan over all snapshot times
-    (disp_final, vel_final, state_final,
-     _), snapshots = eqxi.scan(outer_forward_step,
-                               init_carry,
-                               ts,
-                               kind=kind,
-                               checkpoints=checkpoints if kind == 'checkpointed' else None)
+    (disp_final, vel_final, state_final, _), snapshots = eqxi.scan(
+        outer_forward_step, init_carry, ts, kind=kind, checkpoints=checkpoints if kind == "checkpointed" else None
+    )
 
     y_final = (disp_final, vel_final, state_final)
     return snapshots, y_final
@@ -314,8 +314,20 @@ def _integrate_bwd(
     adj_ts_scalar = jnp.zeros_like(ts[0])
 
     def inner_backward_step(carry):
-        (disp, vel, state, diff_cosmo_, diff_solver_, adj_disp_, adj_vel_, adj_state_, adj_cosmo_, adj_solver_, t0_,
-         tc) = carry
+        (
+            disp,
+            vel,
+            state,
+            diff_cosmo_,
+            diff_solver_,
+            adj_disp_,
+            adj_vel_,
+            adj_state_,
+            adj_cosmo_,
+            adj_solver_,
+            t0_,
+            tc,
+        ) = carry
 
         t_prev = tc - dt0
         t_prev = _clip_to_start(t_prev, tc, t0_)
@@ -342,15 +354,28 @@ def _integrate_bwd(
 
         # Propagate adjoints backwards
         new_adj_disp, new_adj_vel, new_adj_cosmo_step, new_adj_solver_step, new_adj_state_step = f_vjp_step(
-            (adj_disp_, adj_vel_, adj_state_))
+            (adj_disp_, adj_vel_, adj_state_)
+        )
 
         # Accumulate parameter adjoints
         adj_cosmo_new = jax.tree.map(jnp.add, adj_cosmo_, new_adj_cosmo_step)
         adj_solver_new = jax.tree.map(jnp.add, adj_solver_, new_adj_solver_step)
 
         # FIX: Return new_adj_state_step, not adj_state_
-        return (disp_prev, vel_prev, state_prev, diff_cosmo_, diff_solver_, new_adj_disp, new_adj_vel,
-                new_adj_state_step, adj_cosmo_new, adj_solver_new, t0_, t_prev)
+        return (
+            disp_prev,
+            vel_prev,
+            state_prev,
+            diff_cosmo_,
+            diff_solver_,
+            new_adj_disp,
+            new_adj_vel,
+            new_adj_state_step,
+            adj_cosmo_new,
+            adj_solver_new,
+            t0_,
+            t_prev,
+        )
 
     def inner_backward_cond(carry):
         *_, t0_, tc = carry
@@ -358,8 +383,20 @@ def _integrate_bwd(
 
     def outer_backward_step(outer_carry, vals):
         y_ct, t0_prev_snap = vals
-        (disp, vel, state, diff_cosmo_, diff_solver_, adj_disp_, adj_vel_, adj_state_, adj_cosmo_, adj_solver_,
-         adj_ts_scalar_, tc) = outer_carry
+        (
+            disp,
+            vel,
+            state,
+            diff_cosmo_,
+            diff_solver_,
+            adj_disp_,
+            adj_vel_,
+            adj_state_,
+            adj_cosmo_,
+            adj_solver_,
+            adj_ts_scalar_,
+            tc,
+        ) = outer_carry
 
         solver_ = eqx.combine(diff_solver_, nondiff_solver)
         cosmo_ = eqx.combine(diff_cosmo_, nondiff_cosmo)
@@ -405,7 +442,8 @@ def _integrate_bwd(
 
         # Pull the SUMMED adjoints through the step VJP
         (step_adj_disp, step_adj_vel, step_adj_state, step_adj_cosmo, step_adj_solver, step_adj_ts) = f_vjp_step(
-            (adj_disp_sum, adj_vel_sum, adj_state_sum))
+            (adj_disp_sum, adj_vel_sum, adj_state_sum)
+        )
 
         # Time gradient logic
         step_adj_ts = jnp.where(tc == t_prev, jnp.zeros_like(step_adj_ts), step_adj_ts)
@@ -429,13 +467,38 @@ def _integrate_bwd(
             adj_cosmo_final,
             adj_solver_final,
             t0_prev_snap,
-            t_prev)
+            t_prev,
+        )
 
-        (disp_out, vel_out, state_out, _, _, adj_disp_out, adj_vel_out, adj_state_out, adj_cosmo_out, adj_solver_out, _,
-         t_out) = jax.lax.while_loop(inner_backward_cond, inner_backward_step, inner_carry)
+        (
+            disp_out,
+            vel_out,
+            state_out,
+            _,
+            _,
+            adj_disp_out,
+            adj_vel_out,
+            adj_state_out,
+            adj_cosmo_out,
+            adj_solver_out,
+            _,
+            t_out,
+        ) = jax.lax.while_loop(inner_backward_cond, inner_backward_step, inner_carry)
 
-        outer_carry = (disp_out, vel_out, state_out, diff_cosmo_, diff_solver_, adj_disp_out, adj_vel_out,
-                       adj_state_out, adj_cosmo_out, adj_solver_out, step_adj_ts, t_out)
+        outer_carry = (
+            disp_out,
+            vel_out,
+            state_out,
+            diff_cosmo_,
+            diff_solver_,
+            adj_disp_out,
+            adj_vel_out,
+            adj_state_out,
+            adj_cosmo_out,
+            adj_solver_out,
+            step_adj_ts,
+            t_out,
+        )
 
         return outer_carry, adj_ts_out
 
@@ -443,19 +506,33 @@ def _integrate_bwd(
     t1_ = ts[-1]
     t_steps = jnp.concatenate((jnp.asarray([t0]), ts[:-1]))
 
-    init_carry = (disp_final, vel_final, state_final, diff_cosmo, diff_solver, adj_disp, adj_vel, adj_state, adj_cosmo,
-                  adj_solver, adj_ts_scalar, t1_)
+    init_carry = (
+        disp_final,
+        vel_final,
+        state_final,
+        diff_cosmo,
+        diff_solver,
+        adj_disp,
+        adj_vel,
+        adj_state,
+        adj_cosmo,
+        adj_solver,
+        adj_ts_scalar,
+        t1_,
+    )
 
     vals = (ys_ct, t_steps)
 
-    (_, _, _, _, _, adj_disp_final, adj_vel_final, adj_state_final, adj_cosmo_final, adj_solver_final, _,
-     _), adj_ts_contributions = jax.lax.scan(outer_backward_step, init_carry, vals, reverse=True)
+    (
+        (_, _, _, _, _, adj_disp_final, adj_vel_final, adj_state_final, adj_cosmo_final, adj_solver_final, _, _),
+        adj_ts_contributions,
+    ) = jax.lax.scan(outer_backward_step, init_carry, vals, reverse=True)
 
     adj_cosmo_full = eqx.combine(adj_cosmo_final, nondiff_cosmo)
     adj_solver_full = eqx.combine(adj_solver_final, nondiff_solver)
     adj_y0 = (adj_disp_final, adj_vel_final, adj_state_final)
 
-    return ((adj_y0, adj_cosmo_full, adj_ts_contributions, adj_solver_full), )
+    return ((adj_y0, adj_cosmo_full, adj_ts_contributions, adj_solver_full),)
 
 
 _integrate_reverse_adjoint.defvjp(_integrate_fwd, _integrate_bwd)

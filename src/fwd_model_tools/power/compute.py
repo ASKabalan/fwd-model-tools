@@ -11,13 +11,13 @@ from .._src.power import _coherence, _cross_spherical_cl, _flat_cl, _power, _sph
 
 @partial(jax.jit, static_argnames=["box_shape", "multipoles", "los"])
 def power(
-        mesh,
-        mesh2=None,
-        *,
-        box_shape: tuple[float, float, float],
-        kedges: int | float | Iterable[float] | None = None,
-        multipoles: int | Iterable[int] = 0,
-        los: jnp.ndarray | Iterable[float] = jnp.array([0.0, 0.0, 1.0]),
+    mesh,
+    mesh2=None,
+    *,
+    box_shape: tuple[float, float, float],
+    kedges: int | float | Iterable[float] | None = None,
+    multipoles: int | Iterable[int] = 0,
+    los: jnp.ndarray | Iterable[float] = jnp.array([0.0, 0.0, 1.0]),
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Array-only 3D power spectrum. Returns (wavenumber, spectra)."""
     box_shape = tuple(box_shape)

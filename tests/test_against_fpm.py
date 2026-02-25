@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import fwd_model_tools as ffi
 import pytest
 from jax import numpy as jnp
 from numpy.testing import assert_allclose
-
-import fwd_model_tools as ffi
 
 _FIELD_RTOL = 1e-12
 _FIELD_ATOL = 1e-12
@@ -19,11 +18,11 @@ _PL_RTOL = 1e-12
 
 
 def MSE(x, y):
-    return jnp.max((x - y)**2)
+    return jnp.max((x - y) ** 2)
 
 
 def MSRE(x, y):
-    return jnp.max(((x - y) / y)**2)
+    return jnp.max(((x - y) / y) ** 2)
 
 
 @pytest.mark.parametrize("order", [1, 2])
@@ -127,7 +126,9 @@ def test_nbody_reversible_solver(
 
     dx, p = ffi.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
 
-    solver = ffi.ReversibleDoubleKickDrift(interp_kernel=ffi.NoInterp(painting=ffi.PaintingOptions(target="density")), )
+    solver = ffi.ReversibleDoubleKickDrift(
+        interp_kernel=ffi.NoInterp(painting=ffi.PaintingOptions(target="density")),
+    )
 
     dt0 = (1.0 - lpt_scale_factor) / (steps - 1)
 
