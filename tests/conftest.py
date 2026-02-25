@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 import pytest
-
 from fwd_model_tools.fields import DensityField, FieldStatus
 from fwd_model_tools.fields.units import DensityUnit
 
