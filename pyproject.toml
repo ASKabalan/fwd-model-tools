@@ -74,7 +74,7 @@ Issues = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/is
 
 
 [tool.setuptools]
-script-files = ["bin/ffi-simulate", "bin/ffi-samples"]
+script-files = ["bin/ffi-simulate", "bin/ffi-samples", "bin/ffi-infer"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -85,6 +85,8 @@ where = ["src"]
 [tool.ruff]
 line-length = 120
 fix = true
+include = ["*.py", "*.ipynb"]
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -101,24 +103,20 @@ ignore = [
     "E402",  # module level import not at top of file
     "E731",  # do not assign a lambda expression, use a def
     "F722", # syntax error in type annotation
-    "UP045", # allow "Optional" usage instead of "X | None"
     "UP007"
 ]
 
 [tool.ruff.format]
 quote-style = "double"
 
-[tool.isort]
-line_length = 120
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-
-[tool.yapf]
-based_on_style = "pep8"
-column_limit = 120
+[tool.pyright]
+include = ["src"]
+exclude = ["**/node_modules", "**/__pycache__", ".git"]
+pythonPlatform = "Linux"
+pythonVersion = "3.10"
+reportGeneralTypeIssues = false
+reportMissingImports = false
+reportUndefinedVariable = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

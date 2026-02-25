@@ -62,8 +62,11 @@ def save_sharded(pytree, path, overwrite: bool = True, dump_structure: bool = Tr
             return x
 
         def get_sharded_leaves(x):
-            return (isinstance(x, jax.Array) and x.sharding is not None
-                    and not x.sharding.is_equivalent_to(_get_default_sharding(), 1))
+            return (
+                isinstance(x, jax.Array)
+                and x.sharding is not None
+                and not x.sharding.is_equivalent_to(_get_default_sharding(), 1)
+            )
 
         abstract_pytree = jax.tree.map(to_shape_dtype_struct_safe, pytree)
         abstract_pytree_no_sharding = jax.tree.map(strip_sharding, abstract_pytree)

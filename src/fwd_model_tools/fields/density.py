@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from functools import partial
-from typing import Optional
 
 import jax
 import jax.core
@@ -15,9 +14,8 @@ from .._src.base._core import AbstractField
 from .._src.base._enums import DensityUnit, FieldStatus
 from .._src.base._tri_map import tri_map
 from .._src.fields._plotting import generate_titles, plot_3d_density, prepare_axes
-from ..power import PowerSpectrum, coherence
+from ..power import PowerSpectrum, coherence, transfer
 from ..power import power as power_fn
-from ..power import transfer
 from .lightcone import FlatDensity
 from .units import convert_units
 
@@ -31,15 +29,21 @@ class DensityField(AbstractField):
         """Validation hook called after Equinox auto-initialization."""
         super().__check_init__()
         # Validate array shape
-        if not ((self.array.ndim == 3 and self.array.shape == self.mesh_size) or
-                (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size) or
-                (self.array.ndim == 5 and self.array.shape[2:] == self.mesh_size)):
-            raise ValueError("DensityField array must have shape (mesh_size), (S, mesh_size), or (N, S, mesh_size), "
-                             f"got array shape {self.array.shape} and mesh_size {self.mesh_size}")
+        if not (
+            (self.array.ndim == 3 and self.array.shape == self.mesh_size)
+            or (self.array.ndim == 4 and self.array.shape[1:] == self.mesh_size)
+            or (self.array.ndim == 5 and self.array.shape[2:] == self.mesh_size)
+        ):
+            raise ValueError(
+                "DensityField array must have shape (mesh_size), (S, mesh_size), or (N, S, mesh_size), "
+                f"got array shape {self.array.shape} and mesh_size {self.mesh_size}"
+            )
         # Validate unit type
         if not isinstance(self.unit, DensityUnit):
-            raise TypeError(f"DensityField.unit must be a DensityUnit, got {self.unit!r}. "
-                            "Please set the correct unit when constructing the field.")
+            raise TypeError(
+                f"DensityField.unit must be a DensityUnit, got {self.unit!r}. "
+                "Please set the correct unit when constructing the field."
+            )
 
     def __getitem__(self, key) -> DensityField:
         """
@@ -49,8 +53,10 @@ class DensityField(AbstractField):
         For a 5D array (N, S, X, Y, Z), slices the simulation-batch dimension.
         """
         if self.array.ndim not in (4, 5):
-            raise ValueError("Indexing only supported for batched DensityField with 4D or 5D array, "
-                             f"got array with {self.array.ndim} dimensions")
+            raise ValueError(
+                "Indexing only supported for batched DensityField with 4D or 5D array, "
+                f"got array with {self.array.ndim} dimensions"
+            )
         # Use the AbstractField __getitem__ implementation (tree.map).
         return super().__getitem__(key)
 
@@ -60,9 +66,9 @@ class DensityField(AbstractField):
         self,
         unit: DensityUnit,
         *,
-        omega_m: Optional[float] = None,
-        h: Optional[float] = None,
-        mean_density: Optional[float] = None,
+        omega_m: float | None = None,
+        h: float | None = None,
+        mean_density: float | None = None,
     ) -> DensityField:
         """
         Convert the field to a different unit.
@@ -154,11 +160,11 @@ class DensityField(AbstractField):
     def plot(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "magma",
-        figsize: Optional[tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
+        titles: str | Sequence[str] | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -223,11 +229,11 @@ class DensityField(AbstractField):
     def show(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "magma",
-        figsize: Optional[tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
+        titles: str | Sequence[str] | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -267,13 +273,13 @@ class DensityField(AbstractField):
     # -------------------------------------------------------- power-spectrum API
     @partial(jax.jit, static_argnames=["multipoles", "los", "batch_size"])
     def power(
-            self,
-            mesh2: Optional[DensityField] = None,
-            *,
-            kedges: Optional[Array | jnp.ndarray] = None,
-            multipoles: Optional[Iterable[int]] = 0,
-            los: Array | Iterable[float] = (0.0, 0.0, 1.0),
-            batch_size: Optional[int] = None,
+        self,
+        mesh2: DensityField | None = None,
+        *,
+        kedges: Array | jnp.ndarray | None = None,
+        multipoles: Iterable[int] | None = 0,
+        los: Array | Iterable[float] = (0.0, 0.0, 1.0),
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute the 3D matter power spectrum P(k).
 
@@ -311,12 +317,12 @@ class DensityField(AbstractField):
 
     @partial(jax.jit, static_argnames=["multipoles", "los", "batch_size"])
     def cross_power(
-            self,
-            *,
-            kedges: Optional[Array | jnp.ndarray] = None,
-            multipoles: Optional[Iterable[int]] = 0,
-            los: Array | Iterable[float] = (0.0, 0.0, 1.0),
-            batch_size: Optional[int] = None,
+        self,
+        *,
+        kedges: Array | jnp.ndarray | None = None,
+        multipoles: Iterable[int] | None = 0,
+        los: Array | Iterable[float] = (0.0, 0.0, 1.0),
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute all cross-power spectra for batched density fields.
 
@@ -357,16 +363,19 @@ class DensityField(AbstractField):
 
         # Validate batched 4D input with at least 2 maps
         if data.ndim != 4:
-            raise ValueError(f"cross_power requires batched array with shape (B, X, Y, Z), "
-                             f"got array with {data.ndim} dimensions. Use power() for single fields.")
+            raise ValueError(
+                f"cross_power requires batched array with shape (B, X, Y, Z), "
+                f"got array with {data.ndim} dimensions. Use power() for single fields."
+            )
 
         n_maps = data.shape[0]
         if n_maps < 2:
-            raise ValueError(f"cross_power requires at least 2 maps in batch dimension, got {n_maps}. "
-                             "Use power() for single fields.")
+            raise ValueError(
+                f"cross_power requires at least 2 maps in batch dimension, got {n_maps}. Use power() for single fields."
+            )
 
         box_shape = tuple(self.box_size)
-        multipoles_static = tuple(multipoles) if isinstance(multipoles, (list, tuple)) else multipoles
+        multipoles_static = tuple(multipoles) if isinstance(multipoles, (list | tuple)) else (multipoles,)
         los_tuple = None if multipoles_static == 0 else tuple(np.asarray(los, dtype=float))
 
         def pair_fn(pair):
@@ -396,8 +405,8 @@ class DensityField(AbstractField):
         self,
         other: DensityField,
         *,
-        kedges: Optional[Array | jnp.ndarray] = None,
-        batch_size: Optional[int] = None,
+        kedges: Array | jnp.ndarray | None = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Monopole transfer function sqrt(P_other / P_self)."""
 
@@ -432,8 +441,8 @@ class DensityField(AbstractField):
         self,
         other: DensityField,
         *,
-        kedges: Optional[Array | jnp.ndarray] = None,
-        batch_size: Optional[int] = None,
+        kedges: Array | jnp.ndarray | None = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Monopole coherence pk01 / sqrt(pk0 pk1)."""
 

@@ -20,7 +20,7 @@ PathLike = Union[str, Path]
 
 def _parse_control_par(control_file: Path) -> dict:
     """Parse control.par file for cosmology parameters."""
-    keys = ['h', 'dOmega0', 'dOmegaDE', 'dSigma8', 'dSpectral', 'w0', 'dBoxSize', 'nGrid']
+    keys = ["h", "dOmega0", "dOmegaDE", "dSigma8", "dSpectral", "w0", "dBoxSize", "nGrid"]
 
     with open(control_file) as f:
         content = f.read()
@@ -62,7 +62,7 @@ def load_gowerstreet(
         Contains SphericalDensity field and jc.Cosmology.
     """
     # Only one of max_redshift or max_comoving_distance can be provided
-    if ((max_redshift, max_comoving_distance, max_shells).count(None) < 2):
+    if (max_redshift, max_comoving_distance, max_shells).count(None) < 2:
         raise ValueError("Only one of max_redshift, max_comoving_distance, or max_shells can be provided")
 
     sim_dir = Path(path).resolve()
@@ -78,7 +78,7 @@ def load_gowerstreet(
     params = _parse_control_par(control_file)
 
     # Load z_values.txt
-    coord_data = np.loadtxt(z_file, delimiter=',', comments='#')[:, :7]
+    coord_data = np.loadtxt(z_file, delimiter=",", comments="#")[:, :7]
     steps = coord_data[:, 0].astype(int)
     z_far, z_near = coord_data[:, 1], coord_data[:, 2]
     comoving_far, comoving_near = coord_data[:, 3], coord_data[:, 4]
@@ -96,7 +96,7 @@ def load_gowerstreet(
         mask = np.ones_like(z_far, dtype=bool)
 
     print(f"[{z_far.shape}, {z_near.shape}, {comoving_far.shape}, {comoving_near.shape}, {density_widths.shape}]")
-    indices, = np.where(mask)
+    (indices,) = np.where(mask)
     steps = steps[indices]
     z_far = z_far[indices]
     z_near = z_near[indices]
@@ -130,8 +130,8 @@ def load_gowerstreet(
         map_data = np.load(lc_file)
         sph_map = SphericalDensity(
             array=np.asarray(map_data),
-            mesh_size=(int(params['nGrid']), int(params['nGrid']), int(params['nGrid'])),
-            box_size=(float(params['dBoxSize']), float(params['dBoxSize']), float(params['dBoxSize'])),
+            mesh_size=(int(params["nGrid"]), int(params["nGrid"]), int(params["nGrid"])),
+            box_size=(float(params["dBoxSize"]), float(params["dBoxSize"]), float(params["dBoxSize"])),
             observer_position=(0.5, 0.5, 0.5),
             sharding=None,
             halo_size=(0, 0),
@@ -155,8 +155,8 @@ def load_gowerstreet(
 
     # Calculate cosmological parameters
     # dOmega0 is total matter (Omega_m)
-    omega_m = float(params['dOmega0'])
-    omega_de = float(params['dOmegaDE'])
+    omega_m = float(params["dOmega0"])
+    omega_de = float(params["dOmegaDE"])
     omega_c = omega_m - omega_b
 
     # Calculate Omega_k (curvature)
@@ -164,10 +164,10 @@ def load_gowerstreet(
     omega_k = 1.0 - (omega_m + omega_de)
 
     # Other parameters
-    h_param = float(params['h'])
-    n_s = float(params['dSpectral'])
-    sigma8 = float(params['dSigma8'])
-    w0_param = float(params['w0'])
+    h_param = float(params["h"])
+    n_s = float(params["dSpectral"])
+    sigma8 = float(params["dSigma8"])
+    w0_param = float(params["w0"])
 
     # Build jax_cosmo Cosmology
     cosmo = jc.Cosmology(

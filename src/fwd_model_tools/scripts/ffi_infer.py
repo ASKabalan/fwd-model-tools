@@ -143,38 +143,72 @@ def parser() -> argparse.ArgumentParser:
     )
 
     # --- Required positional-style required args ---
-    p.add_argument("--observable", type=str, required=True, metavar="PATH",
-                   help="Parquet Catalog with batched kappa field (n_bins, npix) and cosmology.")
-    p.add_argument("--path", type=str, required=True, metavar="PATH",
-                   help="Output directory for MCMC checkpoints and parquet catalogs.")
-    p.add_argument("--nb-shells", type=int, required=True, metavar="INT",
-                   help="Number of lightcone shells.")
-    p.add_argument("--mesh-size", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"),
-                   help="Inference mesh resolution.")
-    p.add_argument("--box-size", type=float, nargs=3, required=True, metavar=("LX", "LY", "LZ"),
-                   help="Box side lengths in Mpc/h. Warns if different from the observable's stored box_size.")
+    p.add_argument(
+        "--observable",
+        type=str,
+        required=True,
+        metavar="PATH",
+        help="Parquet Catalog with batched kappa field (n_bins, npix) and cosmology.",
+    )
+    p.add_argument(
+        "--path",
+        type=str,
+        required=True,
+        metavar="PATH",
+        help="Output directory for MCMC checkpoints and parquet catalogs.",
+    )
+    p.add_argument("--nb-shells", type=int, required=True, metavar="INT", help="Number of lightcone shells.")
+    p.add_argument(
+        "--mesh-size", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"), help="Inference mesh resolution."
+    )
+    p.add_argument(
+        "--box-size",
+        type=float,
+        nargs=3,
+        required=True,
+        metavar=("LX", "LY", "LZ"),
+        help="Box side lengths in Mpc/h. Warns if different from the observable's stored box_size.",
+    )
 
     # --- Optional: IC and sampling targets ---
-    p.add_argument("--initial-condition", type=str, default=None, metavar="PATH",
-                   help="Parquet Catalog with IC DensityField for initialization or fixing IC.")
-    p.add_argument("--sample", nargs="+", default=["cosmo", "ic"],
-                   choices=["cosmo", "ic"], metavar="WHAT",
-                   help="Space-separated subset of {cosmo, ic} to sample (default: cosmo ic).")
+    p.add_argument(
+        "--initial-condition",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Parquet Catalog with IC DensityField for initialization or fixing IC.",
+    )
+    p.add_argument(
+        "--sample",
+        nargs="+",
+        default=["cosmo", "ic"],
+        choices=["cosmo", "ic"],
+        metavar="WHAT",
+        help="Space-separated subset of {cosmo, ic} to sample (default: cosmo ic).",
+    )
 
     # --- Device mesh / distributed ---
-    p.add_argument("--pdim", type=int, nargs=2, default=[1, 1], metavar=("PX", "PY"),
-                   help="Device mesh dimensions.")
-    p.add_argument("--halo-size", type=int, nargs=2, default=None, metavar=("H0", "H1"),
-                   help="Halo exchange depth; required when --pdim != 1 1 and jax.device_count() > 1.")
+    p.add_argument("--pdim", type=int, nargs=2, default=[1, 1], metavar=("PX", "PY"), help="Device mesh dimensions.")
+    p.add_argument(
+        "--halo-size",
+        type=int,
+        nargs=2,
+        default=None,
+        metavar=("H0", "H1"),
+        help="Halo exchange depth; required when --pdim != 1 1 and jax.device_count() > 1.",
+    )
 
     # --- Observer / physics ---
-    p.add_argument("--observer-position", type=float, nargs=3, default=[0.5, 0.5, 0.5],
-                   metavar=("OX", "OY", "OZ"),
-                   help="Observer position in box coordinates.")
-    p.add_argument("--sigma-e", type=float, default=0.26,
-                   help="Shape noise dispersion.")
-    p.add_argument("--density-plane-smoothing", type=float, default=0.0,
-                   help="Density plane smoothing scale.")
+    p.add_argument(
+        "--observer-position",
+        type=float,
+        nargs=3,
+        default=[0.5, 0.5, 0.5],
+        metavar=("OX", "OY", "OZ"),
+        help="Observer position in box coordinates.",
+    )
+    p.add_argument("--sigma-e", type=float, default=0.26, help="Shape noise dispersion.")
+    p.add_argument("--density-plane-smoothing", type=float, default=0.0, help="Density plane smoothing scale.")
 
     # --- Time-stepping ---
     p.add_argument("--t0", type=float, default=0.01, help="LPT start scale factor.")
@@ -183,26 +217,24 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--lpt-order", type=int, choices=[1, 2], default=2, help="LPT order.")
 
     # --- Gradient strategy ---
-    p.add_argument("--adjoint", choices=["checkpointed", "recursive"], default="checkpointed",
-                   help="Gradient strategy for NUTS.")
-    p.add_argument("--checkpoints", type=int, default=10,
-                   help="Number of gradient checkpoints (used when --adjoint checkpointed).")
+    p.add_argument(
+        "--adjoint", choices=["checkpointed", "recursive"], default="checkpointed", help="Gradient strategy for NUTS."
+    )
+    p.add_argument(
+        "--checkpoints", type=int, default=10, help="Number of gradient checkpoints (used when --adjoint checkpointed)."
+    )
 
     # --- MCMC settings ---
     p.add_argument("--num-warmup", type=int, default=500, help="MCMC warmup iterations.")
     p.add_argument("--num-samples", type=int, default=1000, help="Samples per batch.")
     p.add_argument("--batch-count", type=int, default=5, help="Number of sequential batches.")
-    p.add_argument("--sampler", choices=["NUTS", "HMC", "MCLMC"], default="NUTS",
-                   help="MCMC sampler.")
-    p.add_argument("--backend", choices=["numpyro", "blackjax"], default="numpyro",
-                   help="Sampling backend.")
+    p.add_argument("--sampler", choices=["NUTS", "HMC", "MCLMC"], default="NUTS", help="MCMC sampler.")
+    p.add_argument("--backend", choices=["numpyro", "blackjax"], default="numpyro", help="Sampling backend.")
 
     # --- Misc ---
     p.add_argument("--seed", type=int, default=0, help="JAX PRNGKey seed.")
-    p.add_argument("--no-progress-bar", action="store_true",
-                   help="Suppress tqdm progress bars.")
-    p.add_argument("--enable-x64", action="store_true",
-                   help="Enable JAX 64-bit precision.")
+    p.add_argument("--no-progress-bar", action="store_true", help="Suppress tqdm progress bars.")
+    p.add_argument("--enable-x64", action="store_true", help="Enable JAX 64-bit precision.")
 
     return p
 
@@ -254,8 +286,8 @@ def main() -> None:
     _validate_args(args, p)
 
     # 1. Load observable → kappa arrays and geometry metadata
-    kappa_arrays, obs_cosmo, obs_box_size, geometry, nside, flatsky_npix, field_size, n_kappas = (
-        _load_observable(args.observable)
+    kappa_arrays, obs_cosmo, obs_box_size, geometry, nside, flatsky_npix, field_size, n_kappas = _load_observable(
+        args.observable
     )
 
     # 2. Warn if CLI box_size differs from observable's stored box_size

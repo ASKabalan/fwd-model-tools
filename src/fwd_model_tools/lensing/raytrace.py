@@ -6,7 +6,6 @@ from typing import ParamSpec, TypeVar
 
 import jax
 import jax.numpy as jnp
-import jax_cosmo as jc
 import numpy as np
 from scipy.integrate import simpson
 
@@ -46,21 +45,23 @@ def require_dorian(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
     return deferred_func
 
 
-def _raytrace_z_grid(density_maps: np.ndarray,
-                     shell_redshifts: np.ndarray,
-                     z_sources: np.ndarray,
-                     box_size: float,
-                     n_particles: int,
-                     omega_m: float,
-                     h: float,
-                     omega_l: float,
-                     nside: int,
-                     interp: str,
-                     parallel_transport: bool,
-                     born: bool,
-                     shell_widths: np.ndarray | None = None,
-                     nufft_threads: int = 4,
-                     n_workers=None) -> np.ndarray:
+def _raytrace_z_grid(
+    density_maps: np.ndarray,
+    shell_redshifts: np.ndarray,
+    z_sources: np.ndarray,
+    box_size: float,
+    n_particles: int,
+    omega_m: float,
+    h: float,
+    omega_l: float,
+    nside: int,
+    interp: str,
+    parallel_transport: bool,
+    born: bool,
+    shell_widths: np.ndarray | None = None,
+    nufft_threads: int = 4,
+    n_workers=None,
+) -> np.ndarray:
     """Run dorian ray-tracing for each source redshift.
 
     Parameters
@@ -97,6 +98,9 @@ def _raytrace_z_grid(density_maps: np.ndarray,
     np.ndarray
         Convergence maps, shape (n_sources, npix).
     """
+    assert raytrace_from_density is not None, (
+        "raytrace_from_density is None — dorian not installed. Use @require_dorian to guard callers."
+    )
     result = raytrace_from_density(
         density_maps=list(density_maps),
         redshifts=list(shell_redshifts),
@@ -139,7 +143,6 @@ def _integrate_nz(
     kappa_list = []
     for nz in nz_distributions:
         # Evaluate nz(z) at all grid points
-        nz_of_ = nz(next(iter(z_grid)))
         nz_weights = np.array(nz(z_grid))  # Shape (n_z,)
         # Weight kappa by nz: (n_z, npix) * (n_z, 1) -> (n_z, npix)
         weighted_kappa = kappa_grid * nz_weights[:, None]
@@ -244,12 +247,14 @@ def raytrace(
     born : Born approximation (faster, fully-JAX, no post-Born corrections).
     """
     if jax.process_count() > 1:
-        raise NotImplementedError("""
+        raise NotImplementedError(
+            """
             raytrace() does not support multi-process execution.
             Run with a single process (e.g. --pdim 1 1) or use the born() function for multi-process compatibility.
             However it supports multi-processing by setting n_workers > 1, which uses multiprocessing within the dorian callback.
             It does not support the JAX multi-process model where the entire function is replicated across processes
-            """)
+            """
+        )
     # 1. Validate on static metadata — safe inside JIT
     if lightcone.status != FieldStatus.LIGHTCONE:
         raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
@@ -257,6 +262,8 @@ def raytrace(
         raise TypeError("raytrace() only supports SphericalDensity (HEALPix) lightcones")
     if lightcone.density_width is None:
         raise ValueError("Lightcone must have density_width for raytracing")
+    density_width = lightcone.density_width
+    assert density_width is not None  # type narrowing for checker + closures
 
     # 2. Static simulation parameters — from eqx.field(static=True) metadata
     box_size = lightcone.box_size[0]  # Assumes cubic box in Mpc/h
@@ -302,8 +309,15 @@ def raytrace(
             kappa_maps = _integrate_nz(kappa_grid, z_grid, sources)
             return kappa_maps.astype(np.float32)
 
-        kappa = jax.pure_callback(_callback_dist, result_shape, lightcone.array, lightcone.scale_factors,
-                                  lightcone.density_width, cosmo.Omega_m, cosmo.h)
+        kappa = jax.pure_callback(
+            _callback_dist,
+            result_shape,
+            lightcone.array,
+            lightcone.scale_factors,
+            density_width,
+            cosmo.Omega_m,
+            cosmo.h,
+        )
     else:
 
         def _callback_z(density_maps, scale_factors, density_widths, omega_m_val, h_val, z_sources):
@@ -332,8 +346,16 @@ def raytrace(
             )
             return kappa_maps.astype(np.float32)
 
-        kappa = jax.pure_callback(_callback_z, result_shape, lightcone.array, lightcone.scale_factors,
-                                  lightcone.density_width, cosmo.Omega_m, cosmo.h, sources)
+        kappa = jax.pure_callback(
+            _callback_z,
+            result_shape,
+            lightcone.array,
+            lightcone.scale_factors,
+            density_width,
+            cosmo.Omega_m,
+            cosmo.h,
+            sources,
+        )
 
     # Handle single source case - squeeze to 1D
     if n_sources == 1:

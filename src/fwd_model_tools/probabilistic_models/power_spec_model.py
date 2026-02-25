@@ -48,7 +48,7 @@ def pixel_window_function(ell, pixel_size_arcmin):
         Pixel window function.
     """
     pixel_size_rad = pixel_size_arcmin * (jnp.pi / (180.0 * 60.0))
-    W_l = (jnp.sinc(ell * pixel_size_rad / (2 * jnp.pi)))**2
+    W_l = (jnp.sinc(ell * pixel_size_rad / (2 * jnp.pi))) ** 2
     return W_l
 
 
@@ -141,15 +141,17 @@ def powerspec_probmodel(
         observed_spectra = []
         for idx, (i, j) in enumerate(pair_order):
             if i == j:
-                kappa_obs_spectra = numpyro.sample(f"C_ell_auto_{i}",
-                                                   dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
+                kappa_obs_spectra = numpyro.sample(
+                    f"C_ell_auto_{i}", dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx]))
+                )
 
                 observed_spectra.append(kappa_obs_spectra)
             # Deactivate cross-spectra for now
             # Because the noise is equal to 0 And I don't know what to sample
             elif False:
-                kappa_obs_spectra = numpyro.sample(f"C_ell_cross_{i}_{j}",
-                                                   dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx])))
+                kappa_obs_spectra = numpyro.sample(
+                    f"C_ell_cross_{i}_{j}", dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx]))
+                )
                 observed_spectra.append(kappa_obs_spectra)
 
         return observed_spectra

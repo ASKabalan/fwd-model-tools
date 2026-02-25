@@ -22,7 +22,7 @@ try:
 except ImportError:
     pass
 
-__all__ = ["batched_sampling", "requires_blackjax", "requires_numpyro"]
+__all__ = ["batched_sampling", "requires_samplers"]
 
 _Param = ParamSpec("_Param")
 _Return = TypeVar("_Return")
@@ -40,8 +40,7 @@ def requires_samplers(func: Callable[_Param, _Return]) -> Callable[_Param, _Retu
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'blackjax'. "
-                          "Install with: pip install fwd-model-tools[sampling]")
+        raise ImportError("Missing optional dependency 'blackjax'. Install with: pip install fwd-model-tools[sampling]")
 
     return _deferred
 
@@ -104,12 +103,9 @@ def batched_sampling(
         if init_params is not None:
             kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
 
-        init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(init_key,
-                                                                            model,
-                                                                            model_args=model_args,
-                                                                            model_kwargs=model_kwargs,
-                                                                            dynamic_args=True,
-                                                                            **kwargs)
+        init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(
+            init_key, model, model_args=model_args, model_kwargs=model_kwargs, dynamic_args=True, **kwargs
+        )
         logdensity_fn = lambda position: -potential_fn(*model_args, **model_kwargs)(position)
         initial_position = init_params_obj.z
     else:
@@ -125,10 +121,9 @@ def batched_sampling(
         assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
         assert initial_position is not None, "initial_position must be defined for blackjax backend"
         if sampler == "NUTS":
-            adapt = blackjax.window_adaptation(blackjax.nuts,
-                                               logdensity_fn,
-                                               progress_bar=progress_bar,
-                                               target_acceptance_rate=0.8)
+            adapt = blackjax.window_adaptation(
+                blackjax.nuts, logdensity_fn, progress_bar=progress_bar, target_acceptance_rate=0.8
+            )
             (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
         elif sampler == "HMC":
             adapt = blackjax.window_adaptation(
@@ -140,15 +135,13 @@ def batched_sampling(
             )
             (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
         elif sampler == "MCLMC":
-            initial_state = blackjax.mcmc.mclmc.init(position=initial_position,
-                                                     logdensity_fn=logdensity_fn,
-                                                     rng_key=init_key)
+            initial_state = blackjax.mcmc.mclmc.init(
+                position=initial_position, logdensity_fn=logdensity_fn, rng_key=init_key
+            )
             if state_exists:
                 parameters = {
-                    "L": jax.ShapeDtypeStruct((),
-                                              jnp.asarray(0.0).dtype),
-                    "step_size": jax.ShapeDtypeStruct((),
-                                                      jnp.asarray(0.0).dtype),
+                    "L": jax.ShapeDtypeStruct((), jnp.asarray(0.0).dtype),
+                    "step_size": jax.ShapeDtypeStruct((), jnp.asarray(0.0).dtype),
                 }
                 tuned_state = initial_state
             else:
@@ -196,19 +189,17 @@ def batched_sampling(
     if state_exists:
         abstract_state = jax.tree.map(
             ocp.tree.to_shape_dtype_struct,
-            {
-                "nb_samples": jnp.array(0),
-                "last_state": last_state,
-                "parameters": parameters
-            },
+            {"nb_samples": jnp.array(0), "last_state": last_state, "parameters": parameters},
         )
 
         try:
             saved_state = load_sharded(state_path, abstract_pytree=abstract_state)
         except Exception as e:
-            raise RuntimeError(f"Saved sampling state at '{state_path}' was created by a different model "
-                               "configuration (e.g., different priors, kappa bins, or mesh size). "
-                               "Delete the directory or use a different output path.") from e
+            raise RuntimeError(
+                f"Saved sampling state at '{state_path}' was created by a different model "
+                "configuration (e.g., different priors, kappa bins, or mesh size). "
+                "Delete the directory or use a different output path."
+            ) from e
         nb_samples, last_state, parameters = (
             saved_state["nb_samples"],
             saved_state["last_state"],
@@ -236,8 +227,9 @@ def batched_sampling(
         run_key, batch_key = jax.random.split(run_key)
 
         if backend == "blackjax":
-            transform = (lambda x, _: x.position
-                         if postprocess_fn is None else postprocess_fn(*model_args, **model_kwargs)(x.position))
+            transform = lambda x, _: (
+                x.position if postprocess_fn is None else postprocess_fn(*model_args, **model_kwargs)(x.position)
+            )
             last_state, samples = blackjax.util.run_inference_algorithm(
                 rng_key=batch_key,
                 initial_state=last_state,
@@ -257,7 +249,7 @@ def batched_sampling(
             )
 
             mcmc.post_warmup_state = last_state
-            mcmc.run(batch_key, *model_args, **model_kwargs, extra_fields=("num_steps", ))
+            mcmc.run(batch_key, *model_args, **model_kwargs, extra_fields=("num_steps",))
             samples = mcmc.get_samples()
             nb_evals = mcmc.get_extra_fields()["num_steps"]
             last_state = mcmc.last_state
