@@ -10,7 +10,7 @@ import jax_cosmo as jc
 from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from numpyro.infer import Predictive
-
+import os
 import fwd_model_tools as ffi
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ def parser() -> argparse.ArgumentParser:
         metavar=("LX", "LY", "LZ"),
         help="Box side lengths in Mpc/h (default: 200 200 200)",
     )
-    common.add_argument(
+    p.add_argument(
         "--pdim",
         type=int,
         nargs=2,
@@ -138,12 +138,14 @@ def main() -> None:
     # --- validate geometry ---
     if args.nside is None and args.flatsky_npix is None:
         parser().error("One of --nside or --flatsky-npix is required.")
+    if args.nside is not None and args.flatsky_npix is not None:
+        parser().error("Only one of --nside or --flatsky-npix can be specified.")
 
     # --- hardcoded priors and nz_shear ---
     nz_shear = ffi.io.get_stage3_nz_shear()
     priors = {
-        "Omega_c": ffi.sampling.PreconditionnedUniform(0.1, 0.5),
-        "sigma8": ffi.sampling.PreconditionnedUniform(0.6, 1.0),
+        "Omega_c": ffi.infer.PreconditionnedUniform(0.1, 0.5),
+        "sigma8": ffi.infer.PreconditionnedUniform(0.6, 1.0),
     }
 
     # --- determine geometry ---
