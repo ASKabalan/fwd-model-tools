@@ -4,15 +4,24 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import numpyro
 from jax.scipy.special import ndtr, ndtri
-from jaxpm.distributed import fft3d, ifft3d, normal_field
+from jaxpm.distributed import fft3d, get_sharding_for_shape, ifft3d, normal_field
 from jaxpm.kernels import fftk, interpolate_power_spectrum
-from jaxtyping import Key
+from jaxtyping import ArrayLike, Key
 from numpyro.distributions import Normal, TransformedDistribution, constraints
 from numpyro.distributions.transforms import AffineTransform, Transform
 from numpyro.distributions.util import promote_shapes
 from numpyro.util import is_prng_key
 
-from ..fields import DensityField, DensityUnit, FieldStatus
+from ..fields import (
+    AbstractField,
+    DensityField,
+    DensityUnit,
+    FieldStatus,
+    FlatDensity,
+    FlatKappaField,
+    SphericalDensity,
+    SphericalKappaField,
+)
 
 
 class PowerSpectrumTransform(Transform):
@@ -143,6 +152,7 @@ class DistributedIC(TransformedDistribution):
             nside=nside,
             field_size=field_size,
             sharding=sharding,
+            field_type="density",
         )
 
         # 2. Transform applies the cosmology and FFT interpolation
@@ -161,35 +171,128 @@ class DistributedIC(TransformedDistribution):
 # 1. Distributed White Noise
 # ==========================================
 
+_FIELD_CLS = {
+    "density": DensityField,
+    "flat": FlatDensity,
+    "spherical": SphericalDensity,
+    "flat_kappa": FlatKappaField,
+    "spherical_kappa": SphericalKappaField,
+}
+
 
 class DistributedNormal(Normal):
     """
-    Sharded normal distribution for distributed initial conditions.
+    Sharded normal distribution for distributed initial conditions and kappa maps.
 
-    Returns a ``DensityField`` from ``sample()`` so that downstream code
-    (forward models, transforms) can work with field metadata directly.
+    The ``field_type`` parameter controls what ``sample()`` returns:
+
+    - ``"density"`` (default): returns a ``DensityField`` (3D IC mesh).
+    - ``"flatsky"``: returns a ``FlatDensity`` (2D flat-sky map).
+    - ``"spherical"``: returns a ``SphericalDensity`` (1D HEALPix map).
+    - ``None``: returns a plain JAX array (for observation sites).
+
+    Sharding is automatically trimmed to the array's rank via
+    ``get_sharding_for_shape``, so a 3-D ``P('x','y')`` spec works
+    correctly for 1-D HEALPix arrays without manual adjustment.
     """
+
     arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
     reparametrized_params = ["loc", "scale"]
 
-    def __init__(self,
-                 loc=0.0,
-                 scale=1.0,
-                 mesh_size=None,
-                 box_size=None,
-                 observer_position=(0.5, 0.5, 0.5),
-                 halo_size=(0, 0),
-                 flatsky_npix=None,
-                 nside=None,
-                 field_size=None,
-                 sharding=None,
-                 *,
-                 validate_args=None):
-        if mesh_size is not None:
-            loc = jnp.broadcast_to(jnp.asarray(loc), mesh_size)
-            scale = jnp.broadcast_to(jnp.asarray(scale), mesh_size)
+    def __init__(
+        self,
+        loc=0.0,
+        scale=1.0,
+        mesh_size=None,
+        box_size=None,
+        observer_position=None,
+        halo_size=None,
+        flatsky_npix=None,
+        nside=None,
+        field_size=None,
+        sharding=None,
+        field_type=None,
+        *,
+        validate_args=None,
+    ):
+        is_loc_field = isinstance(loc, AbstractField)
+        is_scale_field = isinstance(scale, AbstractField)
+        # 1. Strict Type Guarding
+        if is_scale_field and not is_loc_field:
+            raise ValueError(
+                "If scale is a field, loc must also be a field. (loc=array, scale=field is not supported).")
+
+        if is_loc_field:
+            if is_scale_field and type(loc) is not type(scale):
+                raise ValueError(f"scale field type {type(scale)} does not match loc field type {type(loc)}.")
+
+            # 2. Infer and Validate field_type
+            inferred_type = next((k for k, v in _FIELD_CLS.items() if type(loc) is v), None)
+            if field_type is not None and field_type != inferred_type:
+                raise ValueError(
+                    f"Explicit field_type '{field_type}' does not match inferred type '{inferred_type}' from loc.")
+            field_type = inferred_type
+
+            # 3. Enforce all explicit metadata args are None
+            metadata_args = {
+                "mesh_size": mesh_size,
+                "box_size": box_size,
+                "observer_position": observer_position,
+                "halo_size": halo_size,
+                "flatsky_npix": flatsky_npix,
+                "nside": nside,
+                "field_size": field_size,
+                "sharding": sharding
+            }
+            for arg_name, arg_val in metadata_args.items():
+                if arg_val is not None:
+                    raise ValueError(
+                        f"Metadata argument '{arg_name}' must be None when 'loc' is a field. Metadata is extracted directly from the field."
+                    )
+
+            # 4. Extract metadata directly from the field
+            mesh_size = loc.mesh_size
+            box_size = loc.box_size
+            observer_position = loc.observer_position
+            halo_size = loc.halo_size
+            flatsky_npix = loc.flatsky_npix
+            nside = loc.nside
+            field_size = loc.field_size
+            sharding = loc.sharding
+
+        else:
+            # Apply standard defaults if loc is just an array
+            if field_type is None:
+                field_type = "density"
+            if observer_position is None:
+                observer_position = (0.5, 0.5, 0.5)
+            if halo_size is None:
+                halo_size = (0, 0)
+
+        # 5. Shape Promotion (safely preserves AbstractFields if present)
         self.loc, self.scale = promote_shapes(loc, scale)
+
+        # 6. Scalar Broadcasting (Skipped safely if loc is an AbstractField)
+        if not is_loc_field and (jnp.isscalar(self.loc) or (self.loc.ndim == 0 and self.scale.ndim == 0)):
+            if field_type == "density":
+                assert mesh_size is not None, "mesh_size must be provided for density fields"
+                self.loc = jnp.broadcast_to(self.loc, mesh_size)
+                self.scale = jnp.broadcast_to(self.scale, mesh_size)
+            elif field_type == "flat" or field_type == "flat_kappa":
+                assert flatsky_npix is not None, "flatsky_npix must be provided for flatsky fields"
+                self.loc = jnp.broadcast_to(self.loc, flatsky_npix)
+                self.scale = jnp.broadcast_to(self.scale, flatsky_npix)
+            elif field_type == "spherical" or field_type == "spherical_kappa":
+                assert nside is not None, "nside must be provided for spherical fields"
+                npix = 12 * nside**2
+                self.loc = jnp.broadcast_to(self.loc, (npix, ))
+                self.scale = jnp.broadcast_to(self.scale, (npix, ))
+        else:
+            self.loc = jnp.asarray(self.loc)
+            self.scale = jnp.asarray(self.scale)
+
+        # 7. Store final resolved metadata
         self.mesh_size = mesh_size
         self.box_size = box_size
         self.observer_position = observer_position
@@ -198,17 +301,20 @@ class DistributedNormal(Normal):
         self.nside = nside
         self.field_size = field_size
         self.sharding = sharding
-        super().__init__(loc, scale, validate_args=validate_args)
+        self.field_type = field_type
+
+        super().__init__(self.loc, self.scale, validate_args=validate_args)
 
     def sample(self, key: Key, sample_shape=()):
         assert is_prng_key(key)
-        eps = normal_field(
-            key,
-            sample_shape + self.batch_shape + self.event_shape,
-            self.sharding,
-        )
+        eps_shape = sample_shape + self.batch_shape + self.event_shape
+        eps = normal_field(key, eps_shape, self.sharding)
         arr = self.loc + eps * self.scale
-        return DensityField(
+
+        cls = _FIELD_CLS.get(self.field_type)
+        if cls is None:
+            return arr
+        return cls(
             array=arr,
             mesh_size=self.mesh_size,
             box_size=self.box_size,
@@ -223,7 +329,7 @@ class DistributedNormal(Normal):
         )
 
     def log_prob(self, value):
-        if isinstance(value, DensityField):
+        if isinstance(value, (DensityField, FlatDensity, SphericalDensity)):
             value = value.array
         return super().log_prob(value)
 
@@ -231,13 +337,36 @@ class DistributedNormal(Normal):
     # PyTree registration to survive MCMC compilation
     # ---------------------------------------------------------
     def tree_flatten(self):
-        return (self.loc, self.scale), (self.mesh_size, self.box_size, self.sharding)
+        return (self.loc, self.scale), (
+            self.mesh_size,
+            self.box_size,
+            self.observer_position,
+            self.halo_size,
+            self.flatsky_npix,
+            self.nside,
+            self.field_size,
+            self.sharding,
+            self.field_type,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         loc, scale = params
-        mesh_size, box_size, sharding = aux_data
-        return cls(loc=loc, scale=scale, mesh_size=mesh_size, box_size=box_size, sharding=sharding)
+        (mesh_size, box_size, observer_position, halo_size, flatsky_npix, nside, field_size, sharding,
+         field_type) = aux_data
+        return cls(
+            loc=loc,
+            scale=scale,
+            mesh_size=mesh_size,
+            box_size=box_size,
+            observer_position=observer_position,
+            halo_size=halo_size,
+            flatsky_npix=flatsky_npix,
+            nside=nside,
+            field_size=field_size,
+            sharding=sharding,
+            field_type=field_type,
+        )
 
 
 # ==========================================

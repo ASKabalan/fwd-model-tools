@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import numpyro
-import numpyro.distributions as dist
 
 from ..fields import AbstractField, DensityField, DensityUnit, FieldStatus
-from ..sampling import DistributedIC
+from ..infer import DistributedIC, DistributedNormal
 from .config import Configurations
 from .forward_model import make_full_field_model
 
@@ -82,19 +81,17 @@ def full_field_probmodel(config: Configurations, ):
         if kappa_fields.shape[0] != len(config.nz_shear):
             raise ValueError("Number of convergence maps does not match nz_shear entries")
 
-        observed_maps = []
         if geometry == "spherical":
             pixel_area_arcmin2 = _spherical_pixel_area_arcmin2(lightcone)
-            for idx, (kappa_field, nz) in enumerate(zip(kappa_fields.array, config.nz_shear)):
-                sigma = config.sigma_e / jnp.sqrt(nz.gals_per_arcmin2 * pixel_area_arcmin2)
-                observed_maps.append(numpyro.sample(f"kappa_{idx}", dist.Normal(kappa_field, sigma)))
         elif geometry == "flat":
             pixel_area_arcmin2 = _flat_pixel_area_arcmin2(lightcone)
-            for idx, (kappa_field, nz) in enumerate(zip(kappa_fields.array, config.nz_shear)):
-                sigma = config.sigma_e / jnp.sqrt(nz.gals_per_arcmin2 * pixel_area_arcmin2)
-                observed_maps.append(numpyro.sample(f"kappa_{idx}", dist.Normal(kappa_field, sigma)))
         else:
             raise ValueError("geometry must be 'flat' or 'spherical'")
+
+        observed_maps = []
+        for idx, (kappa_field, nz) in enumerate(zip(kappa_fields, config.nz_shear)):
+            sigma = config.sigma_e / jnp.sqrt(nz.gals_per_arcmin2 * pixel_area_arcmin2)
+            observed_maps.append(numpyro.sample(f"kappa_{idx}", DistributedNormal(loc=kappa_field, scale=sigma)))
 
         numpyro.deterministic("kappa_meta_data", kappa_fields.to_metadata())
 
