@@ -18,8 +18,9 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
-
+import os
 import fwd_model_tools as ffi
+from jax.experimental.multihost_utils import sync_global_devices
 
 # ---------------------------------------------------------------------------
 # Cosmology builder
@@ -237,6 +238,7 @@ def parser() -> ArgumentParser:
     common.add_argument("--trace-dir",
                         default="/tmp/jax_trace",
                         help="Directory for profiler trace (default: /tmp/jax_trace)")
+    common.add_argument("--enable-x64", action="store_true", help="Enable JAX 64-bit precision (default: False)")
 
     # Cosmology
     cosmo_group = common.add_argument_group("cosmology")
@@ -494,7 +496,14 @@ def run_simulations(
 def main() -> None:
     """CLI entry point registered as ffi-simulate."""
     p = parser()
-    args = p.parse_args()
+    args, unknown = p.parse_known_args()
+    if unknown:
+        print(
+            f"Warning: the following arguments are not recognized by the "
+            f"'{args.subcommand}' subcommand and will be ignored: {unknown}",
+            file=sys.stderr,
+        )
+    jax.config.update("jax_enable_x64", args.enable_x64)
     _validate_args(args, p)
 
     # Prepare arguments
@@ -583,10 +592,13 @@ def main() -> None:
         timer.report(report_file, function=sim_type, extra_info=extra_info, **metadata)
         print(f"Performance report saved to {report_file}")
     else:
-        result = run_simulations(**run_kwargs)
+        result = run_simulations(**run_kwargs).block_until_ready()
 
+    print("Simulation completed... saving results.")
+    sync_global_devices("Done")
     # --- Save output ---
     _save_result(result, cosmo, args)
+    jax.distributed.shutdown()
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import jax_cosmo as jc
 from jax.sharding import AxisType, Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from numpyro.infer import Predictive
-
+import os
 import fwd_model_tools as ffi
 
 # ---------------------------------------------------------------------------
