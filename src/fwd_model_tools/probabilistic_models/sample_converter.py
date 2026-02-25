@@ -6,10 +6,9 @@ import os
 
 import jax.numpy as jnp
 
-from .._src.base import ConvergenceUnit
-from ..fields import DensityField, DensityUnit, FieldStatus
+from ..fields import DensityField
 from ..fields.lensing_maps import FlatKappaField, SphericalKappaField
-from ..io import Catalog, save_sharded
+from ..io import Catalog
 from .config import Configurations
 
 __all__ = ["sample2catalog"]
@@ -32,7 +31,6 @@ def sample2catalog(config: Configurations):
         Callback with signature ``(samples, path, batch_id)``.
     """
 
-    n_bins = len(config.nz_shear)
     is_spherical = config.geometry == "spherical"
     KappaFieldCls = SphericalKappaField if is_spherical else FlatKappaField
 
@@ -62,10 +60,12 @@ def sample2catalog(config: Configurations):
                 field=intitial_condition_meta_data,
             )
 
-        initial_conditions = initial_conditions.replace(z_sources=jnp.zeros(initial_conditions.shape[0]),
-                                                        comoving_centers=jnp.zeros(initial_conditions.shape[0]),
-                                                        scale_factors=jnp.zeros(initial_conditions.shape[0]),
-                                                        density_width=jnp.zeros(initial_conditions.shape[0]))
+        initial_conditions = initial_conditions.replace(
+            z_sources=jnp.zeros(initial_conditions.shape[0]),
+            comoving_centers=jnp.zeros(initial_conditions.shape[0]),
+            scale_factors=jnp.zeros(initial_conditions.shape[0]),
+            density_width=jnp.zeros(initial_conditions.shape[0]),
+        )
 
         sample_catalog = Catalog(field=initial_conditions, cosmology=cosmo)
         sample_catalog.to_parquet(os.path.join(ic_dir, f"samples_{batch_id}.parquet"))

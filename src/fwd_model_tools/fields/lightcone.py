@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Optional
 
 import jax
 import jax.core
@@ -44,17 +43,19 @@ class FlatDensity(AbstractField):
 
     def __getitem__(self, key) -> FlatDensity:
         if self.array.ndim < 3:
-            raise ValueError(f"Indexing only supported for batched FlatDensity (3D or 4D array), "
-                             f"got array with {self.array.ndim} dimensions")
+            raise ValueError(
+                f"Indexing only supported for batched FlatDensity (3D or 4D array), "
+                f"got array with {self.array.ndim} dimensions"
+            )
         return super().__getitem__(key)
 
     def to(
         self,
         unit: DensityUnit,
         *,
-        omega_m: Optional[float] = None,
-        h: Optional[float] = None,
-        mean_density: Optional[float] = None,
+        omega_m: float | None = None,
+        h: float | None = None,
+        mean_density: float | None = None,
     ) -> FlatDensity:
         """
         Convert the flat-sky map to a different density unit.
@@ -101,11 +102,11 @@ class FlatDensity(AbstractField):
     def plot(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "magma",
-        figsize: Optional[tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
+        titles: str | Sequence[str] | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -154,11 +155,11 @@ class FlatDensity(AbstractField):
     def show(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "magma",
-        figsize: Optional[tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
+        titles: str | Sequence[str] | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -195,12 +196,12 @@ class FlatDensity(AbstractField):
 
     def angular_cl(
         self,
-        mesh2: Optional[FlatDensity] = None,
+        mesh2: FlatDensity | None = None,
         *,
-        field_size: Optional[float] = None,
-        pixel_size: Optional[float] = None,
+        field_size: float | None = None,
+        pixel_size: float | None = None,
         ell_edges: Iterable[float] | None = None,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute a flat-sky angular power spectrum C_ell (auto or cross)."""
 
@@ -235,10 +236,10 @@ class FlatDensity(AbstractField):
     def cross_angular_cl(
         self,
         *,
-        field_size: Optional[float] = None,
-        pixel_size: Optional[float] = None,
+        field_size: float | None = None,
+        pixel_size: float | None = None,
         ell_edges: Iterable[float] | None = None,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute all cross-angular power spectra for batched flat-sky maps.
 
@@ -279,13 +280,17 @@ class FlatDensity(AbstractField):
 
         # Validate batched 3D input with at least 2 maps
         if data.ndim != 3:
-            raise ValueError(f"cross_angular_cl requires batched array with shape (B, ny, nx), "
-                             f"got array with {data.ndim} dimensions. Use angular_cl() for single maps.")
+            raise ValueError(
+                f"cross_angular_cl requires batched array with shape (B, ny, nx), "
+                f"got array with {data.ndim} dimensions. Use angular_cl() for single maps."
+            )
 
         n_maps = data.shape[0]
         if n_maps < 2:
-            raise ValueError(f"cross_angular_cl requires at least 2 maps in batch dimension, got {n_maps}. "
-                             "Use angular_cl() for single maps.")
+            raise ValueError(
+                f"cross_angular_cl requires at least 2 maps in batch dimension, got {n_maps}. "
+                "Use angular_cl() for single maps."
+            )
 
         effective_field_size = field_size or self.field_size
 
@@ -314,10 +319,10 @@ class FlatDensity(AbstractField):
         self,
         other: FlatDensity,
         *,
-        field_size: Optional[float] = None,
-        pixel_size: Optional[float] = None,
+        field_size: float | None = None,
+        pixel_size: float | None = None,
         ell_edges: Iterable[float] | None = None,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute angular transfer function sqrt(Cl_other / Cl_self).
 
@@ -351,7 +356,7 @@ class FlatDensity(AbstractField):
             ell_edges=ell_edges,
             batch_size=batch_size,
         )
-        transfer_ratio = (cl_other.array / cl_self.array)**0.5
+        transfer_ratio = (cl_other.array / cl_self.array) ** 0.5
         return PowerSpectrum(
             wavenumber=cl_self.wavenumber,
             array=transfer_ratio,
@@ -363,10 +368,10 @@ class FlatDensity(AbstractField):
         self,
         other: FlatDensity,
         *,
-        field_size: Optional[float] = None,
-        pixel_size: Optional[float] = None,
+        field_size: float | None = None,
+        pixel_size: float | None = None,
         ell_edges: Iterable[float] | None = None,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute angular coherence Cl_cross / sqrt(Cl_self * Cl_other).
 
@@ -407,7 +412,7 @@ class FlatDensity(AbstractField):
             ell_edges=ell_edges,
             batch_size=batch_size,
         )
-        coherence_ratio = cl_cross.array / (cl_self.array * cl_other.array)**0.5
+        coherence_ratio = cl_cross.array / (cl_self.array * cl_other.array) ** 0.5
         return PowerSpectrum(
             wavenumber=cl_self.wavenumber,
             array=coherence_ratio,
@@ -455,25 +460,31 @@ class SphericalDensity(AbstractField):
             npix = jhp.nside2npix(self.nside)
             if array_shape != ():
                 if len(array_shape) not in (1, 2, 3):
-                    raise ValueError(f"SphericalDensity array must have shape (npix,), (S, npix), or (N, S, npix), "
-                                     f"got {len(array_shape)}D array with shape {array_shape}.")
+                    raise ValueError(
+                        f"SphericalDensity array must have shape (npix,), (S, npix), or (N, S, npix), "
+                        f"got {len(array_shape)}D array with shape {array_shape}."
+                    )
                 if array_shape[-1] != npix:
-                    raise ValueError(f"Array last dimension {array_shape[-1]} does not match "
-                                     f"HEALPix npix {npix} for nside {self.nside}.")
+                    raise ValueError(
+                        f"Array last dimension {array_shape[-1]} does not match "
+                        f"HEALPix npix {npix} for nside {self.nside}."
+                    )
 
     def __getitem__(self, key) -> SphericalDensity:
         if self.array.ndim < 2:
-            raise ValueError(f"Indexing only supported for batched SphericalDensity (2D or 3D array), "
-                             f"got array with {self.array.ndim} dimensions")
+            raise ValueError(
+                f"Indexing only supported for batched SphericalDensity (2D or 3D array), "
+                f"got array with {self.array.ndim} dimensions"
+            )
         return super().__getitem__(key)
 
     def to(
         self,
         unit: DensityUnit,
         *,
-        omega_m: Optional[float] = None,
-        h: Optional[float] = None,
-        mean_density: Optional[float] = None,
+        omega_m: float | None = None,
+        h: float | None = None,
+        mean_density: float | None = None,
     ) -> SphericalDensity:
         """
         Convert the spherical (HEALPix) map to a different density unit.
@@ -525,11 +536,11 @@ class SphericalDensity(AbstractField):
     def plot(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
+        titles: str | Sequence[str] | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -580,11 +591,11 @@ class SphericalDensity(AbstractField):
     def show(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
+        titles: str | Sequence[str] | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
         colorbar: bool = True,
@@ -620,11 +631,11 @@ class SphericalDensity(AbstractField):
 
     def angular_cl(
         self,
-        mesh2: Optional[SphericalDensity] = None,
+        mesh2: SphericalDensity | None = None,
         *,
-        lmax: Optional[int] = None,
+        lmax: int | None = None,
         method: str = "jax",
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute a spherical (HEALPix) angular power spectrum C_ell (auto or cross)."""
 
@@ -643,11 +654,13 @@ class SphericalDensity(AbstractField):
 
         if method == "healpy":
             spectras = []
+            ell = None
             for i in range(data1.shape[0]):
                 map1 = data1[i]
                 map2 = data2[i] if data2 is not None else None
                 ell, spectra = angular_cl_spherical(map1, map2, lmax=lmax, method=method)
                 spectras.append(spectra)
+            assert ell is not None, "ell should have been set in loop"
             spectra = jnp.stack(spectras, axis=0)
             spectra = spectra if self.array.ndim == 2 else spectra[0]
             return PowerSpectrum(wavenumber=ell, array=spectra, name="cl", scale_factors=self.scale_factors)
@@ -663,9 +676,9 @@ class SphericalDensity(AbstractField):
     def cross_angular_cl(
         self,
         *,
-        lmax: Optional[int] = None,
+        lmax: int | None = None,
         method: str = "healpy",
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute all cross-angular power spectra for batched HEALPix maps.
 
@@ -713,13 +726,17 @@ class SphericalDensity(AbstractField):
 
         # Validate batched 2D input with at least 2 maps
         if data.ndim != 2:
-            raise ValueError(f"cross_angular_cl requires batched array with shape (B, npix), "
-                             f"got array with {data.ndim} dimensions. Use angular_cl() for single maps.")
+            raise ValueError(
+                f"cross_angular_cl requires batched array with shape (B, npix), "
+                f"got array with {data.ndim} dimensions. Use angular_cl() for single maps."
+            )
 
         n_maps = data.shape[0]
         if n_maps < 2:
-            raise ValueError(f"cross_angular_cl requires at least 2 maps in batch dimension, got {n_maps}. "
-                             "Use angular_cl() for single maps.")
+            raise ValueError(
+                f"cross_angular_cl requires at least 2 maps in batch dimension, got {n_maps}. "
+                "Use angular_cl() for single maps."
+            )
 
         # Call the power module function
         ell, cls = cross_angular_cl_spherical(data, lmax=lmax, method=method)
@@ -730,9 +747,9 @@ class SphericalDensity(AbstractField):
         self,
         other: SphericalDensity,
         *,
-        lmax: Optional[int] = None,
+        lmax: int | None = None,
         method: str = "jax",
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute angular transfer function sqrt(Cl_other / Cl_self).
 
@@ -762,7 +779,7 @@ class SphericalDensity(AbstractField):
             method=method,
             batch_size=batch_size,
         )
-        transfer_ratio = (cl_other.array / cl_self.array)**0.5
+        transfer_ratio = (cl_other.array / cl_self.array) ** 0.5
         return PowerSpectrum(
             wavenumber=cl_self.wavenumber,
             array=transfer_ratio,
@@ -774,9 +791,9 @@ class SphericalDensity(AbstractField):
         self,
         other: SphericalDensity,
         *,
-        lmax: Optional[int] = None,
+        lmax: int | None = None,
         method: str = "jax",
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> PowerSpectrum:
         """Compute angular coherence Cl_cross / sqrt(Cl_self * Cl_other).
 
@@ -812,7 +829,7 @@ class SphericalDensity(AbstractField):
             method=method,
             batch_size=batch_size,
         )
-        coherence_ratio = cl_cross.array / (cl_self.array * cl_other.array)**0.5
+        coherence_ratio = cl_cross.array / (cl_self.array * cl_other.array) ** 0.5
         return PowerSpectrum(
             wavenumber=cl_self.wavenumber,
             array=coherence_ratio,
@@ -830,7 +847,7 @@ class SphericalDensity(AbstractField):
             raise ValueError("nside metadata is required to create full_like SphericalDensity.")
 
         return cls.FromDensityMetadata(
-            array=jnp.full((jhp.nside2npix(field.nside), ), fill_value),
+            array=jnp.full((jhp.nside2npix(field.nside),), fill_value),
             field=field,
         )
 

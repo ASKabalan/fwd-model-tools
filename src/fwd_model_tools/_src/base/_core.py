@@ -10,7 +10,7 @@ from __future__ import annotations
 import dataclasses
 from abc import abstractmethod
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -116,8 +116,8 @@ class AbstractPytree(eqx.Module):
 
     # DO NOT IMPLEMENT THIS
     # IT BREAKS EQUINOX OMEGA
-    #TODO: implemented and make exception of other is of type Omega
-    #def __pow__(self, other):
+    # TODO: implemented and make exception of other is of type Omega
+    # def __pow__(self, other):
     #    return self.replace(array=self.array**other)
 
     def min(self, *args, **kwargs) -> Self:
@@ -177,23 +177,24 @@ class AbstractField(AbstractPytree):
     PyTree container for volumetric simulation arrays and their static metadata.
     Inherits from eqx.Module via AbstractPytree.
     """
+
     # Mandatory metadata
     mesh_size: tuple[int, int, int] = eqx.field(static=True)
     box_size: tuple[float, float, float] = eqx.field(static=True)
 
     # Dynamic metadata (JAX traced) - array inherited from AbstractPytree
-    z_sources: Optional[Any] = eqx.field(default=None)
-    scale_factors: Optional[Any] = eqx.field(default=None)
-    comoving_centers: Optional[Any] = eqx.field(default=None)
-    density_width: Optional[Any] = eqx.field(default=None)
+    z_sources: Any | None = eqx.field(default=None)
+    scale_factors: Any | None = eqx.field(default=None)
+    comoving_centers: Any | None = eqx.field(default=None)
+    density_width: Any | None = eqx.field(default=None)
 
     # Static metadata (not traced by JAX)
     observer_position: tuple[float, float, float] = eqx.field(static=True, default=(0.5, 0.5, 0.5))
-    sharding: Optional[Any] = eqx.field(static=True, default=None)
+    sharding: Any | None = eqx.field(static=True, default=None)
     halo_size: tuple[int, int] = eqx.field(static=True, default=(0, 0))
-    nside: Optional[int] = eqx.field(static=True, default=None)
-    flatsky_npix: Optional[tuple[int, int]] = eqx.field(static=True, default=None)
-    field_size: Optional[float] = eqx.field(static=True, default=None)
+    nside: int | None = eqx.field(static=True, default=None)
+    flatsky_npix: tuple[int, int] | None = eqx.field(static=True, default=None)
+    field_size: float | None = eqx.field(static=True, default=None)
     status: FieldStatus = eqx.field(static=True, default=FieldStatus.UNKNOWN)
     unit: PhysicalUnit = eqx.field(static=True, default=PhysicalUnit.INVALID_UNIT)
 
@@ -258,7 +259,8 @@ class AbstractField(AbstractPytree):
         if any(f.is_multi_batched() for f in field_list):
             raise ValueError(
                 "Cannot stack multi-batched (N, S, ...) fields — this would create an ambiguous "
-                "extra leading dimension. Use <FieldClass>.concat(fields) to join along the N axis instead.")
+                "extra leading dimension. Use <FieldClass>.concat(fields) to join along the N axis instead."
+            )
         return jax.tree.map(
             lambda *arrays: jnp.stack(arrays, axis=0),
             *field_list,
@@ -271,8 +273,10 @@ class AbstractField(AbstractPytree):
         if not field_list:
             raise ValueError("concat requires at least one field.")
         if any(not f.is_multi_batched() for f in field_list):
-            raise ValueError("concat only works on multi-batched (N, S, ...) fields. "
-                             "Use stack() to create an (N, S, ...) field from (S, ...) inputs.")
+            raise ValueError(
+                "concat only works on multi-batched (N, S, ...) fields. "
+                "Use stack() to create an (N, S, ...) field from (S, ...) inputs."
+            )
         return jax.tree.map(lambda *arrays: jnp.concatenate(arrays, axis=0), *field_list)
 
     @classmethod
@@ -388,19 +392,21 @@ class AbstractField(AbstractPytree):
         classname = type(self).__name__
         array_shape = self.array.shape if self.array is not None else "(None)"
         dtype = self.array.dtype if self.array is not None else None
-        return (f"{classname}("
-                f"array  = Array{array_shape}\n, "
-                f"dtype  = {dtype}, "
-                f"  mesh_size         ={self.mesh_size}, "
-                f"  box_size          ={self.box_size}, "
-                f"  observer_position ={self.observer_position}, "
-                f"  sharding          ={self.sharding}, "
-                f"  halo_size         ={self.halo_size}, "
-                f"  nside             ={self.nside}, "
-                f"  flatsky_npix      ={self.flatsky_npix}, "
-                f"  field_size        ={self.field_size}, "
-                f"  status            ={self.status.name}, "
-                f"  unit              ={self.unit.name})")
+        return (
+            f"{classname}("
+            f"array  = Array{array_shape}\n, "
+            f"dtype  = {dtype}, "
+            f"  mesh_size         ={self.mesh_size}, "
+            f"  box_size          ={self.box_size}, "
+            f"  observer_position ={self.observer_position}, "
+            f"  sharding          ={self.sharding}, "
+            f"  halo_size         ={self.halo_size}, "
+            f"  nside             ={self.nside}, "
+            f"  flatsky_npix      ={self.flatsky_npix}, "
+            f"  field_size        ={self.field_size}, "
+            f"  status            ={self.status.name}, "
+            f"  unit              ={self.unit.name})"
+        )
 
     def runtime_inspect(self) -> None:
         """

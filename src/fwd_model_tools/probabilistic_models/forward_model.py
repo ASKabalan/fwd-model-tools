@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
-import jax_cosmo as jc
 
-from ..fields import DensityField
 from ..fields.painting import PaintingOptions
 from ..lensing import born, raytrace
 from ..pm import DriftInterp, NoCorrection, NoInterp, ReversibleDoubleKickDrift, lpt, nbody
@@ -15,7 +12,9 @@ from .config import Configurations
 __all__ = ["make_full_field_model"]
 
 
-def make_full_field_model(config: Configurations, ):
+def make_full_field_model(
+    config: Configurations,
+):
     """Build the deterministic forward model returning kappa maps and lightcone."""
 
     geometry = config.geometry
@@ -25,13 +24,13 @@ def make_full_field_model(config: Configurations, ):
     def forward_model(cosmo, initial_conditions):
         # warmstart NZ
         if config.nz_shear is not None:
-            if isinstance(config.nz_shear, (list, tuple)):
+            if isinstance(config.nz_shear, (list | tuple)):
                 for nz in config.nz_shear:
-                    if callable(nz) and hasattr(nz, '_norm'):
+                    if callable(nz) and hasattr(nz, "_norm"):
                         nz._norm = None
             else:
                 nz = config.nz_shear
-                if callable(nz) and hasattr(nz, '_norm'):
+                if callable(nz) and hasattr(nz, "_norm"):
                     nz._norm = None
 
         dx_field, p_field = lpt(

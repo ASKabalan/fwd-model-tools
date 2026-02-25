@@ -47,7 +47,7 @@ def error(tree1, tree2):
     """Compute max squared error across all leaves of two PyTrees."""
     return jax.tree.reduce(
         lambda x, y: x + y,
-        jax.tree_util.tree_map(lambda x, y: jnp.max((x - y)**2), tree1, tree2),
+        jax.tree_util.tree_map(lambda x, y: jnp.max((x - y) ** 2), tree1, tree2),
     )
 
 

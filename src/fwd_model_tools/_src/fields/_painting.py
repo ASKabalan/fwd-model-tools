@@ -98,8 +98,7 @@ def _single_paint_2d_lightcone(
     weights: Array | float | None,
     max_comoving_radius: float,
 ) -> Array:
-    """
-    """
+    """ """
     center, width = center_width
     array_center_width = (array, center, width)
     return _single_paint_2d(
@@ -223,8 +222,7 @@ def _single_paint_spherical_lightcone(
     ud_grade_pess: bool,
     max_comoving_radius: float,
 ) -> Array:
-    """
-    """
+    """ """
     center, width = center_width
     array_center_width = (array, center, width)
     return _single_paint_spherical(

@@ -47,7 +47,9 @@ class tophat_z(redshift_distribution):
         return jnp.where((z >= zmin) & (z <= zmax), 1.0, 0.0)
 
 
-def _normalize_z_source(z_source: ZSourceType, ) -> list[jc.redshift.redshift_distribution]:
+def _normalize_z_source(
+    z_source: ZSourceType,
+) -> list[jc.redshift.redshift_distribution]:
     """Normalize z_source to a list of redshift distributions."""
     # Handle single values
     if isinstance(z_source, numbers.Real):

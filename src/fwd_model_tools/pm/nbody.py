@@ -9,9 +9,7 @@ import jax_cosmo as jc
 
 from ..fields import FieldStatus, ParticleField
 from ..fields.painting import PaintingOptions
-from ..utils import distances
 from ._resolve_geometry import resolve_ts_geometry
-from .correction import NoCorrection
 from .integrate import AdjointType, integrate
 from .interp import NoInterp
 from .solvers import AbstractNBodySolver, EfficientDriftDoubleKick
@@ -39,8 +37,9 @@ def nbody(
     ts: jnp.ndarray | None = None,
     nb_shells: int | None = None,
     density_widths: float | jnp.ndarray | None = None,
-    solver: AbstractNBodySolver = EfficientDriftDoubleKick(interp_kernel=NoInterp(painting=PaintingOptions(
-        target="particles"))),
+    solver: AbstractNBodySolver = EfficientDriftDoubleKick(
+        interp_kernel=NoInterp(painting=PaintingOptions(target="particles"))
+    ),
     adjoint: AdjointType = "checkpointed",
     checkpoints: int | None = None,
 ) -> jax.Array:
@@ -93,9 +92,11 @@ def nbody(
     """
 
     assert dx_field.status == FieldStatus.LPT1 or dx_field.status == FieldStatus.LPT2, (
-        "dx_field must have status FieldStatus.LPT1 or FieldStatus.LPT2.")
+        "dx_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
+    )
     assert p_field.status == FieldStatus.LPT1 or p_field.status == FieldStatus.LPT2, (
-        "p_field must have status FieldStatus.LPT1 or FieldStatus.LPT2.")
+        "p_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
+    )
 
     if dx_field.mesh_size != p_field.mesh_size:
         raise ValueError("dx_field and p_field must have matching mesh_size")
@@ -110,12 +111,14 @@ def nbody(
         ts = jnp.array([t1])
 
     # Resolve lightcone geometry via shared helper
-    ts_resolved, r_centers, density_plane_width, _ = resolve_ts_geometry(cosmo,
-                                                                         dx_field,
-                                                                         painting=solver.interp_kernel.painting,
-                                                                         ts=ts,
-                                                                         nb_shells=nb_shells,
-                                                                         density_widths=density_widths)
+    ts_resolved, r_centers, density_plane_width, _ = resolve_ts_geometry(
+        cosmo,
+        dx_field,
+        painting=solver.interp_kernel.painting,
+        ts=ts,
+        nb_shells=nb_shells,
+        density_widths=density_widths,
+    )
 
     max_comoving_distance = dx_field.max_comoving_radius
 
@@ -157,9 +160,8 @@ def nbody(
     # Set metadata
     scale_factors = lightcone.scale_factors
     z_sources = jc.utils.a2z(scale_factors)
-    lightcone = lightcone.replace(z_sources=z_sources,
-                                  comoving_centers=r_centers,
-                                  density_width=density_plane_width,
-                                  status=FieldStatus.LIGHTCONE)
+    lightcone = lightcone.replace(
+        z_sources=z_sources, comoving_centers=r_centers, density_width=density_plane_width, status=FieldStatus.LIGHTCONE
+    )
 
     return lightcone

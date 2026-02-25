@@ -2,9 +2,8 @@
 fwd_model_tools: Forward-modeling and sampling on top of JAXPM + JAX-Decomp.
 """
 
-from . import fields, infer, initial, io, lensing, pm
+from . import fields, infer, initial, io, lensing, pm, utils
 from . import probabilistic_models as ppl
-from . import utils
 
 # From fields
 from .fields import (
@@ -83,7 +82,7 @@ __all__ = [
     "lensing",
     "pm",
     "ppl",
-    "sampling",
+    "infer",
     "utils",
     # From initial
     "gaussian_initial_conditions",

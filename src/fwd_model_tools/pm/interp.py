@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import warnings
 from abc import abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -18,8 +18,13 @@ from ..fields import DensityUnit, FieldStatus, ParticleField, PositionUnit, Sphe
 from ..fields.painting import PaintingOptions
 
 __all__ = [
-    "InterpTilerState", "OnionTiler", "TelephotoInterp", "NoInterp", "DriftInterp", "get_all_47_symmetries",
-    "AbstractInterp"
+    "InterpTilerState",
+    "OnionTiler",
+    "TelephotoInterp",
+    "NoInterp",
+    "DriftInterp",
+    "get_all_47_symmetries",
+    "AbstractInterp",
 ]
 
 
@@ -42,6 +47,7 @@ class InterpTilerState(eqx.Module):
     """
     Dynamic state for interpolation kernels.
     """
+
     rotation_idx: int = -1
     shell_idx: int = -1
     # Rotations are generated at init and stored here
@@ -55,10 +61,10 @@ class AbstractInterp(eqx.Module):
     """
 
     painting: PaintingOptions
-    ts: Optional[jnp.ndarray] = None
-    r_centers: Optional[jnp.ndarray] = None
-    density_widths: Optional[jnp.ndarray] = None
-    max_comoving_distance: Optional[float] = None
+    ts: jnp.ndarray | None = None
+    r_centers: jnp.ndarray | None = None
+    density_widths: jnp.ndarray | None = None
+    max_comoving_distance: float | None = None
 
     def update_geometry(
         self,
@@ -110,7 +116,7 @@ class AbstractInterp(eqx.Module):
         cosmo,
     ) -> jnp.ndarray:
         """Drift particles using growth factor form."""
-        ac = (a_current * a_target)**0.5
+        ac = (a_current * a_target) ** 0.5
         drift_factor = (Gp(cosmo, a_target) - Gp(cosmo, a_current)) / dGfa(cosmo, ac)
         return positions + drift_factor * velocities
 
@@ -308,8 +314,10 @@ class DriftInterp(AbstractInterp):
 
 class OnionTiler(AbstractInterp):
     """27-tile spherical painting with rotation decorrelation."""
+
     drift_on_lightcone: bool = eqx.field(
-        default=True, static=True)  # Whether to apply drift correction to the tiled painting (can be expensive)
+        default=True, static=True
+    )  # Whether to apply drift correction to the tiled painting (can be expensive)
 
     def init(self) -> InterpTilerState:
         if self.painting.target != "spherical":
@@ -318,7 +326,7 @@ class OnionTiler(AbstractInterp):
         # Generate rotations
         all_symmetries = get_all_47_symmetries()
         rng = jax.random.PRNGKey(42)
-        rot_indices = jax.random.randint(rng, shape=(27, ), minval=0, maxval=47)
+        rot_indices = jax.random.randint(rng, shape=(27,), minval=0, maxval=47)
         selected_rotations = all_symmetries[rot_indices]
 
         return InterpTilerState(
@@ -490,19 +498,23 @@ class OnionTiler(AbstractInterp):
 
 class TelephotoInterp(AbstractInterp):
     """Single rotation+shift painting for narrow FOV."""
+
     drift_on_lightcone: bool = eqx.field(
-        default=True, static=True)  # Whether to apply drift correction to the tiled painting (can be expensive)
+        default=True, static=True
+    )  # Whether to apply drift correction to the tiled painting (can be expensive)
 
     def init(self) -> InterpTilerState:
         if self.painting.target != "spherical" and self.painting.target != "flat":
             raise ValueError("TelephotoInterp only supports projections (flat or spherical).")
 
         if self.painting.target == "spherical":
-            warnings.warn("""
+            warnings.warn(
+                """
             TelephotoInterp is designed for narrow FOV flat-sky projections.
             Using it for spherical painting will cause significant artifacts.
             use for illustriative purposes only.
-            """)
+            """
+            )
 
         # Check logic moved to update_geometry/advance or assumed checked
 
@@ -518,7 +530,6 @@ class TelephotoInterp(AbstractInterp):
 
         # Geometry check uses next_shell_idx (harmless when not snapshot — computed but discarded)
         r_center = self.r_centers[next_shell_idx]
-        width = self.density_widths[next_shell_idx]
         inside_box = (r_center) <= self.max_comoving_distance
 
         would_advance_rot = jnp.where(inside_box, state.rotation_idx, state.rotation_idx + 1)

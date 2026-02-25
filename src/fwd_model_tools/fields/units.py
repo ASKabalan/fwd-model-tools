@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import jax.numpy as jnp
 from jaxpm.distributed import uniform_particles
@@ -25,11 +25,11 @@ def convert_units(
     destination: PhysicalUnit,
     mesh_size: tuple[int, int, int],
     box_size: tuple[float, float, float],
-    h: Optional[float] = None,  # Hubble parameter, needed for MPC conversions
-    omega_m: Optional[float] = None,  # Matter density parameter, needed for MSUN conversions
-    mean_density: Optional[float] = None,  # Mean density for overdensity conversions
-    volume_element: Optional[float] = None,  # Volume per voxel/pixel for density conversions
-    sharding: Optional[Any] = None,
+    h: float | None = None,  # Hubble parameter, needed for MPC conversions
+    omega_m: float | None = None,  # Matter density parameter, needed for MSUN conversions
+    mean_density: float | None = None,  # Mean density for overdensity conversions
+    volume_element: float | None = None,  # Volume per voxel/pixel for density conversions
+    sharding: Any | None = None,
 ) -> Array:
     """
     Convert array between units of the same physical quantity.
@@ -61,7 +61,8 @@ def convert_units(
     # Validate same unit family
     if type(origin) is not type(destination):
         raise TypeError(
-            f"Cannot convert between different unit families: {type(origin).__name__} -> {type(destination).__name__}")
+            f"Cannot convert between different unit families: {type(origin).__name__} -> {type(destination).__name__}"
+        )
 
     # Dispatch to specific converter
     if isinstance(origin, PositionUnit):
@@ -80,7 +81,7 @@ def _convert_position(
     destination: PositionUnit,
     mesh_size: tuple[int, int, int],
     box_size: tuple[float, float, float],
-    sharding: Optional[Any] = None,
+    sharding: Any | None = None,
 ) -> Array:
     """
     Convert position units via GRID_ABSOLUTE as the canonical hub.
@@ -133,10 +134,10 @@ def _convert_density(
     array: Array,
     origin: DensityUnit,
     destination: DensityUnit,
-    volume_element: Optional[float] = None,
-    omega_m: Optional[float] = None,
-    h: Optional[float] = None,
-    mean_density: Optional[float] = None,
+    volume_element: float | None = None,
+    omega_m: float | None = None,
+    h: float | None = None,
+    mean_density: float | None = None,
 ) -> Array:
     """
     Convert between density units.

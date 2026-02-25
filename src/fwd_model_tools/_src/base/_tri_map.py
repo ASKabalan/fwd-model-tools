@@ -49,7 +49,7 @@ def linear_to_triangular(k, n):
     # Solve for row i using quadratic formula
     # We want i such that T_i <= k < T_{i+1}
     # where T_i = i*n - i*(i-1)/2
-    discriminant = (2.0 * nf + 1.0)**2 - 8.0 * kf
+    discriminant = (2.0 * nf + 1.0) ** 2 - 8.0 * kf
     i = jnp.floor(((2.0 * nf + 1.0) - jnp.sqrt(discriminant)) / 2.0).astype(jnp.int32)
 
     # Compute T_i = i*n - i*(i-1)/2

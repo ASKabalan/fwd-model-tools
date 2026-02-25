@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from functools import partial
-from typing import Literal, Optional
+from typing import Literal
 
 import jax
 import jax.core
@@ -53,13 +53,16 @@ class ParticleField(AbstractField):
         # concrete array, so avoid forcing a materialization in that case.
         if self.array is not None:
             array_shape = getattr(self.array, "shape", ())
-            if not ((len(array_shape) == 4 and array_shape[-1] == 3) or
-                    (len(array_shape) == 5 and array_shape[-1] == 3) or (len(array_shape) == 6 and array_shape[-1] == 3)
-                    or array_shape == ()  # diffrax term compatibility traces shape ()
-                    ):
+            if not (
+                (len(array_shape) == 4 and array_shape[-1] == 3)
+                or (len(array_shape) == 5 and array_shape[-1] == 3)
+                or (len(array_shape) == 6 and array_shape[-1] == 3)
+                or array_shape == ()  # diffrax term compatibility traces shape ()
+            ):
                 raise ValueError(
                     f"ParticleField array must have shape (X, Y, Z, 3), (S, X, Y, Z, 3), or (N, S, X, Y, Z, 3); "
-                    f"got shape {array_shape}")
+                    f"got shape {array_shape}"
+                )
 
             if not isinstance(self.unit, PositionUnit):
                 raise TypeError(f"ParticleField.unit must be a PositionUnit, got {self.unit!r}")
@@ -74,8 +77,10 @@ class ParticleField(AbstractField):
         For a 6D array (N, S, X, Y, Z, 3), slices the simulation-batch dimension.
         """
         if self.array.ndim not in (5, 6):
-            raise ValueError("Indexing only supported for batched ParticleField (5D or 6D array); "
-                             f"got array with {self.array.ndim} dimensions")
+            raise ValueError(
+                "Indexing only supported for batched ParticleField (5D or 6D array); "
+                f"got array with {self.array.ndim} dimensions"
+            )
         # Use the AbstractField __getitem__ implementation (tree.map).
         return super().__getitem__(key)
 
@@ -114,10 +119,10 @@ class ParticleField(AbstractField):
     def paint(
         self,
         *,
-        mesh: Optional[Array] = None,
+        mesh: Array | None = None,
         weights: Array | float = 1.0,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> DensityField:
         """
         Paint particles onto a 3D density mesh using CIC interpolation.
@@ -131,7 +136,8 @@ class ParticleField(AbstractField):
         data = jnp.asarray(self.array)
         if self.unit == PositionUnit.MPC_H:
             raise ValueError(
-                "Cannot paint ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first.")
+                "Cannot paint ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first."
+            )
         mode = "relative" if self.unit == PositionUnit.GRID_RELATIVE else "absolute"
 
         paint_fn = jax.tree_util.Partial(
@@ -188,7 +194,8 @@ class ParticleField(AbstractField):
         """
         if self.unit == PositionUnit.MPC_H:
             raise ValueError(
-                "Cannot read_out ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first.")
+                "Cannot read_out ParticleField with unit MPC_H; convert to GRID_RELATIVE or GRID_ABSOLUTE first."
+            )
         mode = "relative" if self.unit == PositionUnit.GRID_RELATIVE else "absolute"
 
         if mode == "relative":
@@ -222,14 +229,14 @@ class ParticleField(AbstractField):
 
     # ------------------------------------------------------------------ 2D flat-sky painting
 
-    @partial(jax.jit, static_argnames=("batch_size", ))
+    @partial(jax.jit, static_argnames=("batch_size",))
     def paint_2d(
         self,
         center: Float | Array,
         density_plane_width: Float | Array,
         *,
-        weights: Optional[Array | float] = None,
-        batch_size: Optional[int] = None,
+        weights: Array | float | None = None,
+        batch_size: int | None = None,
     ) -> FlatDensity:
         """
         Project particles onto a flat-sky grid using CIC painting.
@@ -257,11 +264,11 @@ class ParticleField(AbstractField):
                 raise ValueError(f"Batched input: center must have {nb_shells} elements, got {center_arr.size}")
             if width_arr.size != nb_shells:
                 raise ValueError(
-                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}")
+                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}"
+                )
         elif data.ndim == 4:
             if center_arr.size != 1:
-                if self.scale_factors.squeeze().shape == self.mesh_size and \
-                   self.status == FieldStatus.LIGHTCONE:
+                if self.scale_factors.squeeze().shape == self.mesh_size and self.status == FieldStatus.LIGHTCONE:
                     LIGHTCONE_MODE = True
                 else:
                     raise ValueError("Painting with mutiple centers/widths requires batched input data ")
@@ -333,15 +340,15 @@ class ParticleField(AbstractField):
         density_plane_width: Float | Array,
         *,
         scheme: SphericalScheme = "bilinear",
-        weights: Optional[Array] = None,
-        kernel_width_arcmin: Optional[float] = None,
+        weights: Array | None = None,
+        kernel_width_arcmin: float | None = None,
         smoothing_interpretation: str = "fwhm",
-        paint_nside: Optional[int] = None,
+        paint_nside: int | None = None,
         ud_grade_power: float = 0.0,
         ud_grade_order_in: str = "RING",
         ud_grade_order_out: str = "RING",
         ud_grade_pess: bool = False,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> SphericalDensity:
         """
         Paint particles onto a HEALPix grid using spherical painting.
@@ -367,11 +374,11 @@ class ParticleField(AbstractField):
                 raise ValueError(f"Batched input: center must have {nb_shells} elements, got {center_arr.size}")
             if width_arr.size != nb_shells:
                 raise ValueError(
-                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}")
+                    f"Batched input: density_plane_width must have {nb_shells} elements, got {width_arr.size}"
+                )
         elif data.ndim == 4:
             if center_arr.size != 1:
-                if self.scale_factors.squeeze().shape == self.mesh_size and \
-                   self.status == FieldStatus.LIGHTCONE:
+                if self.scale_factors.squeeze().shape == self.mesh_size and self.status == FieldStatus.LIGHTCONE:
                     LIGHTCONE_MODE = True
                 else:
                     raise ValueError("Painting with mutiple centers/widths requires batched input data ")
@@ -434,21 +441,21 @@ class ParticleField(AbstractField):
     def plot(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "viridis",
-        figsize: Optional[tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
+        titles: str | Sequence[str] | None = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
         colorbar: bool = True,
-        weights: Optional[Array | str | float] = None,
-        weights_title: Optional[str] = None,
+        weights: Array | str | float | None = None,
+        weights_title: str | None = None,
         thinning: int = 4,
         point_size: float = 5,
         alpha: float = 0.6,
         labels: tuple[str, str, str] = ("X", "Y", "Z"),
-        ticks: Optional[tuple[Sequence[float], Sequence[float], Sequence[float]]] = None,
+        ticks: tuple[Sequence[float], Sequence[float], Sequence[float]] | None = None,
         elev: float = 40,
         azim: float = -30,
         zoom: float = 0.8,
@@ -563,21 +570,21 @@ class ParticleField(AbstractField):
     def show(
         self,
         *,
-        ax: Optional[plt.Axes | Sequence[plt.Axes]] = None,
+        ax: plt.Axes | Sequence[plt.Axes] | None = None,
         cmap: str = "viridis",
-        figsize: Optional[tuple[float, float]] = None,
+        figsize: tuple[float, float] | None = None,
         ncols: int = 3,
-        titles: Optional[str | Sequence[str]] = None,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
+        titles: str | Sequence[str] | None = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
         colorbar: bool = True,
-        weights: Optional[Array | str | float] = None,
-        weights_title: Optional[str] = None,
+        weights: Array | str | float | None = None,
+        weights_title: str | None = None,
         thinning: int = 4,
         point_size: float = 5,
         alpha: float = 0.6,
         labels: tuple[str, str, str] = ("X", "Y", "Z"),
-        ticks: Optional[tuple[Sequence[float], Sequence[float], Sequence[float]]] = None,
+        ticks: tuple[Sequence[float], Sequence[float], Sequence[float]] | None = None,
         elev: float = 40,
         azim: float = -30,
         zoom: float = 0.8,
@@ -612,7 +619,7 @@ class ParticleField(AbstractField):
         and an array filled with `fill_value`.
         """
         return cls.FromDensityMetadata(
-            array=jnp.full((field.mesh_size + (3, )), fill_value),
+            array=jnp.full((field.mesh_size + (3,)), fill_value),
             field=field,
         )
 

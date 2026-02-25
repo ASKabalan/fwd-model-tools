@@ -11,7 +11,7 @@ __all__ = ["_normalize_sources"]
 def _normalize_sources(nz_shear: Any) -> tuple[str, list[Any]]:
     """Accept either scalar redshifts or jc.redshift distributions (not both)."""
 
-    if isinstance(nz_shear, (list, tuple)):
+    if isinstance(nz_shear, (list | tuple)):
         entries = list(nz_shear)
     else:
         entries = [nz_shear]
@@ -20,7 +20,7 @@ def _normalize_sources(nz_shear: Any) -> tuple[str, list[Any]]:
         raise ValueError("nz_shear must contain at least one entry")
 
     first = entries[0]
-    first_is_distribution = isinstance(first, jc.redshift.redshift_distribution)
+    first_is_distribution = isinstance(first | jc.redshift.redshift_distribution)
 
     if first_is_distribution:
         for entry in entries:
