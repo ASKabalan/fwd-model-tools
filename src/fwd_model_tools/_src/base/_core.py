@@ -36,9 +36,31 @@ class AbstractPytree(eqx.Module):
         return tuple(self.array.shape)
 
     @property
+    def ndim(self) -> int:
+        """Shorthand for ``array.ndim``."""
+        return self.array.ndim
+
+    @property
+    def size(self) -> int:
+        """Shorthand for ``array.size``."""
+        return self.array.size
+
+    @property
     def dtype(self) -> jnp.dtype:
         """Shorthand for ``array.dtype``."""
         return self.array.dtype
+
+    def __len__(self) -> int:
+        """Shorthand for ``len(array)``."""
+        return len(self.array)
+
+    def __iter__(self):
+        """
+        Iterate over the first dimension of the underlying array.
+        Yields slices wrapped in the same class via __getitem__.
+        """
+        for i in range(len(self)):
+            yield self[i]
 
     def replace(self, **kwargs: Any) -> Self:
         """

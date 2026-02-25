@@ -89,23 +89,9 @@ def full_field_probmodel(config: Configurations, ):
             raise ValueError("geometry must be 'flat' or 'spherical'")
 
         observed_maps = []
-        for idx, (kappa_field, nz) in enumerate(zip(kappa_fields.array, config.nz_shear)):
+        for idx, (kappa_field, nz) in enumerate(zip(kappa_fields, config.nz_shear)):
             sigma = config.sigma_e / jnp.sqrt(nz.gals_per_arcmin2 * pixel_area_arcmin2)
-            observed_maps.append(
-                numpyro.sample(
-                    f"kappa_{idx}",
-                    DistributedNormal(loc=kappa_field,
-                                      scale=sigma,
-                                      mesh_size=config.mesh_size,
-                                      box_size=config.box_size,
-                                      observer_position=config.observer_position,
-                                      halo_size=config.halo_size,
-                                      flatsky_npix=config.flatsky_npix,
-                                      nside=config.nside,
-                                      field_size=config.field_size,
-                                      sharding=config.sharding,
-                                      field_type=geometry),
-                ))
+            observed_maps.append(numpyro.sample(f"kappa_{idx}", DistributedNormal(loc=kappa_field, scale=sigma)))
 
         numpyro.deterministic("kappa_meta_data", kappa_fields.to_metadata())
 
