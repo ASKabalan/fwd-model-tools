@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from functools import partial
 
 import jax
 import jax_cosmo as jc
-from jax.sharding import AxisType, Mesh, NamedSharding
+from jax.sharding import AxisType, NamedSharding
 from jax.sharding import PartitionSpec as P
 from numpyro.infer import Predictive
-import os
+
 import fwd_model_tools as ffi
 
 # ---------------------------------------------------------------------------
@@ -18,7 +17,7 @@ import fwd_model_tools as ffi
 # ---------------------------------------------------------------------------
 
 
-def _build_sharding(args: Namespace):
+def _build_sharding(args: argparse.Namespace):
     """Return sharding or None for single-device runs."""
 
     print(f"jax devices: {jax.devices()}")
@@ -47,8 +46,7 @@ def parser() -> argparse.ArgumentParser:
         "--model",
         choices=["full", "mock"],
         default="full",
-        help=
-        "Probabilistic model to sample from: 'full' (full_field_probmodel) or 'mock' (mock_probmodel). (default: full)",
+        help="Probabilistic model to sample from: 'full' (full_field_probmodel) or 'mock' (mock_probmodel). (default: full)",
     )
 
     # Mesh / box

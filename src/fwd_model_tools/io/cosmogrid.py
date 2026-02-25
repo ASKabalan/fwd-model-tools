@@ -61,7 +61,8 @@ def get_stage3_nz_shear(
                 bw=bw,
                 zmax=zmax if zmax is not None else float(z.max()),
                 gals_per_arcmin2=g,
-            ))
+            )
+        )
 
     return nz_shear
 

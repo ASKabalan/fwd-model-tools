@@ -7,7 +7,6 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 import pytest
-
 from fwd_model_tools.fields import DensityField, FieldStatus
 from fwd_model_tools.fields.units import DensityUnit
 
@@ -15,7 +14,7 @@ from fwd_model_tools.fields.units import DensityUnit
 @pytest.fixture(scope="session", autouse=True)
 def enable_x64():
     """Enable float64 for all tests (required for lossless parquet round-trips)."""
-    print(f"Enabling float64 precision for all tests.")
+    print("Enabling float64 precision for all tests.")
     jax.config.update("jax_enable_x64", True)
 
 
@@ -30,12 +29,10 @@ def patch_fastpm_growth(cosmology):
     """Patch FastPM's MatterDominated to use JaxCosmo/JaxPM growth factors."""
     from unittest.mock import patch
 
-    import fastpm.background
     import jax_cosmo.background as jc_bg
     from jaxpm.growth import dGf2a, dGfa
 
     class JaxCosmoMatterDominated:
-
         def __init__(self, Omega0_m, Omega0_lambda=None, Omega0_k=0, a=None, a_normalize=1.0):
             self.cosmo = cosmology
             self.a_normalize = a_normalize
@@ -62,7 +59,7 @@ def patch_fastpm_growth(cosmology):
 
         def E(self, a):
             a = jnp.atleast_1d(a)
-            return np.array(jc_bg.Esqr(self.cosmo, a)**0.5)
+            return np.array(jc_bg.Esqr(self.cosmo, a) ** 0.5)
 
         def Gf(self, a):
             return self.f1(a) * self.D1(a) * a**2 * self.E(a)
@@ -89,12 +86,12 @@ def patch_fastpm_growth(cosmology):
             return np.array(dGf2a(self.cosmo, jnp.atleast_1d(a)))
 
     # Patch both locations to be safe
-    p1 = patch('fastpm.background.MatterDominated', JaxCosmoMatterDominated)
+    p1 = patch("fastpm.background.MatterDominated", JaxCosmoMatterDominated)
     # fastpm.core imports MatterDominated, so we should patch it there too if possible,
     # but since we are patching at session start, hopefully fastpm.core hasn't been imported yet.
     # If it has, we might need to patch fastpm.core.MatterDominated too.
     # We'll patch fastpm.core just in case it gets imported/cached early.
-    p2 = patch('fastpm.core.MatterDominated', JaxCosmoMatterDominated)
+    p2 = patch("fastpm.core.MatterDominated", JaxCosmoMatterDominated)
 
     with p1, p2:
         yield
@@ -108,8 +105,8 @@ def patch_fastpm_growth(cosmology):
 @pytest.fixture(
     scope="session",
     params=[
-        ((32, 32, 32), (256., 256., 256.)),
-        ((32, 32, 64), (256., 256., 512.)),
+        ((32, 32, 32), (256.0, 256.0, 256.0)),
+        ((32, 32, 64), (256.0, 256.0, 512.0)),
     ],
 )
 def simulation_config(request):
@@ -147,8 +144,9 @@ def fpm_initial_conditions(cosmology, particle_mesh):
         return jnp.interp(x.reshape([-1]), k, pk).reshape(x.shape)
 
     whitec = particle_mesh.generate_whitenoise(42, type="complex", unitary=False)
-    lineark = whitec.apply(lambda k, v: jnp.sqrt(pk_fn(jnp.sqrt(sum(ki**2 for ki in k)))) * v * jnp.sqrt(
-        (1 / v.BoxSize).prod()))
+    lineark = whitec.apply(
+        lambda k, v: jnp.sqrt(pk_fn(jnp.sqrt(sum(ki**2 for ki in k)))) * v * jnp.sqrt((1 / v.BoxSize).prod())
+    )
     init_mesh = lineark.c2r().value
 
     return lineark, grid, init_mesh

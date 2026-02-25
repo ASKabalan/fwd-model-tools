@@ -4,7 +4,6 @@ from abc import abstractmethod
 from typing import Any
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from jaxpm.growth import E, Gf, dGfa, gp
 from jaxpm.growth import growth_factor as Gp
@@ -19,13 +18,17 @@ __all__ = ["NBodyState", "AbstractNBodySolver", "EfficientDriftDoubleKick", "Rev
 
 def _forces(pos: ParticleField, cosmo) -> ParticleField:
     """Compute PM forces, returned as a ParticleField."""
-    forces_array = (pm_forces(
-        pos.array,
-        mesh_shape=pos.mesh_size,
-        paint_absolute_pos=(pos.unit == PositionUnit.GRID_ABSOLUTE),
-        halo_size=pos.halo_size,
-        sharding=pos.sharding,
-    ) * 1.5 * cosmo.Omega_m)
+    forces_array = (
+        pm_forces(
+            pos.array,
+            mesh_shape=pos.mesh_size,
+            paint_absolute_pos=(pos.unit == PositionUnit.GRID_ABSOLUTE),
+            halo_size=pos.halo_size,
+            sharding=pos.sharding,
+        )
+        * 1.5
+        * cosmo.Omega_m
+    )
     return pos.replace(array=forces_array)
 
 
@@ -131,7 +134,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
         interp_state = self.interp_kernel.init()
 
         # Physics: First Kick
-        t0t1 = (t0 * t1)**0.5
+        t0t1 = (t0 * t1) ** 0.5
         ai, ac, af = t0, t0, t0t1
 
         kick_factor = (Gf(cosmo, af) - Gf(cosmo, ai)) / dGfa(cosmo, ac)
@@ -159,7 +162,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
 
         # 1. Drift
         # ai = t0, ac = t0t1, af = t1
-        t0t1 = (t0 * t1)**0.5
+        t0t1 = (t0 * t1) ** 0.5
         ai, ac, af = t0, t0t1, t1
         drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / gp(cosmo, ac)
         prefactor_drift = 1.0 / (ac**3 * E(cosmo, ac))
@@ -173,7 +176,7 @@ class EfficientDriftDoubleKick(AbstractNBodySolver):
 
         # 3. Double Kick
         t2 = t1 + dt
-        t1t2 = (t1 * t2)**0.5
+        t1t2 = (t1 * t2) ** 0.5
         ac = t1
         ai_k1 = t0t1
         af_k1 = t1
@@ -248,7 +251,7 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         """
         interp_state = self.interp_kernel.init()
         # Warm start the growth factor to ensure any JIT compilation happens here.
-        #_ = Gf(cosmo, t0)
+        # _ = Gf(cosmo, t0)
         # No physical evolution here.
         return displacement, velocities, NBodyState(interp_state=interp_state, t_initial=t0)
 
@@ -277,12 +280,12 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         ac = t0  # Force evaluation time
 
         # Previous half-step (K1)
-        ai_1 = (t_prev_clamped * t0)**0.5
+        ai_1 = (t_prev_clamped * t0) ** 0.5
         af_1 = t0
 
         # Next half-step (K2)
         ai_2 = t0
-        af_2 = (t0 * t1)**0.5
+        af_2 = (t0 * t1) ** 0.5
 
         # 1. Forces at current position (x_i at t0)
         forces = _forces(displacement, cosmo)
@@ -355,7 +358,7 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         # t_prev becomes t0 (target), tc becomes t1 (source).
 
         # Drift calc
-        t0t1 = (t0 * t1)**0.5
+        t0t1 = (t0 * t1) ** 0.5
         ai, ac_drift, af = t0, t0t1, t1
 
         drift_factor = (Gp(cosmo, af) - Gp(cosmo, ai)) / dGfa(cosmo, ac_drift)
@@ -368,10 +371,9 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
 
         # 2. Un-Boost (at x_i)
         # Recover unboosted velocity. Note: rewinding at t0 (target time)
-        x_uncorrected, v_uncorrected = self.pgd_kernel.rewind(t0,
-                                                              x_old,
-                                                              velocities,
-                                                              full_drift_factor=full_drift_factor)
+        x_uncorrected, v_uncorrected = self.pgd_kernel.rewind(
+            t0, x_old, velocities, full_drift_factor=full_drift_factor
+        )
 
         # 3. Un-Kick
         # Need to reconstruct kick factors identical to forward pass
@@ -379,7 +381,7 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         t_prev_clamped = jnp.maximum(t_prev, state.t_initial)
 
         # Previous half-step (K1)
-        ai_1 = (t_prev_clamped * t0)**0.5
+        ai_1 = (t_prev_clamped * t0) ** 0.5
         af_1 = t0
 
         # Next half-step (K2)
@@ -397,9 +399,10 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         forces = _forces(x_uncorrected, cosmo)
         dvel = forces * (prefactor_kick * kick_factor)
 
-        v_old = (v_uncorrected - dvel)  # Time unit isn't critical for v return in reverse
+        v_old = v_uncorrected - dvel  # Time unit isn't critical for v return in reverse
 
         # 4. Rewind Interp State
+        assert self.interp_kernel.ts is not None
         max_ts = self.interp_kernel.ts[-1]
         t1_clipped = jnp.minimum(t1, max_ts)
         prev_interp_state = self.interp_kernel.rewind(state.interp_state, t1_clipped)

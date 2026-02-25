@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 import equinox as eqx
 from jaxtyping import Array
@@ -80,9 +80,9 @@ class PaintingOptions(eqx.Module):
 
     # Spherical-specific
     scheme: SphericalScheme = eqx.field(static=True, default="bilinear")
-    kernel_width_arcmin: Optional[float] = eqx.field(static=True, default=None)
+    kernel_width_arcmin: float | None = eqx.field(static=True, default=None)
     smoothing_interpretation: str = eqx.field(static=True, default="fwhm")
-    paint_nside: Optional[int] = eqx.field(static=True, default=None)
+    paint_nside: int | None = eqx.field(static=True, default=None)
     ud_grade_power: float = eqx.field(static=True, default=0.0)
     ud_grade_order_in: str = eqx.field(static=True, default="RING")
     ud_grade_order_out: str = eqx.field(static=True, default="RING")
@@ -92,5 +92,5 @@ class PaintingOptions(eqx.Module):
     chunk_size: int = eqx.field(static=True, default=DEFAULT_CHUNK_SIZE)
 
     # Shared
-    weights: Optional[Array | float] = 1.0
-    batch_size: Optional[int] = eqx.field(static=True, default=None)
+    weights: Array | float | None = 1.0
+    batch_size: int | None = eqx.field(static=True, default=None)

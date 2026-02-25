@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpyro
 
-from ..fields import AbstractField, DensityField, DensityUnit, FieldStatus
+from ..fields import DensityField, DensityUnit, FieldStatus
 from ..infer import DistributedIC, DistributedNormal
 from .config import Configurations
 from .forward_model import make_full_field_model
@@ -31,7 +31,9 @@ def _spherical_pixel_area_arcmin2(lightcone: DensityField) -> float:
     return pixel_area_sr * (arcmin_per_rad**2)
 
 
-def full_field_probmodel(config: Configurations, ):
+def full_field_probmodel(
+    config: Configurations,
+):
     """Return a NumPyro model for joint inference of cosmology and density fields."""
 
     geometry = config.geometry

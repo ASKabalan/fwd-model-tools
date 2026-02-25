@@ -1,12 +1,12 @@
 """Distributed probability distributions used in sampling workflows."""
+
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-import numpyro
 from jax.scipy.special import ndtr, ndtri
-from jaxpm.distributed import fft3d, get_sharding_for_shape, ifft3d, normal_field
+from jaxpm.distributed import fft3d, ifft3d, normal_field
 from jaxpm.kernels import fftk, interpolate_power_spectrum
-from jaxtyping import ArrayLike, Key
+from jaxtyping import Key
 from numpyro.distributions import Normal, TransformedDistribution, constraints
 from numpyro.distributions.transforms import AffineTransform, Transform
 from numpyro.distributions.util import promote_shapes
@@ -29,6 +29,7 @@ class PowerSpectrumTransform(Transform):
     NumPyro Transform that deterministically maps N(0,1) white noise
     to a cosmological density field via Fourier-space interpolation.
     """
+
     domain = constraints.real
     codomain = constraints.real
 
@@ -54,10 +55,13 @@ class PowerSpectrumTransform(Transform):
             pk_fn = self.pk_fn
 
         kvec = fftk(field)
-        kmesh = sum((kk / self.box_size[i] * self.mesh_size[i])**2 for i, kk in enumerate(kvec))**0.5
+        kmesh = sum((kk / self.box_size[i] * self.mesh_size[i]) ** 2 for i, kk in enumerate(kvec)) ** 0.5
 
-        pkmesh = pk_fn(kmesh) * (self.mesh_size[0] * self.mesh_size[1] * self.mesh_size[2]) / \
-                 (self.box_size[0] * self.box_size[1] * self.box_size[2])
+        pkmesh = (
+            pk_fn(kmesh)
+            * (self.mesh_size[0] * self.mesh_size[1] * self.mesh_size[2])
+            / (self.box_size[0] * self.box_size[1] * self.box_size[2])
+        )
 
         # Safeguard: The k=0 mode (mean density) often has P(k)=0.
         # We replace it with 1.0 safely to prevent NaN gradients or division by zero.
@@ -100,11 +104,11 @@ class PowerSpectrumTransform(Transform):
     def tree_flatten(self):
         # Cosmo goes in params because it is traced by MCMC.
         # Everything else is static metadata.
-        return (self.cosmo, ), (self.mesh_size, self.box_size, self.pk_fn, self.sharding)
+        return (self.cosmo,), (self.mesh_size, self.box_size, self.pk_fn, self.sharding)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        cosmo, = params
+        (cosmo,) = params
         mesh_size, box_size, pk_fn, sharding = aux_data
         return cls(mesh_size, box_size, cosmo, pk_fn, sharding)
 
@@ -116,20 +120,23 @@ class DistributedIC(TransformedDistribution):
     Subclasses TransformedDistribution to naturally bridge DistributedNormal(0,1)
     with the Fourier-space power spectrum geometry.
     """
+
     arg_constraints = {}
 
-    def __init__(self,
-                 mesh_size,
-                 box_size,
-                 observer_position=(0.5, 0.5, 0.5),
-                 halo_size=(0, 0),
-                 flatsky_npix=None,
-                 nside=None,
-                 field_size=None,
-                 cosmo=None,
-                 pk_fn=None,
-                 sharding=None,
-                 validate_args=None):
+    def __init__(
+        self,
+        mesh_size,
+        box_size,
+        observer_position=(0.5, 0.5, 0.5),
+        halo_size=(0, 0),
+        flatsky_npix=None,
+        nside=None,
+        field_size=None,
+        cosmo=None,
+        pk_fn=None,
+        sharding=None,
+        validate_args=None,
+    ):
         self.mesh_size = mesh_size
         self.box_size = box_size
         self.observer_position = observer_position
@@ -221,7 +228,8 @@ class DistributedNormal(Normal):
         # 1. Strict Type Guarding
         if is_scale_field and not is_loc_field:
             raise ValueError(
-                "If scale is a field, loc must also be a field. (loc=array, scale=field is not supported).")
+                "If scale is a field, loc must also be a field. (loc=array, scale=field is not supported)."
+            )
 
         if is_loc_field:
             if is_scale_field and type(loc) is not type(scale):
@@ -231,7 +239,8 @@ class DistributedNormal(Normal):
             inferred_type = next((k for k, v in _FIELD_CLS.items() if type(loc) is v), None)
             if field_type is not None and field_type != inferred_type:
                 raise ValueError(
-                    f"Explicit field_type '{field_type}' does not match inferred type '{inferred_type}' from loc.")
+                    f"Explicit field_type '{field_type}' does not match inferred type '{inferred_type}' from loc."
+                )
             field_type = inferred_type
 
             # 3. Enforce all explicit metadata args are None
@@ -243,7 +252,7 @@ class DistributedNormal(Normal):
                 "flatsky_npix": flatsky_npix,
                 "nside": nside,
                 "field_size": field_size,
-                "sharding": sharding
+                "sharding": sharding,
             }
             for arg_name, arg_val in metadata_args.items():
                 if arg_val is not None:
@@ -286,8 +295,8 @@ class DistributedNormal(Normal):
             elif field_type == "spherical" or field_type == "spherical_kappa":
                 assert nside is not None, "nside must be provided for spherical fields"
                 npix = 12 * nside**2
-                self.loc = jnp.broadcast_to(self.loc, (npix, ))
-                self.scale = jnp.broadcast_to(self.scale, (npix, ))
+                self.loc = jnp.broadcast_to(self.loc, (npix,))
+                self.scale = jnp.broadcast_to(self.scale, (npix,))
         else:
             self.loc = jnp.asarray(self.loc)
             self.scale = jnp.asarray(self.scale)
@@ -329,7 +338,7 @@ class DistributedNormal(Normal):
         )
 
     def log_prob(self, value):
-        if isinstance(value, (DensityField, FlatDensity, SphericalDensity)):
+        if isinstance(value, AbstractField):
             value = value.array
         return super().log_prob(value)
 
@@ -352,8 +361,17 @@ class DistributedNormal(Normal):
     @classmethod
     def tree_unflatten(cls, aux_data, params):
         loc, scale = params
-        (mesh_size, box_size, observer_position, halo_size, flatsky_npix, nside, field_size, sharding,
-         field_type) = aux_data
+        (
+            mesh_size,
+            box_size,
+            observer_position,
+            halo_size,
+            flatsky_npix,
+            nside,
+            field_size,
+            sharding,
+            field_type,
+        ) = aux_data
         return cls(
             loc=loc,
             scale=scale,
@@ -400,6 +418,7 @@ class PreconditionnedUniform(TransformedDistribution):
     Uniform distribution explicitly backed by a Gaussian space for HMC preconditioning.
     NUTS traverses a standard Normal space, avoiding hard boundaries.
     """
+
     arg_constraints = {"low": constraints.real, "high": constraints.real}
     reparametrized_params = ["low", "high"]
 

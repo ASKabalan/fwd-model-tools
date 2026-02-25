@@ -6,15 +6,12 @@ import warnings
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Optional, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import numpy as np
 
 try:
-    import matplotlib.pyplot as plt
     from getdist import MCSamples
-    from getdist import plots as gdplots
-    from getdist.plots import GetDistPlotSettings
 except ImportError:
     pass
 
@@ -37,8 +34,7 @@ def requires_getdist(func: Callable[_Param, _Return]) -> Callable[_Param, _Retur
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'getdist'. "
-                          "Install with: pip install fwd-model-tools[plot]")
+        raise ImportError("Missing optional dependency 'getdist'. Install with: pip install fwd-model-tools[plot]")
 
     return _deferred
 
@@ -77,6 +73,8 @@ def build_mcsamples(
     list[MCSamples]
         One ``MCSamples`` object per extract.
     """
+    from getdist import MCSamples
+
     if isinstance(catalog_extracts, CatalogExtract):
         catalog_extracts = [catalog_extracts]
     if model_labels is None:
@@ -100,7 +98,7 @@ def plot_posterior(
     params: list[str] | None = None,
     labels: dict | None = None,
     model_labels: list[str] | None = None,
-    truth: Optional[dict] = None,
+    truth: dict | None = None,
     filled: bool = True,
     shaded: bool = False,
     title_limit: int = 1,
@@ -141,6 +139,10 @@ def plot_posterior(
     output_format : str, optional
         Image format used when ``outpath`` has no extension.  Default ``"png"``.
     """
+    import matplotlib.pyplot as plt
+    from getdist import plots as gdplots
+    from getdist.plots import GetDistPlotSettings
+
     if isinstance(catalog_extracts, CatalogExtract):
         catalog_extracts = [catalog_extracts]
     if params is None:

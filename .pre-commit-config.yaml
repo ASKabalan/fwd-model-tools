@@ -1,17 +1,32 @@
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
-    -   id: check-yaml
-    -   id: end-of-file-fixer
-    -   id: trailing-whitespace
--   repo: https://github.com/google/yapf
-    rev: v0.40.2
-    hooks:
-    - id: yapf
-      args: ['--in-place', '--style', 'pyproject.toml']
--   repo: https://github.com/pycqa/isort
-    rev: 7.0.0
-    hooks:
-      - id: isort
-        name: isort (python)
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: check-yaml
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.1.14
+  hooks:
+  - id: ruff-format
+    types_or: [python, pyi, jupyter]
+  - id: ruff
+    types_or: [python, pyi, jupyter]
+    args: [--fix]
+- repo: https://github.com/RobertCraigie/pyright-python
+  rev: v1.1.338
+  hooks:
+  - id: pyright
+    additional_dependencies:
+      - jax
+      - equinox
+      - jaxtyping
+      - healpy
+      - numpy
+      - blackjax
+      - numpyro
+      - orbax-checkpoint
+      - pytest
+      - types-PyYAML
+      - matplotlib
+      - tabulate

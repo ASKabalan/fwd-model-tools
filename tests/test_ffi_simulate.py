@@ -48,7 +48,7 @@ def _check_metadata(cat):
     batch = arr.shape[0] if arr.ndim > 1 else 1
     for name in ("scale_factors", "comoving_centers", "density_width"):
         val = np.atleast_1d(np.asarray(getattr(field, name, np.zeros(1))))
-        assert val.shape[0] == batch, (f"{name} has length {val.shape[0]}, expected batch_size={batch}")
+        assert val.shape[0] == batch, f"{name} has length {val.shape[0]}, expected batch_size={batch}"
 
 
 # ---------------------------------------------------------------------------

@@ -112,15 +112,15 @@ def _clip_to_start(tprev, tnext, t0):
 
 @require_diffrax
 def integrate(
-        terms: tuple[ODETerm, ...],
-        solver: AbstractSolver,
-        t0: float,
-        t1: float,
-        dt0: float,
-        y0: Any,
-        args: Any = None,
-        saveat: SaveAt = SaveAt(t1=True),
-        adjoint: str | AbstractAdjoint = "reverse",
+    terms: tuple[ODETerm, ...],
+    solver: AbstractSolver,
+    t0: float,
+    t1: float,
+    dt0: float,
+    y0: Any,
+    args: Any = None,
+    saveat: SaveAt = SaveAt(t1=True),
+    adjoint: str | AbstractAdjoint = "reverse",
 ) -> Any:
     """
     Unified ODE integration with adjoint selection.
@@ -193,14 +193,14 @@ def integrate(
 
 @require_diffrax
 def reverse_adjoint_integrate(
-        terms: tuple[ODETerm, ...],
-        solver: AbstractSolver,
-        t0: float,
-        t1: float,
-        dt0: float,
-        y0: Any,
-        args: Any = None,
-        saveat: SaveAt = SaveAt(t1=True),
+    terms: tuple[ODETerm, ...],
+    solver: AbstractSolver,
+    t0: float,
+    t1: float,
+    dt0: float,
+    y0: Any,
+    args: Any = None,
+    saveat: SaveAt = SaveAt(t1=True),
 ) -> Any:
     """
     Integrates an ODE system from time t0 to t1 using a specified solver, returning solution snapshots
@@ -229,7 +229,7 @@ def reverse_adjoint_integrate(
     saveat = handle_saveat(saveat, t0, t1)
     save_y = saveat.subs.fn
     ts = saveat.subs.ts
-    (ts, ) = promote_dtypes_inexact(ts)
+    (ts,) = promote_dtypes_inexact(ts)
     y0_args_ts = (y0, args, ts)
     return integrate_impl(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
 
@@ -524,8 +524,9 @@ def integrate_bwd(
         f_adj_ts = jax.tree.map(jnp.add, snap_adj_ts, step_adj_ts)
 
         inner_carry = (y_prev, diff_args, adj_y, adj_args, t0_, t_prev)
-        y_prev, diff_args, adj_y, adj_args, tc, _ = jax.lax.while_loop(inner_backward_cond, inner_backward_step,
-                                                                       inner_carry)
+        y_prev, diff_args, adj_y, adj_args, tc, _ = jax.lax.while_loop(
+            inner_backward_cond, inner_backward_step, inner_carry
+        )
 
         # The gradient w.r.t. the snapshot time is the sum of adjoints at this time minus the adjoint at the previous step
         adj_subs = jax.tree.map(jnp.subtract, f_adj_ts, adj_ts)
@@ -552,7 +553,7 @@ def integrate_bwd(
     adj_args = eqx.combine(adj_args, zero_nondiff)
 
     # Return the adjoints for the initial state and parameters (others are placeholders).
-    return ((adj_y, adj_args, adj_ts), )
+    return ((adj_y, adj_args, adj_ts),)
 
 
 integrate_impl.defvjp(integrate_fwd, integrate_bwd)
@@ -594,7 +595,7 @@ def scan_integrate(
     saveat = handle_saveat(saveat, t0, t1)
     save_y = saveat.subs.fn
     ts = saveat.subs.ts
-    (ts, ) = promote_dtypes_inexact(ts)
+    (ts,) = promote_dtypes_inexact(ts)
     y0_args_ts = (y0, args, ts)
     ys_final, _ = _fwd_loop(y0_args_ts, terms=terms, solver=solver, t0=t0, t1=t1, dt0=dt0, save_y=save_y)
     return ys_final

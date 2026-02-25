@@ -13,9 +13,8 @@ import pytest
 
 datasets = pytest.importorskip("datasets")
 
-import jax_cosmo as jc
-
 import fwd_model_tools as ffi
+import jax_cosmo as jc
 from fwd_model_tools._src.base._enums import ConvergenceUnit
 from fwd_model_tools.io.catalog import Catalog
 
@@ -47,7 +46,7 @@ def error(tree1, tree2):
     """Compute max squared error across all leaves of two PyTrees."""
     return jax.tree.reduce(
         lambda x, y: x + y,
-        jax.tree_util.tree_map(lambda x, y: jnp.max((x - y)**2), tree1, tree2),
+        jax.tree_util.tree_map(lambda x, y: jnp.max((x - y) ** 2), tree1, tree2),
     )
 
 
@@ -326,6 +325,8 @@ def test_multi_batched_field_shapes(field_type):
         array = jnp.zeros((N, S, *MESH_SIZE, 3))
         nside = None
         flatsky_npix = None
+    else:
+        raise ValueError(f"Unknown field_type: {field_type}")
 
     if field_type in ("SphericalKappaField", "FlatKappaField"):
         unit = ConvergenceUnit.DIMENSIONLESS
