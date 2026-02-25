@@ -117,21 +117,27 @@ def analyze(
             for col_i, col_name in enumerate(col_names):
                 axes[0, col_i].set_title(col_name)
 
+            mean_field = ce.mean_field
+            std_field = ce.std_field
+            assert mean_field is not None
+            assert std_field is not None
+
             for c in range(n_chains):
                 axes[c, 0].set_ylabel(f"Chain {c}")
 
                 if has_true_ic:
+                    assert ce.true_ic is not None
                     ce.true_ic.project().plot(ax=axes[c, 0])
-                    mean_c = ce.mean_field.replace(array=ce.mean_field.array[c])
+                    mean_c = mean_field.replace(array=mean_field.array[c])
                     mean_c.project().plot(ax=axes[c, 1])
-                    std_c = ce.std_field.replace(array=ce.std_field.array[c])
+                    std_c = std_field.replace(array=std_field.array[c])
                     std_c.project().plot(ax=axes[c, 2])
                     diff_c = ce.true_ic - mean_c
                     diff_c.project().plot(ax=axes[c, 3])
                 else:
-                    mean_c = ce.mean_field.replace(array=ce.mean_field.array[c])
+                    mean_c = mean_field.replace(array=mean_field.array[c])
                     mean_c.project().plot(ax=axes[c, 0])
-                    std_c = ce.std_field.replace(array=ce.std_field.array[c])
+                    std_c = std_field.replace(array=std_field.array[c])
                     std_c.project().plot(ax=axes[c, 1])
 
             fig.tight_layout()

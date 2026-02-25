@@ -268,7 +268,8 @@ def raytrace(
     # 2. Static simulation parameters — from eqx.field(static=True) metadata
     box_size = lightcone.box_size[0]  # Assumes cubic box in Mpc/h
     n_particles = int(np.prod(lightcone.mesh_size))
-    nside = lightcone.nside  # static=True field, always concrete at trace time
+    nside = lightcone.nside  # static=True field, always concrete at trace
+    assert nside is not None  # type narrowing for checker + closures
 
     # 3. Normalize sources — determines output shape at trace time
     source_kind, sources = _normalize_sources(nz_shear)

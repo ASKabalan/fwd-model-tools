@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from jaxpm.painting import cic_read, cic_read_dx
 from jaxtyping import Array, Float
+from matplotlib.axes import Axes
 
 from .._src.base._core import AbstractField
 from .._src.fields._painting import (
@@ -268,7 +269,9 @@ class ParticleField(AbstractField):
                 )
         elif data.ndim == 4:
             if center_arr.size != 1:
-                if self.scale_factors.squeeze().shape == self.mesh_size and self.status == FieldStatus.LIGHTCONE:
+                scale_factors = self.scale_factors
+                assert scale_factors is not None
+                if scale_factors.squeeze().shape == self.mesh_size and self.status == FieldStatus.LIGHTCONE:
                     LIGHTCONE_MODE = True
                 else:
                     raise ValueError("Painting with mutiple centers/widths requires batched input data ")
@@ -378,7 +381,9 @@ class ParticleField(AbstractField):
                 )
         elif data.ndim == 4:
             if center_arr.size != 1:
-                if self.scale_factors.squeeze().shape == self.mesh_size and self.status == FieldStatus.LIGHTCONE:
+                scale_factors = self.scale_factors
+                assert scale_factors is not None
+                if scale_factors.squeeze().shape == self.mesh_size and self.status == FieldStatus.LIGHTCONE:
                     LIGHTCONE_MODE = True
                 else:
                     raise ValueError("Painting with mutiple centers/widths requires batched input data ")
@@ -441,7 +446,7 @@ class ParticleField(AbstractField):
     def plot(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "viridis",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
@@ -570,7 +575,7 @@ class ParticleField(AbstractField):
     def show(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "viridis",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
