@@ -14,18 +14,10 @@ from jaxtyping import Key, PyTree
 
 from ..io import load_sharded, save_sharded
 
-try:
-    import blackjax
-    import numpyro
-    from numpyro.infer import HMC, MCMC, NUTS
-    from numpyro.infer.util import initialize_model
-except ImportError:
-    pass
-
-__all__ = ["batched_sampling", "requires_samplers"]
-
 _Param = ParamSpec("_Param")
 _Return = TypeVar("_Return")
+
+__all__ = ["batched_sampling", "requires_samplers"]
 
 
 def requires_samplers(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]:
@@ -85,6 +77,9 @@ def batched_sampling(
     ...     progress_bar=False,
     ... )
     """
+    import blackjax
+    import numpyro
+
     os.makedirs(path, exist_ok=True)
     state_path = f"{path}/sampling_state"
     samples_prefix = f"{path}/samples"
@@ -103,7 +98,7 @@ def batched_sampling(
         if init_params is not None:
             kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
 
-        init_params_obj, potential_fn, postprocess_fn, _ = initialize_model(
+        init_params_obj, potential_fn, postprocess_fn, _ = numpyro.infer.utilinitialize_model(
             init_key, model, model_args=model_args, model_kwargs=model_kwargs, dynamic_args=True, **kwargs
         )
         logdensity_fn = lambda position: -potential_fn(*model_args, **model_kwargs)(position)
@@ -161,17 +156,16 @@ def batched_sampling(
                     desired_energy_var=1e-3,
                 )
                 parameters = {"L": tuned_params.L, "step_size": tuned_params.step_size}
-            sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
             last_state = tuned_state
         else:
-            sampler_fn = None
+            raise ValueError(f"Unsupported sampler: {sampler}")
     elif backend == "numpyro":
         kwargs = {}
         if init_params is not None:
             kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
 
-        mcmc = MCMC(
-            NUTS(model, **kwargs) if sampler == "NUTS" else HMC(model, **kwargs),
+        mcmc = numpyro.infer.MCMC(
+            numpyro.infer.NUTS(model, **kwargs) if sampler == "NUTS" else numpyro.infer.HMC(model, **kwargs),
             num_warmup=num_warmup,
             num_samples=num_samples,
             progress_bar=True,
@@ -182,6 +176,8 @@ def batched_sampling(
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
+    assert last_state is not None, "last_state must be defined to save initial state"
+    assert parameters is not None, "parameters must be defined to save initial state"
     if save and not state_exists:
         inference_state = {"nb_samples": jnp.array(0), "last_state": last_state, "parameters": parameters}
         save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
@@ -214,6 +210,10 @@ def batched_sampling(
             sampler_fn = blackjax.hmc(logdensity_fn, **parameters)
         elif sampler == "MCLMC":
             sampler_fn = blackjax.mclmc(logdensity_fn, **parameters)
+        else:
+            raise ValueError(f"Unsupported sampler: {sampler}")
+    else:
+        sampler_fn = None  # Not used for numpyro since it handles sampling internally
 
     start_batch = nb_samples // num_samples
     if start_batch >= batch_count:
@@ -230,6 +230,7 @@ def batched_sampling(
             transform = lambda x, _: (
                 x.position if postprocess_fn is None else postprocess_fn(*model_args, **model_kwargs)(x.position)
             )
+            assert sampler_fn is not None, "sampler_fn must be defined for blackjax backend"
             last_state, samples = blackjax.util.run_inference_algorithm(
                 rng_key=batch_key,
                 initial_state=last_state,
@@ -241,8 +242,8 @@ def batched_sampling(
             nb_evals = 0  # BlackJAX does not expose the number of evaluations
 
         elif backend == "numpyro":
-            mcmc = MCMC(
-                NUTS(model) if sampler == "NUTS" else HMC(model),
+            mcmc = numpyro.infer.MCMC(
+                numpyro.infer.NUTS(model) if sampler == "NUTS" else numpyro.infer.HMC(model),
                 num_warmup=0,
                 num_samples=num_samples,
                 progress_bar=progress_bar,

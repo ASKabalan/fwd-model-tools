@@ -11,10 +11,7 @@ from typing import ParamSpec, TypeVar
 import numpy as np
 
 try:
-    import matplotlib.pyplot as plt
     from getdist import MCSamples
-    from getdist import plots as gdplots
-    from getdist.plots import GetDistPlotSettings
 except ImportError:
     pass
 
@@ -76,6 +73,8 @@ def build_mcsamples(
     list[MCSamples]
         One ``MCSamples`` object per extract.
     """
+    from getdist import MCSamples
+
     if isinstance(catalog_extracts, CatalogExtract):
         catalog_extracts = [catalog_extracts]
     if model_labels is None:
@@ -140,6 +139,10 @@ def plot_posterior(
     output_format : str, optional
         Image format used when ``outpath`` has no extension.  Default ``"png"``.
     """
+    import matplotlib.pyplot as plt
+    from getdist import plots as gdplots
+    from getdist.plots import GetDistPlotSettings
+
     if isinstance(catalog_extracts, CatalogExtract):
         catalog_extracts = [catalog_extracts]
     if params is None:

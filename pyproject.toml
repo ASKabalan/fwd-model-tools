@@ -33,7 +33,6 @@ dependencies = [
     "jax_cosmo@git+https://github.com/ASKabalan/jax_cosmo@ALL-MODIF",
     "healpy",
     "jax-healpy@git+https://github.com/CMBSciPol/jax-healpy.git@maintaint-shapes-batching",
-    "orbax-checkpoint",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +50,7 @@ catalog = [
 sampling = [
     "blackjax",
     "numpyro",
+    "orbax-checkpoint",
 ]
 plot = [
     "matplotlib>=3.0",

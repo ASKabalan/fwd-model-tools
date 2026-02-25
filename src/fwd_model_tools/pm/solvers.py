@@ -402,6 +402,7 @@ class ReversibleDoubleKickDrift(AbstractNBodySolver):
         v_old = v_uncorrected - dvel  # Time unit isn't critical for v return in reverse
 
         # 4. Rewind Interp State
+        assert self.interp_kernel.ts is not None
         max_ts = self.interp_kernel.ts[-1]
         t1_clipped = jnp.minimum(t1, max_ts)
         prev_interp_state = self.interp_kernel.rewind(state.interp_state, t1_clipped)

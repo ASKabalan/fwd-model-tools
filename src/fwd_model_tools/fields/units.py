@@ -199,6 +199,7 @@ def _convert_density(
         raise ValueError("volume_element is required for density unit conversions")
 
     volume_element = jnp.expand_dims(volume_element, axis=tuple(range(volume_element.ndim, array.ndim)))
+    assert volume_element is not None  # reassignment widens type; re-narrow for checker
     # Compute mass per particle if needed for MSUN conversions
     mass_per_particle = None
     if origin == DensityUnit.MSUN_H_PER_MPC3 or destination == DensityUnit.MSUN_H_PER_MPC3:

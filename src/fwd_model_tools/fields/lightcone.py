@@ -6,8 +6,8 @@ import jax
 import jax.core
 import jax.numpy as jnp
 import jax_healpy as jhp
-import matplotlib.pyplot as plt
 from jax.image import resize
+from matplotlib.axes import Axes
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import FieldStatus
@@ -102,7 +102,7 @@ class FlatDensity(AbstractField):
     def plot(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
@@ -155,7 +155,7 @@ class FlatDensity(AbstractField):
     def show(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
@@ -536,7 +536,7 @@ class SphericalDensity(AbstractField):
     def plot(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
@@ -591,7 +591,7 @@ class SphericalDensity(AbstractField):
     def show(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,

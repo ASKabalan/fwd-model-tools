@@ -127,6 +127,7 @@ class NoInterp(AbstractInterp):
     def init(self) -> InterpTilerState:
         # Check geometry
         if self.r_centers is not None:
+            assert self.density_widths is not None
             furthest_shell = self.r_centers[0] + self.density_widths[0] / 2
             furthest_shell = warning_if(
                 furthest_shell,
@@ -166,6 +167,8 @@ class NoInterp(AbstractInterp):
     ) -> Any:
         dx, p = y
 
+        assert self.r_centers is not None
+        assert self.density_widths is not None
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
 
@@ -217,6 +220,7 @@ class DriftInterp(AbstractInterp):
     def init(self) -> InterpTilerState:
         # Check geometry
         if self.r_centers is not None:
+            assert self.density_widths is not None
             furthest_shell = self.r_centers[0] + self.density_widths[0] / 2
             furthest_shell = warning_if(
                 furthest_shell,
@@ -256,6 +260,8 @@ class DriftInterp(AbstractInterp):
     ) -> Any:
         dx, p = y
 
+        assert self.r_centers is not None
+        assert self.density_widths is not None
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
 
@@ -353,6 +359,8 @@ class OnionTiler(AbstractInterp):
         cosmo,
     ) -> Any:
         dx, p = y
+        assert self.r_centers is not None
+        assert self.density_widths is not None
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
 
@@ -525,6 +533,7 @@ class TelephotoInterp(AbstractInterp):
         )
 
     def advance(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        assert self.r_centers is not None
         is_snapshot = jnp.isin(t, self.ts)
         next_shell_idx = jnp.where(is_snapshot, state.shell_idx + 1, state.shell_idx)
 
@@ -538,6 +547,8 @@ class TelephotoInterp(AbstractInterp):
         return eqx.tree_at(lambda s: (s.shell_idx, s.rotation_idx), state, (next_shell_idx, next_rot_idx))
 
     def rewind(self, state: InterpTilerState, t: float) -> InterpTilerState:
+        assert self.r_centers is not None
+        assert self.density_widths is not None
         is_snapshot = jnp.isin(t, self.ts)
 
         # Check if CURRENT shell is outside box (meaning we incremented rot_idx when entering)
@@ -559,6 +570,9 @@ class TelephotoInterp(AbstractInterp):
         cosmo,
     ) -> Any:
         dx, p = y
+
+        assert self.r_centers is not None
+        assert self.density_widths is not None
 
         r_center = self.r_centers[state.shell_idx]
         width = self.density_widths[state.shell_idx]
@@ -636,6 +650,7 @@ class TelephotoInterp(AbstractInterp):
     ) -> SphericalDensity:
         observer_mpc = jnp.array(dx.observer_position_mpc)
 
+        assert state.rotations is not None
         rot_idx = state.rotation_idx % 47
         M = state.rotations[rot_idx]
 

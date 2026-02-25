@@ -8,6 +8,8 @@ import jax
 import jax.core
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from .._src.base._core import AbstractPytree
 from .._src.fields._plotting import generate_titles
@@ -101,7 +103,7 @@ class PowerSpectrum(AbstractPytree):
     def plot(
         self,
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         label: Sequence[str] | None = None,
@@ -109,7 +111,7 @@ class PowerSpectrum(AbstractPytree):
         figsize: tuple[float, float] | None = None,
         grid: bool = True,
         **kwargs: Any,
-    ) -> tuple[plt.Figure, plt.Axes, list[Any]]:
+    ) -> tuple[Figure, Axes, list[Any]]:
         """
         Overlay all spectra in this object on a single axis.
 
@@ -153,6 +155,7 @@ class PowerSpectrum(AbstractPytree):
             fig, ax = plt.subplots(figsize=figsize or (8, 6))
         else:
             fig = ax.get_figure()
+        assert ax is not None
 
         artists: list[Any] = []
         for i in range(n_spec):
@@ -178,7 +181,7 @@ class PowerSpectrum(AbstractPytree):
     def show(
         self,
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         label: Sequence[str] | None = None,
@@ -203,7 +206,7 @@ class PowerSpectrum(AbstractPytree):
     def mean_std_plot(
         self,
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         label: Sequence[str] | None = None,
@@ -212,7 +215,7 @@ class PowerSpectrum(AbstractPytree):
         figsize: tuple[float, float] | None = None,
         grid: bool = True,
         **kwargs: Any,
-    ) -> tuple[plt.Figure, plt.Axes, list[Any]]:
+    ) -> tuple[Figure, Axes, list[Any]]:
         """
         Plot mean and ±1σ band for a batched spectrum.
 
@@ -235,6 +238,7 @@ class PowerSpectrum(AbstractPytree):
             fig, ax = plt.subplots(figsize=figsize or (8, 6))
         else:
             fig = ax.get_figure()
+        assert ax is not None
 
         artists: list[Any] = []
         if n_spec == 1:
@@ -268,7 +272,7 @@ class PowerSpectrum(AbstractPytree):
         self,
         others: Sequence[PowerSpectrum],
         *,
-        ax: plt.Axes | None = None,
+        ax: Axes | None = None,
         logx: bool = True,
         logy: bool = True,
         grid: bool = True,
@@ -278,7 +282,7 @@ class PowerSpectrum(AbstractPytree):
         ratio_ylim: tuple[float, float] | None = None,
         figsize: tuple[float, float] | None = None,
         **kwargs: Any,
-    ) -> tuple[plt.Figure, plt.Axes, list[Any]]:
+    ) -> tuple[Figure, Axes, list[Any]]:
         """
         Overlay this spectrum and others on one axis; optionally add ratios on a twin y-axis.
 
@@ -313,6 +317,7 @@ class PowerSpectrum(AbstractPytree):
             fig, ax = plt.subplots(figsize=figsize or (8, 6))
         else:
             fig = ax.get_figure()
+        assert ax is not None
 
         artists: list[Any] = []
         # plot reference

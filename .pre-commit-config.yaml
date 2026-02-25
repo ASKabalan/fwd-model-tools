@@ -28,3 +28,5 @@ repos:
       - orbax-checkpoint
       - pytest
       - types-PyYAML
+      - matplotlib
+      - tabulate

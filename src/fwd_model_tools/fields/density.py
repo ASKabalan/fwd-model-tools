@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from jaxtyping import Array
+from matplotlib.axes import Axes
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import DensityUnit, FieldStatus
@@ -160,7 +161,7 @@ class DensityField(AbstractField):
     def plot(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,
@@ -229,7 +230,7 @@ class DensityField(AbstractField):
     def show(
         self,
         *,
-        ax: plt.Axes | Sequence[plt.Axes] | None = None,
+        ax: Axes | Sequence[Axes] | None = None,
         cmap: str = "magma",
         figsize: tuple[float, float] | None = None,
         ncols: int = 3,

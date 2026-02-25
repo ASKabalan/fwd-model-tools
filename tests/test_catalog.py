@@ -325,6 +325,8 @@ def test_multi_batched_field_shapes(field_type):
         array = jnp.zeros((N, S, *MESH_SIZE, 3))
         nside = None
         flatsky_npix = None
+    else:
+        raise ValueError(f"Unknown field_type: {field_type}")
 
     if field_type in ("SphericalKappaField", "FlatKappaField"):
         unit = ConvergenceUnit.DIMENSIONLESS

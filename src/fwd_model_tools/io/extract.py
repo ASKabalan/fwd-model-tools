@@ -19,6 +19,8 @@ __all__ = ["extract_catalog", "requires_datasets", "CatalogExtract"]
 _Param = ParamSpec("_Param")
 _Return = TypeVar("_Return")
 
+# pyright: reportOptionalMemberAccess=false
+
 
 def requires_datasets(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]:
     """Decorator that raises ImportError when the 'datasets' package is not installed."""
@@ -270,6 +272,7 @@ def extract_catalog(
                 if transfer_stats is None:
                     transfer_stats = _RunningStats(transfer_ps)
                     coherence_stats = _RunningStats(coherence_ps)
+                assert transfer_stats is not None and coherence_stats is not None  # type narrowing for checker
                 transfer_stats.update(transfer_ps)
                 coherence_stats.update(coherence_ps)
 
@@ -286,6 +289,7 @@ def extract_catalog(
 
     # --- Stack field statistics across chains ---
     if field_statistic:
+        assert chain_transfer_stats is not None
         chain_means = [chain_field_stats[c].get_mean() for c in range(n_chains)]
         chain_stds = [chain_field_stats[c].get_std(ddof) for c in range(n_chains)]
         stacked_mean = np.stack([np.asarray(f.array) for f in chain_means], axis=0)

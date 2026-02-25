@@ -314,7 +314,7 @@ def main() -> None:
         condition_data["sigma8"] = float(obs_cosmo.sigma8)
 
     if "ic" not in sample_set:
-        # ic_field is guaranteed non-None by _validate_args
+        assert ic_field is not None  # guaranteed by _validate_args
         condition_data["initial_conditions"] = ic_field.array
 
     # 5. Build init_params: warm-start IC chain from a provided field
