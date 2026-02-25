@@ -98,9 +98,9 @@ def _raytrace_z_grid(
     np.ndarray
         Convergence maps, shape (n_sources, npix).
     """
-    assert raytrace_from_density is not None, (
-        "raytrace_from_density is None — dorian not installed. Use @require_dorian to guard callers."
-    )
+    assert (
+        raytrace_from_density is not None
+    ), "raytrace_from_density is None — dorian not installed. Use @require_dorian to guard callers."
     result = raytrace_from_density(
         density_maps=list(density_maps),
         redshifts=list(shell_redshifts),

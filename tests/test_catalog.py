@@ -13,9 +13,8 @@ import pytest
 
 datasets = pytest.importorskip("datasets")
 
-import jax_cosmo as jc
-
 import fwd_model_tools as ffi
+import jax_cosmo as jc
 from fwd_model_tools._src.base._enums import ConvergenceUnit
 from fwd_model_tools.io.catalog import Catalog
 

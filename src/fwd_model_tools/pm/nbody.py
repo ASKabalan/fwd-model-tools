@@ -91,12 +91,12 @@ def nbody(
     >>> lightcone = nbody(cosmo, dx, p, t1=1.0, nb_shells=10)
     """
 
-    assert dx_field.status == FieldStatus.LPT1 or dx_field.status == FieldStatus.LPT2, (
-        "dx_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
-    )
-    assert p_field.status == FieldStatus.LPT1 or p_field.status == FieldStatus.LPT2, (
-        "p_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
-    )
+    assert (
+        dx_field.status == FieldStatus.LPT1 or dx_field.status == FieldStatus.LPT2
+    ), "dx_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
+    assert (
+        p_field.status == FieldStatus.LPT1 or p_field.status == FieldStatus.LPT2
+    ), "p_field must have status FieldStatus.LPT1 or FieldStatus.LPT2."
 
     if dx_field.mesh_size != p_field.mesh_size:
         raise ValueError("dx_field and p_field must have matching mesh_size")

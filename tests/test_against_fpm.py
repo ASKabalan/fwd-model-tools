@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import fwd_model_tools as ffi
 import pytest
 from jax import numpy as jnp
 from numpy.testing import assert_allclose
-
-import fwd_model_tools as ffi
 
 _FIELD_RTOL = 1e-12
 _FIELD_ATOL = 1e-12
