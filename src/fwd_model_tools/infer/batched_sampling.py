@@ -98,7 +98,7 @@ def batched_sampling(
         if init_params is not None:
             kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
 
-        init_params_obj, potential_fn, postprocess_fn, _ = numpyro.infer.utilinitialize_model(
+        init_params_obj, potential_fn, postprocess_fn, _ = numpyro.infer.util.initialize_model(
             init_key, model, model_args=model_args, model_kwargs=model_kwargs, dynamic_args=True, **kwargs
         )
         logdensity_fn = lambda position: -potential_fn(*model_args, **model_kwargs)(position)
