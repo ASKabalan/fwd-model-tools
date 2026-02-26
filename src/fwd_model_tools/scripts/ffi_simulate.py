@@ -151,16 +151,15 @@ def _build_sharding(args: Namespace):
 # ---------------------------------------------------------------------------
 
 
-def _save_result(result, cosmo, args: Namespace) -> None:
+def _save_result(result, cosmo, args: Namespace, output: str | None = None) -> None:
     """Save result to parquet (process 0 only)."""
-    # Create folder if it doesn't exist
-    # If file has parent folders create them, otherwise do nothing
-    parent_folder = os.path.dirname(args.output)
+    out_path = output if output is not None else args.output
+    parent_folder = os.path.dirname(out_path)
     if parent_folder:
         os.makedirs(parent_folder, exist_ok=True)
     catalog = ffi.io.Catalog(field=result, cosmology=cosmo)
-    catalog.to_parquet(args.output)
-    print(f"Saved to {args.output}")
+    catalog.to_parquet(out_path)
+    print(f"Saved to {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -361,10 +360,11 @@ def parser() -> ArgumentParser:
         metavar="Z",
         help="Source redshifts or 'stage3'/'s3' for 4-bin Stage 3 distributions",
     )
-    lensing_method = lensing_p.add_mutually_exclusive_group()
-    lensing_method.add_argument("--born", action="store_true", default=True, help="Use Born approximation (default)")
-    lensing_method.add_argument(
-        "--raytrace", action="store_true", default=False, help="Use multi-plane ray-tracing via dorian"
+    lensing_p.add_argument(
+        "--lensing",
+        choices=["born", "raytrace", "both"],
+        default="born",
+        help="Lensing method: 'born' (default), 'raytrace' (dorian multi-plane), or 'both' (saves two output files)",
     )
     lensing_p.add_argument(
         "--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)"
@@ -411,11 +411,11 @@ def _validate_args(args: Namespace, parser: ArgumentParser) -> None:
     if args.subcommand == "lensing":
         nside = getattr(args, "nside", None)
         flatsky_npix = getattr(args, "flatsky_npix", None)
-        use_raytrace = getattr(args, "raytrace", False)
+        lensing_method = getattr(args, "lensing", "born")
         if nside is None and flatsky_npix is None:
             parser.error("lensing subcommand requires --nside or --flatsky-npix")
-        if use_raytrace and nside is None:
-            parser.error("--raytrace requires --nside (spherical painting)")
+        if lensing_method in ("raytrace", "both") and nside is None:
+            parser.error("--lensing raytrace/both requires --nside (spherical painting)")
 
     # --perf and --trace are mutually exclusive (perf wins)
     if getattr(args, "perf", False) and getattr(args, "trace", False):
@@ -477,13 +477,15 @@ def run_simulations(
 
     # Run lensing
     if sim_type == "born":
-        kappa = ffi.born(cosmo, lightcone, nz_shear)
+        return ffi.born(cosmo, lightcone, nz_shear)
     elif sim_type == "raytrace":
-        kappa = ffi.raytrace(cosmo, lightcone, nz_shear)
+        kappa_rt, _ = ffi.raytrace(cosmo, lightcone, nz_shear)
+        return kappa_rt
+    elif sim_type == "both":
+        kappa_rt, kappa_born = ffi.raytrace(cosmo, lightcone, nz_shear, born=True, raytrace=True)
+        return kappa_rt, kappa_born
     else:
         raise ValueError(f"Unknown sim_type: {sim_type}")
-
-    return kappa
 
 
 def main() -> None:
@@ -530,7 +532,7 @@ def main() -> None:
     sim_type = args.subcommand
     lpt_order = args.order
     if args.subcommand == "lensing":
-        sim_type = "raytrace" if args.raytrace else "born"
+        sim_type = args.lensing
 
     run_kwargs = {
         "cosmo": cosmo,
@@ -586,12 +588,18 @@ def main() -> None:
         timer.report(report_file, function=sim_type, extra_info=extra_info, **metadata)
         print(f"Performance report saved to {report_file}")
     else:
-        result = run_simulations(**run_kwargs).block_until_ready()
+        result = jax.block_until_ready(run_simulations(**run_kwargs))
 
     print("Simulation completed... saving results.")
     sync_global_devices("Done")
     # --- Save output ---
-    _save_result(result, cosmo, args)
+    if sim_type == "both":
+        result_rt, result_born = result
+        base, ext = os.path.splitext(args.output)
+        _save_result(result_rt, cosmo, args, output=base + "_raytraced" + ext)
+        _save_result(result_born, cosmo, args, output=base + "_born" + ext)
+    else:
+        _save_result(result, cosmo, args)
     jax.distributed.shutdown()
 
 
