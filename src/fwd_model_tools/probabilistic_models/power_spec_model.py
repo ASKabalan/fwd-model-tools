@@ -1,34 +1,14 @@
+from __future__ import annotations
+
+from collections.abc import Callable
 from itertools import combinations_with_replacement
 
-import healpy as hp
 import jax.numpy as jnp
 import jax_cosmo as jc
-import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
 from .config import Configurations
-
-# TODO THIS FILE IS WIP
-
-
-# TODO USE THE CROSS POWER FROM THE LIGHTCLONE.py function instead
-def compute_cl_from_convergence_map(kappas, lmax):
-    nb_bins = len(kappas)
-    pair_order = sorted(combinations_with_replacement(range(nb_bins), 2))
-    observed_cls = {}
-
-    for i, j in pair_order:
-        kappa_i = np.asarray(kappas[f"kappa_{i}"])
-        kappa_j = np.asarray(kappas[f"kappa_{j}"])
-
-        cl_full = hp.anafast(kappa_i, kappa_j, lmax=lmax)
-        cl_obs = cl_full[2:]
-
-        entry_name = f"C_ell_auto_{i}" if i == j else f"C_ell_cross_{i}_{j}"
-        observed_cls[entry_name] = jnp.array(cl_obs)
-
-    return observed_cls
 
 
 def pixel_window_function(ell, pixel_size_arcmin):
@@ -81,79 +61,85 @@ def make_2pt_model(pixel_scale, ell, sigma_e=0.3, nonlinear_fn=jc.power.halofit)
     return forward_model
 
 
-def powerspec_probmodel(
-    config: Configurations,
-    *,
-    pixel_size_arcmin: float | None = None,
-    nside: int | None = None,
-):
+def powerspec_probmodel(config: Configurations) -> Callable:
     """
     Create NumPyro probabilistic model for power spectrum inference.
+
+    The likelihood uses the Knox formula to account for both shape noise and
+    cosmic variance:
+
+    - Auto-spectra (i == j):
+        Var = 2 * (C_ii + N_ii)^2 / ((2*ell + 1) * f_sky)
+    - Cross-spectra (i != j, enabled when config.use_cross is True):
+        Var = ((C_ii + N_ii) * (C_jj + N_jj) + C_ij^2) / ((2*ell + 1) * f_sky)
+
+    Pixel scale is derived automatically from config:
+    - Spherical geometry: from config.nside
+    - Flat geometry: from config.field_size and config.flatsky_npix
+
+    Cosmological parameters are sampled dynamically from config.priors,
+    mirroring full_field_probmodel.
 
     Parameters
     ----------
     config : Configurations
-        Configuration object containing priors, nz_shear, sigma_e, etc.
-    pixel_size_arcmin : float, optional
-        Pixel size in arcminutes for flat-sky maps. Required when
-        ``config.geometry == 'flat'``.
-    nside : int, optional
-        HEALPix nside resolution for spherical maps. Required when
-        ``config.geometry == 'spherical'``.
+        Configuration object. Must have geometry-appropriate resolution metadata
+        (nside for spherical, flatsky_npix + field_size for flat).
 
     Returns
     -------
     callable
-        NumPyro model function with signature: model(ell, kappa_obs_spectra) -> observed_spectra
-        where kappa_obs_spectra is a list of observed auto-spectra (one per redshift bin).
+        NumPyro model function with no arguments that registers C_ell sample sites.
     """
     nb_bins = len(config.nz_shear)
     pair_order = sorted(combinations_with_replacement(range(nb_bins), 2))
 
+    # Pre-build index map for O(1) auto-spectrum lookup (needed for cross-variance)
+    pair_to_idx = {pair: idx for idx, pair in enumerate(pair_order)}
+
+    # Derive pixel scale from config at model-creation time (static metadata)
+    if config.geometry == "flat":
+        if config.flatsky_npix is None or config.field_size is None:
+            raise ValueError("flat geometry requires config.flatsky_npix and config.field_size")
+        ny, nx = config.flatsky_npix
+        size_y, size_x = config.field_size
+        pixel_scale = 0.5 * (size_y * 60.0 / ny + size_x * 60.0 / nx)
+    else:
+        if config.nside is None:
+            raise ValueError("spherical geometry requires config.nside")
+        pixel_scale = jnp.sqrt(4 * jnp.pi / (12 * (config.nside**2))) * (180.0 * 60.0 / jnp.pi)
+
+    forward_model = make_2pt_model(pixel_scale, config.ells, sigma_e=config.sigma_e)
+
     def model():
-        Omega_c = numpyro.sample("Omega_c", config.priors["Omega_c"])
-        sigma8 = numpyro.sample("sigma8", config.priors["sigma8"])
-
-        cosmo = jc.Cosmology(
-            Omega_c=Omega_c,
-            Omega_b=config.fiducial_cosmology().Omega_b,
-            h=config.fiducial_cosmology().h,
-            n_s=config.fiducial_cosmology().n_s,
-            sigma8=sigma8,
-            Omega_k=0.0,
-            w0=-1.0,
-            wa=0.0,
-        )
-
-        if config.geometry == "flat":
-            if pixel_size_arcmin is None:
-                raise ValueError("pixel_size_arcmin must be provided for flat geometry")
-            pixel_scale = pixel_size_arcmin
-        else:
-            if nside is None:
-                raise ValueError("nside must be provided for spherical geometry")
-            pixel_scale = jnp.sqrt(4 * jnp.pi / (12 * (nside**2))) * (180.0 * 60.0 / jnp.pi)
-
-        forward_model = make_2pt_model(pixel_scale, config.ells, sigma_e=config.sigma_e)
+        cosmo = config.fiducial_cosmology(**{k: numpyro.sample(k, prior) for k, prior in config.priors.items()})
+        numpyro.deterministic("cosmo", cosmo)
 
         cell_theory, cell_noise = forward_model(cosmo, config.nz_shear)
 
-        observed_spectra = []
+        mode_count = (2 * config.ells + 1) * config.f_sky
+
         for idx, (i, j) in enumerate(pair_order):
-            if i == j:
-                kappa_obs_spectra = numpyro.sample(
-                    f"C_ell_auto_{i}", dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx]))
-                )
+            is_auto = i == j
+            if not is_auto and not config.use_cross:
+                continue
 
-                observed_spectra.append(kappa_obs_spectra)
-            # Deactivate cross-spectra for now
-            # Because the noise is equal to 0 And I don't know what to sample
-            elif False:
-                kappa_obs_spectra = numpyro.sample(
-                    f"C_ell_cross_{i}_{j}", dist.Normal(cell_theory[idx], jnp.sqrt(cell_noise[idx]))
-                )
-                observed_spectra.append(kappa_obs_spectra)
+            cl_ij = cell_theory[idx]
 
-        return observed_spectra
+            if is_auto:
+                n_ii = cell_noise[idx]
+                variance = 2.0 * (cl_ij + n_ii) ** 2 / mode_count
+                name = f"C_ell_auto_{i}"
+            else:
+                idx_ii = pair_to_idx[(i, i)]
+                idx_jj = pair_to_idx[(j, j)]
+                cl_ii = cell_theory[idx_ii]
+                cl_jj = cell_theory[idx_jj]
+                n_ii = cell_noise[idx_ii]
+                n_jj = cell_noise[idx_jj]
+                variance = ((cl_ii + n_ii) * (cl_jj + n_jj) + cl_ij**2) / mode_count
+                name = f"C_ell_cross_{i}_{j}"
+
+            numpyro.sample(name, dist.Normal(cl_ij, jnp.sqrt(variance)))
 
     return model
