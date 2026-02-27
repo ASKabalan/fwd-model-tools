@@ -1,4 +1,4 @@
-"""Shared fixtures for fwd_model_tools tests."""
+"""Shared fixtures for jax_fli tests."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 import pytest
-from fwd_model_tools.fields import DensityField, FieldStatus
-from fwd_model_tools.fields.units import DensityUnit
+from jax_fli.fields import DensityField, FieldStatus
+from jax_fli.fields.units import DensityUnit
 
 
 @pytest.fixture(scope="session", autouse=True)

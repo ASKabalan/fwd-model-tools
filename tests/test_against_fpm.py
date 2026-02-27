@@ -1,8 +1,8 @@
-"""Validation tests: compare fwd_model_tools LPT and N-body against fastpm-python."""
+"""Validation tests: compare jax_fli LPT and N-body against fastpm-python."""
 
 from __future__ import annotations
 
-import fwd_model_tools as ffi
+import jax_fli as jfli
 import pytest
 from jax import numpy as jnp
 from numpy.testing import assert_allclose
@@ -37,26 +37,26 @@ def test_lpt(
 ):
     mesh_shape, box_shape = simulation_config
 
-    dx, p = ffi.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
+    dx, p = jfli.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
 
-    ffi_density = dx.paint()
+    jfli_density = dx.paint()
 
     fpm_ref_field = fpm_lpt1_field if order == 1 else fpm_lpt2_field
 
-    pk_ffi = ffi_density.power().spectra
-    _, pk_fpm = ffi.power(fpm_ref_field, box_shape=box_shape)
+    pk_jfli = jfli_density.power().spectra
+    _, pk_fpm = jfli.power(fpm_ref_field, box_shape=box_shape)
 
-    MSE_density = MSE(ffi_density.array, fpm_ref_field)
-    MSRE_density = MSRE(ffi_density.array, fpm_ref_field)
-    MSE_pk = MSE(pk_ffi, pk_fpm)
-    MSRE_pk = MSRE(pk_ffi, pk_fpm)
+    MSE_density = MSE(jfli_density.array, fpm_ref_field)
+    MSRE_density = MSRE(jfli_density.array, fpm_ref_field)
+    MSE_pk = MSE(pk_jfli, pk_fpm)
+    MSRE_pk = MSRE(pk_jfli, pk_fpm)
 
     print(
         f"Order {order} LPT test: MSE_density={MSE_density:.3e}, MSRE_density={MSRE_density:.3e}, MSE_pk={MSE_pk:.3e}, MSRE_pk={MSRE_pk:.3e}"
     )
 
-    assert_allclose(ffi_density.array, fpm_ref_field, rtol=_FIELD_RTOL, atol=_FIELD_ATOL)
-    assert_allclose(pk_ffi, pk_fpm, rtol=_PL_RTOL, atol=_PK_ATOL)
+    assert_allclose(jfli_density.array, fpm_ref_field, rtol=_FIELD_RTOL, atol=_FIELD_ATOL)
+    assert_allclose(pk_jfli, pk_fpm, rtol=_PL_RTOL, atol=_PK_ATOL)
 
 
 # ---------------------------------------------------------------------------
@@ -77,13 +77,13 @@ def test_nbody_efficient_solver(
 ):
     mesh_shape, box_shape = simulation_config
 
-    dx, p = ffi.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
+    dx, p = jfli.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
 
-    solver = ffi.EfficientDriftDoubleKick(interp_kernel=ffi.NoInterp(painting=ffi.PaintingOptions(target="density")))
+    solver = jfli.EfficientDriftDoubleKick(interp_kernel=jfli.NoInterp(painting=jfli.PaintingOptions(target="density")))
 
     dt0 = (1.0 - lpt_scale_factor) / (steps - 1)
 
-    result = ffi.nbody(
+    result = jfli.nbody(
         cosmology,
         dx,
         p,
@@ -95,20 +95,20 @@ def test_nbody_efficient_solver(
 
     fpm_ref_field = nbody_from_lpt1 if order == 1 else nbody_from_lpt2
 
-    pk_ffi = result.power().spectra
-    _, pk_fpm = ffi.power(fpm_ref_field, box_shape=box_shape)
+    pk_jfli = result.power().spectra
+    _, pk_fpm = jfli.power(fpm_ref_field, box_shape=box_shape)
 
     MSE_density = MSE(result.array, fpm_ref_field)
     MSRE_density = MSRE(result.array, fpm_ref_field)
-    MSE_pk = MSE(pk_ffi, pk_fpm)
-    MSRE_pk = MSRE(pk_ffi, pk_fpm)
+    MSE_pk = MSE(pk_jfli, pk_fpm)
+    MSRE_pk = MSRE(pk_jfli, pk_fpm)
 
     print(
         f"Order {order} N-body test: MSE_density={MSE_density:.3e}, MSRE_density={MSRE_density:.3e}, MSE_pk={MSE_pk:.3e}, MSRE_pk={MSRE_pk:.3e}"
     )
 
     assert_allclose(result.array, fpm_ref_field, rtol=_FIELD_RTOL, atol=_FIELD_ATOL)
-    assert_allclose(pk_ffi, pk_fpm, rtol=_PL_RTOL, atol=_PK_ATOL)
+    assert_allclose(pk_jfli, pk_fpm, rtol=_PL_RTOL, atol=_PK_ATOL)
 
 
 @pytest.mark.parametrize("order", [1, 2])
@@ -124,15 +124,15 @@ def test_nbody_reversible_solver(
 ):
     mesh_shape, box_shape = simulation_config
 
-    dx, p = ffi.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
+    dx, p = jfli.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
 
-    solver = ffi.ReversibleDoubleKickDrift(
-        interp_kernel=ffi.NoInterp(painting=ffi.PaintingOptions(target="density")),
+    solver = jfli.ReversibleDoubleKickDrift(
+        interp_kernel=jfli.NoInterp(painting=jfli.PaintingOptions(target="density")),
     )
 
     dt0 = (1.0 - lpt_scale_factor) / (steps - 1)
 
-    result = ffi.nbody(
+    result = jfli.nbody(
         cosmology,
         dx,
         p,
@@ -144,20 +144,20 @@ def test_nbody_reversible_solver(
 
     fpm_ref_field = nbody_from_lpt1 if order == 1 else nbody_from_lpt2
 
-    _, pk_ffi = ffi.power(result.array.squeeze(), box_shape=box_shape)
-    _, pk_fpm = ffi.power(fpm_ref_field, box_shape=box_shape)
+    _, pk_jfli = jfli.power(result.array.squeeze(), box_shape=box_shape)
+    _, pk_fpm = jfli.power(fpm_ref_field, box_shape=box_shape)
 
     MSE_density = MSE(result.array, fpm_ref_field)
     MSRE_density = MSRE(result.array, fpm_ref_field)
-    MSE_pk = MSE(pk_ffi, pk_fpm)
-    MSRE_pk = MSRE(pk_ffi, pk_fpm)
+    MSE_pk = MSE(pk_jfli, pk_fpm)
+    MSRE_pk = MSRE(pk_jfli, pk_fpm)
 
     print(
         f"Order {order} N-body test: MSE_density={MSE_density:.3e}, MSRE_density={MSRE_density:.3e}, MSE_pk={MSE_pk:.3e}, MSRE_pk={MSRE_pk:.3e}"
     )
 
     assert_allclose(result.array, fpm_ref_field, rtol=_FIELD_RTOL, atol=_FIELD_ATOL)
-    assert_allclose(pk_ffi, pk_fpm, rtol=_PL_RTOL, atol=_PK_ATOL)
+    assert_allclose(pk_jfli, pk_fpm, rtol=_PL_RTOL, atol=_PK_ATOL)
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +169,8 @@ def test_nbody_reversible_solver(
 @pytest.mark.parametrize(
     "correction_kernel",
     [
-        ffi.NoCorrection(),
-        ffi.SharpeningKernel(),
+        jfli.NoCorrection(),
+        jfli.SharpeningKernel(),
     ],
     ids=["NoCorrection", "SharpeningKernel"],
 )
@@ -184,13 +184,13 @@ def test_reversible_solver_roundtrip(
 ):
     """Test that reverse() exactly inverts step() for ReversibleDoubleKickDrift."""
     mesh_shape, _ = simulation_config
-    if isinstance(correction_kernel, ffi.SharpeningKernel) and len(set(mesh_shape)) > 1:
+    if isinstance(correction_kernel, jfli.SharpeningKernel) and len(set(mesh_shape)) > 1:
         pytest.skip("SharpeningKernel has a pre-existing fft3d shape bug on non-cubic meshes")
 
-    dx, p = ffi.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
+    dx, p = jfli.lpt(cosmology, initial_conditions, ts=lpt_scale_factor, order=order)
 
     # Build solver with geometry
-    interp = ffi.NoInterp(painting=ffi.PaintingOptions(target="density"))
+    interp = jfli.NoInterp(painting=jfli.PaintingOptions(target="density"))
     ts = jnp.array([1.0])
     interp = interp.update_geometry(
         ts=ts,
@@ -198,7 +198,7 @@ def test_reversible_solver_roundtrip(
         density_widths=jnp.ones(1),
         max_comoving_distance=1.0,
     )
-    solver = ffi.ReversibleDoubleKickDrift(interp_kernel=interp, pgd_kernel=correction_kernel)
+    solver = jfli.ReversibleDoubleKickDrift(interp_kernel=interp, pgd_kernel=correction_kernel)
 
     # Set up step parameters
     t0 = lpt_scale_factor
