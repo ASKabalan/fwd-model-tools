@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+"""fli-infer: raw script entry point.
+
+Runs JAX distributed init BEFORE importing the package, so that
+jax.distributed.initialize() happens before any JAX backend touches.
+"""
+import os
+
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
+os.environ["JAX_ENABLE_X64"] = "False"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.97"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+
+
+def _maybe_init_distributed():
+    if (
+        int(os.environ.get("SLURM_NTASKS", 0)) > 1
+        or int(os.environ.get("SLURM_NTASKS_PER_NODE", 0)) > 1
+        or int(os.environ.get("OMPI_COMM_WORLD_SIZE", 0)) > 1
+        or int(os.environ.get("PMI_SIZE", 0)) > 1
+    ):
+        for key in ("VSCODE_PROXY_URI", "no_proxy", "NO_PROXY"):
+            os.environ.pop(key, None)
+        import jax
+
+        jax.distributed.initialize()
+        print(f"Initialized JAX distributed with {jax.process_count()} processes, rank {jax.process_index()}")
+
+
+_maybe_init_distributed()
+
+from jax_fli.scripts.fli_infer import main
+
+if __name__ == "__main__":
+    main()

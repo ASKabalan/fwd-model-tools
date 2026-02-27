@@ -15,9 +15,9 @@ import pytest
 
 datasets = pytest.importorskip("datasets")
 
-import fwd_model_tools as ffi
-from fwd_model_tools.fields import FieldStatus
-from fwd_model_tools.io.catalog import Catalog
+import jax_fli as jfli
+from jax_fli.fields import FieldStatus
+from jax_fli.io.catalog import Catalog
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -42,15 +42,15 @@ SAMPLER_BACKENDS = [
 
 @pytest.fixture(scope="module")
 def config():
-    return ffi.ppl.Configurations(
+    return jfli.ppl.Configurations(
         mesh_size=MESH_SIZE,
         box_size=BOX_SIZE,
         nside=NSIDE,
         fiducial_cosmology=jc.Planck18,
         nz_shear=[],  # no kappa bins → sample2catalog skips kappa saving
         priors={
-            "Omega_c": ffi.sampling.PreconditionnedUniform(0.1, 0.5),
-            "sigma8": ffi.sampling.PreconditionnedUniform(0.6, 1.0),
+            "Omega_c": jfli.sampling.PreconditionnedUniform(0.1, 0.5),
+            "sigma8": jfli.sampling.PreconditionnedUniform(0.6, 1.0),
         },
         sigma_e=0.26,
         geometry="spherical",
@@ -65,7 +65,7 @@ def config():
 @pytest.mark.parametrize("sampler,backend", SAMPLER_BACKENDS)
 def test_mock_model_catalog_saving(tmp_path, config, sampler, backend):
     """End-to-end: mock_probmodel → batched_sampling → sample2catalog → parquet round-trip."""
-    model = ffi.ppl.mock_probmodel(config)
+    model = jfli.ppl.mock_probmodel(config)
 
     # Obtain valid init_params by forward-tracing the model once.
     # This gives constrained sample values that init_to_value will inverse-transform
@@ -76,7 +76,7 @@ def test_mock_model_catalog_saving(tmp_path, config, sampler, backend):
     model_trace = numpyro_trace(seed(model, 0)).get_trace()
     init_params = {k: v["value"] for k, v in model_trace.items() if v["type"] == "sample"}
 
-    ffi.sampling.batched_sampling(
+    jfli.sampling.batched_sampling(
         model,
         path=str(tmp_path),
         rng_key=jax.random.PRNGKey(42),
@@ -86,7 +86,7 @@ def test_mock_model_catalog_saving(tmp_path, config, sampler, backend):
         sampler=sampler,
         backend=backend,
         progress_bar=False,
-        save_callback=ffi.ppl.sample2catalog(config),
+        save_callback=jfli.ppl.sample2catalog(config),
         init_params=init_params,
     )
 

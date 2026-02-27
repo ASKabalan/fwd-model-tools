@@ -11,10 +11,10 @@ import pytest
 
 datasets = pytest.importorskip("datasets")
 
-from fwd_model_tools._src.base._enums import DensityUnit, FieldStatus
-from fwd_model_tools.fields import DensityField
-from fwd_model_tools.io.catalog import Catalog
-from fwd_model_tools.io.extract import CatalogExtract, extract_catalog
+from jax_fli._src.base._enums import DensityUnit, FieldStatus
+from jax_fli.fields import DensityField
+from jax_fli.io.catalog import Catalog
+from jax_fli.io.extract import CatalogExtract, extract_catalog
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -211,8 +211,8 @@ def test_requires_datasets_without_library(monkeypatch):
     monkeypatch.setitem(sys.modules, "datasets", None)
     from importlib import reload
 
-    import fwd_model_tools.io.extract as m
+    import jax_fli.io.extract as m
 
     reload(m)
-    with pytest.raises(ImportError, match="fwd-model-tools\\[catalog\\]"):
+    with pytest.raises(ImportError, match="jax-fli\\[catalog\\]"):
         m.extract_catalog("dummy", cosmo_keys=["Omega_c"])
