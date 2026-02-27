@@ -5,13 +5,25 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import jax_cosmo.constants as constants
 from jax.scipy.ndimage import map_coordinates
-from jax_cosmo.scipy.integrate import simps
 from jaxtyping import ArrayLike
 
 from ...fields import FlatDensity, SphericalDensity
 from ._normalize_nz import _normalize_sources
 
 __all__ = ["_born_core_impl", "_born_spherical", "_born_flat"]
+
+
+def _simps_weights(a: float, b: float, N: int):
+    """Simpson's rule quadrature weights for N subintervals (N+1 points).
+
+    Reproduces the exact weights used by ``jax_cosmo.scipy.integrate.simps``:
+    ``dx/3 * [1, 4, 2, 4, ..., 4, 1]``.
+    """
+    dx = (b - a) / N
+    w = jnp.ones(N + 1)
+    w = w.at[1:-1:2].set(4.0)  # odd indices → weight 4
+    w = w.at[2:-2:2].set(2.0)  # interior even indices → weight 2
+    return w * (dx / 3.0)  # shape (N+1,)
 
 
 def _born_core_impl(
@@ -99,22 +111,20 @@ def _born_spherical(
     source_kind, sources = _normalize_sources(nz_shear)
 
     if source_kind == "distribution":
-        kappa_maps = []
-
-        for nz in sources:
-
-            def integrand_fn(z):
-                return nz(z).reshape([-1, 1]) * _born_core_impl(
-                    cosmo,
-                    lightcone.array,
-                    r_center,
-                    scale_factors,
-                    z,
-                    density_plane_width,
-                )
-
-            kappa_maps.append(simps(integrand_fn, min_z, max_z, N=n_integrate))
-        kappa_maps = jnp.stack(kappa_maps, axis=0)
+        # Evaluate _born_core_impl once for all quadrature points (shape: n_z, npix),
+        # then apply per-distribution n(z) weights via a manual Simpson's rule.
+        z_grid = jnp.linspace(min_z, max_z, n_integrate + 1)  # (n_z,)
+        kappa_grid = _born_core_impl(
+            cosmo,
+            lightcone.array,
+            r_center,
+            scale_factors,
+            z_grid,
+            density_plane_width,
+        )  # (n_z, npix)
+        weights = _simps_weights(min_z, max_z, n_integrate)  # (n_z,)
+        nz_weights = jnp.stack([nz(z_grid) for nz in sources], axis=0)  # (K, n_z)
+        kappa_maps = jnp.einsum("kz,z,zp->kp", nz_weights, weights, kappa_grid)  # (K, npix)
     else:
         kappa_maps = _born_core_impl(cosmo, lightcone.array, r_center, scale_factors, sources, density_plane_width)
     return kappa_maps
@@ -151,25 +161,22 @@ def _born_flat(
     )
 
     if source_kind == "distribution":
-        # Precompute chi(z) for all quadrature points outside the lambda
-        kappa_maps = []
-
-        for nz in sources:
-
-            def integrand_fn(z):
-                return nz(z).reshape([-1, 1, 1]) * _born_core_impl(
-                    cosmo,
-                    lightcone.array,
-                    r_center,
-                    scale_factors,
-                    z,
-                    density_plane_width,
-                    pixel_size=pixel_size,
-                    field_size=field_size_tuple,
-                )
-
-            kappa_maps.append(simps(integrand_fn, min_z, max_z, N=n_integrate))
-        kappa_maps = jnp.stack(kappa_maps, axis=0)
+        # Evaluate _born_core_impl once for all quadrature points (shape: n_z, ny, nx),
+        # then apply per-distribution n(z) weights via a manual Simpson's rule.
+        z_grid = jnp.linspace(min_z, max_z, n_integrate + 1)  # (n_z,)
+        kappa_grid = _born_core_impl(
+            cosmo,
+            lightcone.array,
+            r_center,
+            scale_factors,
+            z_grid,
+            density_plane_width,
+            pixel_size=pixel_size,
+            field_size=field_size_tuple,
+        )  # (n_z, ny, nx)
+        weights = _simps_weights(min_z, max_z, n_integrate)  # (n_z,)
+        nz_weights = jnp.stack([nz(z_grid) for nz in sources], axis=0)  # (K, n_z)
+        kappa_maps = jnp.einsum("kz,z,zyx->kyx", nz_weights, weights, kappa_grid)  # (K, ny, nx)
     else:
         kappa_maps = _born_core_impl(
             cosmo,
