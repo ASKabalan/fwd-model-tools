@@ -183,11 +183,11 @@ def _spherical_cl(map_sphere, map_sphere2=None, *, lmax=None, method="jax"):
         map_sphere_np = np.asarray(map_sphere)
         map_sphere2_np = None if map_sphere2 is None else np.asarray(map_sphere2)
         cl = hp.anafast(map_sphere_np, map_sphere2_np, lmax=lmax, pol=False)
-        ell_out = np.arange(cl.shape[0])
+        ell_out = np.arange(cl.shape[0]) * 1.0  # Convert to float for consistency
         return jnp.asarray(ell_out), jnp.asarray(cl)
 
     cl = jhp.anafast(map_sphere, map_sphere2, lmax=lmax, pol=False, method=method)
-    ell_out = jnp.arange(cl.shape[-1])
+    ell_out = jnp.arange(cl.shape[-1]) * 1.0
     return ell_out, jnp.asarray(cl)
 
 
@@ -231,7 +231,7 @@ def _cross_spherical_cl(maps, *, lmax=None, method="healpy"):
     cls = hp.anafast(maps_np, lmax=lmax, pol=False)
 
     # Generate ell array
-    ell_out = np.arange(cls.shape[-1])
+    ell_out = np.arange(cls.shape[-1]) * 1.0  # Convert to float for consistency
 
     return jnp.asarray(ell_out), jnp.asarray(cls)
 

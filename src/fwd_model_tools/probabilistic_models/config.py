@@ -48,5 +48,4 @@ class Configurations:
     drift_on_lightcone: bool = False
     # Power spectrum settings (for power-spectrum model, not used in full-field model)
     ells: Array = field(default_factory=lambda: jnp.arange(2, 2048))
-    use_cross: bool = False  # include cross-spectra in the likelihood
-    f_sky: float = 1.0  # sky fraction for Knox-formula mode-count
+    f_sky: float = 1.0  # sky fraction for Gaussian covariance mode-count

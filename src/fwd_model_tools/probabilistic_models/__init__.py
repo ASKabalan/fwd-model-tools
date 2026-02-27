@@ -8,7 +8,6 @@ from .power_spec_model import (
     pixel_window_function,
     powerspec_probmodel,
 )
-from .sample_converter import sample2catalog
 
 __all__ = [
     "Configurations",
@@ -18,5 +17,4 @@ __all__ = [
     "make_2pt_model",
     "pixel_window_function",
     "powerspec_probmodel",
-    "sample2catalog",
 ]
