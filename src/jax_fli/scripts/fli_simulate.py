@@ -490,7 +490,9 @@ def run_simulations(
         return dx
 
     # All other modes: LPT to particles snapshot at t0, then run NBody
-    dx, p = jfli.lpt(cosmo, initial_conditions, ts=t0, order=lpt_order, painting=jfli.PaintingOptions(target="particles"))
+    dx, p = jfli.lpt(
+        cosmo, initial_conditions, ts=t0, order=lpt_order, painting=jfli.PaintingOptions(target="particles")
+    )
 
     # Run NBody
     lightcone = jfli.nbody(
