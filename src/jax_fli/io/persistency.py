@@ -30,7 +30,7 @@ def requires_orbax(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'orbax'. Install with: pip install fwd-model-tools[sampling]")
+        raise ImportError("Missing optional dependency 'orbax'. Install with: pip install jax-fli[sampling]")
 
     return _deferred
 

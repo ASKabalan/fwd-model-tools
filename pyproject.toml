@@ -3,11 +3,11 @@ requires = ["setuptools>=61", "wheel", "setuptools-scm>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fwd-model-tools"
+name = "jax-fli"
 version = "0.1.0"
 description = "Forward-modeling and sampling on top of JAXPM + JAX-Decomp"
 authors = [
-    { name = "Forward Model Tools Contributors" }
+    { name = "Wassim Kabalan", email = "wassim@apc.in2p3.fr" }
 ]
 readme = "README.md"
 requires-python = ">=3.10"
@@ -64,23 +64,23 @@ plot = [
 legacy = ["diffrax"]
 raytrace = ["dorian-raytrace@git+https://github.com/ASKabalan/Dorian.git@main"]
 
-all = ["fwd_model_tools[catalog, sampling, legacy, raytrace, plot]"]
+all = ["jax_fli[catalog, sampling, legacy, raytrace, plot]"]
 
 [project.urls]
-Homepage = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
-Documentation = "https://fwd-model-tools.readthedocs.io"
-Repository = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools"
-Issues = "https://github.com/DifferentiableUniverseInitiative/fwd-model-tools/issues"
+Homepage = "https://github.com/DifferentiableUniverseInitiative/jax-fli"
+Documentation = "https://jax-fli.readthedocs.io"
+Repository = "https://github.com/DifferentiableUniverseInitiative/jax-fli"
+Issues = "https://github.com/DifferentiableUniverseInitiative/jax-fli/issues"
 
 
 [tool.setuptools]
-script-files = ["bin/ffi-simulate", "bin/ffi-samples", "bin/ffi-infer"]
+script-files = ["bin/fli-simulate", "bin/fli-samples", "bin/fli-infer"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"fwd_model_tools.io" = ["data/*.txt"]
+"jax_fli.io" = ["data/*.txt"]
 
 [tool.ruff]
 line-length = 120
@@ -123,4 +123,4 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --cov=fwd_model_tools --cov-report=term-missing"
+addopts = "-v --cov=jax_fli --cov-report=term-missing"

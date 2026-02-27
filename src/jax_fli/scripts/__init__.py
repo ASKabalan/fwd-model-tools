@@ -1,1 +1,1 @@
-"""CLI scripts for fwd_model_tools."""
+"""CLI scripts for jax_fli."""

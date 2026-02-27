@@ -1,4 +1,4 @@
-"""ffi-infer: run full-field MCMC inference conditioned on observed kappa maps."""
+"""fli-infer: run full-field MCMC inference conditioned on observed kappa maps."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from jax.sharding import AxisType, NamedSharding
 from jax.sharding import PartitionSpec as P
 from numpyro.handlers import condition
 
-import fwd_model_tools as ffi
-from fwd_model_tools.fields import FlatKappaField, SphericalKappaField
+import jax_fli as jfli
+from jax_fli.fields import FlatKappaField, SphericalKappaField
 
 # ---------------------------------------------------------------------------
 # Sharding setup
@@ -80,7 +80,7 @@ def _load_observable(path: str):
     n_kappas : int
         Number of tomographic kappa bins.
     """
-    catalog = ffi.io.Catalog.from_parquet(path)
+    catalog = jfli.io.Catalog.from_parquet(path)
     obs_field = catalog.field[0]
     obs_cosmo = catalog.cosmology[0]
 
@@ -125,7 +125,7 @@ def _load_initial_condition(path: str):
     ic_field : DensityField
         The initial condition field (first catalog entry).
     """
-    catalog = ffi.io.Catalog.from_parquet(path)
+    catalog = jfli.io.Catalog.from_parquet(path)
     return catalog.field[0]
 
 
@@ -326,7 +326,7 @@ def main() -> None:
     sharding = _build_sharding(args)
 
     # 7. Assemble Configurations, probabilistic model, and conditioned model
-    nz_shear = ffi.io.get_stage3_nz_shear()
+    nz_shear = jfli.io.get_stage3_nz_shear()
 
     if len(nz_shear) != n_kappas:
         print(
@@ -336,11 +336,11 @@ def main() -> None:
         )
 
     priors = {
-        "Omega_c": ffi.infer.PreconditionnedUniform(0.1, 0.5),
-        "sigma8": ffi.infer.PreconditionnedUniform(0.6, 1.0),
+        "Omega_c": jfli.infer.PreconditionnedUniform(0.1, 0.5),
+        "sigma8": jfli.infer.PreconditionnedUniform(0.6, 1.0),
     }
 
-    config = ffi.ppl.Configurations(
+    config = jfli.ppl.Configurations(
         mesh_size=tuple(args.mesh_size),
         box_size=tuple(args.box_size),
         nside=nside,
@@ -365,11 +365,11 @@ def main() -> None:
         sharding=sharding,
     )
 
-    prob_model = ffi.ppl.full_field_probmodel(config)
+    prob_model = jfli.ppl.full_field_probmodel(config)
     conditioned_model = condition(prob_model, data=condition_data)
 
     # 8. Run batched MCMC
-    ffi.infer.batched_sampling(
+    jfli.infer.batched_sampling(
         conditioned_model,
         path=args.path,
         rng_key=jax.random.PRNGKey(args.seed),
@@ -380,7 +380,7 @@ def main() -> None:
         backend=args.backend,
         init_params=init_params,
         progress_bar=not args.no_progress_bar,
-        save_callback=ffi.ppl.sample2catalog(config),
+        save_callback=jfli.ppl.sample2catalog(config),
     )
 
 

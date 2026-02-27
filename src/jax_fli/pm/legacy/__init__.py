@@ -3,7 +3,7 @@
 This module provides the original diffrax-based integration code that has been
 moved to a legacy submodule. Diffrax is now an optional dependency.
 
-Install with: pip install fwd-model-tools[legacy]
+Install with: pip install jax-fli[legacy]
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def require_diffrax(func: Callable[Param, ReturnType]) -> Callable[Param, Return
 
     @wraps(func)
     def deferred_func(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
-        msg = "Missing optional library 'diffrax'. Install with: pip install fwd-model-tools[legacy]"
+        msg = "Missing optional library 'diffrax'. Install with: pip install jax-fli[legacy]"
         raise ImportError(msg)
 
     return deferred_func

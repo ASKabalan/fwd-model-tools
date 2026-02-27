@@ -106,7 +106,7 @@ def mock_probmodel(config: Configurations):
     """Return a NumPyro model that samples only cosmology and initial conditions.
 
     No forward simulation is run. Registered deterministic sites match those
-    expected by :func:`~fwd_model_tools.probabilistic_models.sample2catalog`,
+    expected by :func:`~jax_fli.probabilistic_models.sample2catalog`,
     so the callback can be used directly to save IC catalogs.
     """
 

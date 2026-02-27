@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""ffi-samples: raw script entry point.
+"""fli-samples: raw script entry point.
 
 Runs JAX distributed init BEFORE importing the package, so that
 jax.distributed.initialize() happens before any JAX backend touches.
@@ -30,7 +30,7 @@ def _maybe_init_distributed():
 
 _maybe_init_distributed()
 
-from fwd_model_tools.scripts.ffi_samples import main
+from jax_fli.scripts.fli_samples import main
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,4 @@
-# fwd-model-tools
+# jax-fli
 
 **Differentiable cosmological forward modeling on JAX**
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-`fwd-model-tools` is a JAX toolkit for end-to-end differentiable cosmological simulations. It chains initial conditions, Lagrangian Perturbation Theory, Particle-Mesh N-body integration, lightcone painting (3D, flat-sky, HEALPix), gravitational lensing (Born and ray-tracing), and angular power spectrum estimation into a single differentiable pipeline. The library supports multi-GPU distribution via JAX sharding, reversible solvers for memory-efficient backpropagation, and probabilistic inference with BlackJAX/NumPyro.
+`jax-fli` is a JAX toolkit for end-to-end differentiable cosmological simulations. It chains initial conditions, Lagrangian Perturbation Theory, Particle-Mesh N-body integration, lightcone painting (3D, flat-sky, HEALPix), gravitational lensing (Born and ray-tracing), and angular power spectrum estimation into a single differentiable pipeline. The library supports multi-GPU distribution via JAX sharding, reversible solvers for memory-efficient backpropagation, and probabilistic inference with BlackJAX/NumPyro.
 
 ```
 ICs ──> LPT ──> PM N-body ──> Lightcone Painting ──> Lensing ──> Power Spectra
@@ -52,29 +52,29 @@ pip install -e ".[catalog]"    # Parquet / HuggingFace catalog support
 import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
-import fwd_model_tools as ffi
+import jax_fli as jfli
 
 key = jax.random.PRNGKey(42)
 cosmo = jc.Planck18()
 
 # 1. Gaussian initial conditions
-initial_field = ffi.gaussian_initial_conditions(
+initial_field = jfli.gaussian_initial_conditions(
     key, mesh_size=(256, 256, 256), box_size=(1000.0, 1000.0, 1000.0),
     cosmo=cosmo, nside=256,
 )
 
 # 2. LPT displacement + momentum
-dx, p = ffi.lpt(cosmo, initial_field, ts=0.1, order=1)
+dx, p = jfli.lpt(cosmo, initial_field, ts=0.1, order=1)
 
 # 3. PM N-body with spherical lightcone output
-solver = ffi.ReversibleDoubleKickDrift(
-    interp_kernel=ffi.NoInterp(painting=ffi.PaintingOptions(target="spherical")),
+solver = jfli.ReversibleDoubleKickDrift(
+    interp_kernel=jfli.NoInterp(painting=jfli.PaintingOptions(target="spherical")),
 )
-lightcone = ffi.nbody(cosmo, dx, p, t1=1.0, dt0=0.05, nb_shells=4, solver=solver)
+lightcone = jfli.nbody(cosmo, dx, p, t1=1.0, dt0=0.05, nb_shells=4, solver=solver)
 
 # 4. Born lensing convergence
-nz = [ffi.tophat_z(0.0, 0.5, gals_per_arcmin2=1.0)]
-kappa = ffi.born(cosmo, lightcone, nz_shear=nz)
+nz = [jfli.tophat_z(0.0, 0.5, gals_per_arcmin2=1.0)]
+kappa = jfli.born(cosmo, lightcone, nz_shear=nz)
 
 # 5. Angular power spectrum
 cl = kappa.angular_cl(method="healpy")

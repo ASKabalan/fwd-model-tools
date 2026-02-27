@@ -39,7 +39,7 @@ def require_dorian(func: Callable[Param, ReturnType]) -> Callable[Param, ReturnT
 
     @wraps(func)
     def deferred_func(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
-        msg = "Missing optional library 'dorian'. Install with: pip install fwd-model-tools[raytrace]"
+        msg = "Missing optional library 'dorian'. Install with: pip install jax-fli[raytrace]"
         raise ImportError(msg)
 
     return deferred_func
@@ -186,7 +186,7 @@ def raytrace(
     distortion matrix.
 
     This function wraps dorian's ray-tracing and provides the same API as
-    :func:`fwd_model_tools.lensing.born`. Unlike the previous version, this
+    :func:`jax_fli.lensing.born`. Unlike the previous version, this
     function is JIT-compatible via :func:`jax.pure_callback`.
 
     Parameters
@@ -258,7 +258,7 @@ def raytrace(
     Examples
     --------
     >>> import jax_cosmo as jc
-    >>> from fwd_model_tools.lensing import raytrace
+    >>> from jax_fli.lensing import raytrace
     >>> # Default: ray-traced only
     >>> kappa_rt, _ = raytrace(cosmo, lightcone, nz_shear=[0.5, 1.0, 1.5])
     >>> kappa_rt.array.shape  # (3, npix)

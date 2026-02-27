@@ -1,5 +1,5 @@
 """
-fwd_model_tools: Forward-modeling and sampling on top of JAXPM + JAX-Decomp.
+jax_fli: Forward-modeling and sampling on top of JAXPM + JAX-Decomp.
 """
 
 from . import fields, infer, initial, io, lensing, pm, utils

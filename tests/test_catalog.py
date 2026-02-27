@@ -13,10 +13,10 @@ import pytest
 
 datasets = pytest.importorskip("datasets")
 
-import fwd_model_tools as ffi
+import jax_fli as jfli
 import jax_cosmo as jc
-from fwd_model_tools._src.base._enums import ConvergenceUnit
-from fwd_model_tools.io.catalog import Catalog
+from jax_fli._src.base._enums import ConvergenceUnit
+from jax_fli.io.catalog import Catalog
 
 jax.config.update("jax_enable_x64", False)  # Use float64 for better precision in tests
 
@@ -88,25 +88,25 @@ def make_field(field_type: str, batched: bool, seed: int = 42):
     # Choose unit and status based on field type
     if field_type in ("SphericalKappaField", "FlatKappaField"):
         unit = ConvergenceUnit.DIMENSIONLESS
-        status = ffi.FieldStatus.KAPPA
+        status = jfli.FieldStatus.KAPPA
     elif field_type == "ParticleField":
-        unit = ffi.PositionUnit.GRID_RELATIVE
-        status = ffi.FieldStatus.PARTICLES
+        unit = jfli.PositionUnit.GRID_RELATIVE
+        status = jfli.FieldStatus.PARTICLES
     else:
-        unit = ffi.DensityUnit.DENSITY
-        status = ffi.FieldStatus.LIGHTCONE
+        unit = jfli.DensityUnit.DENSITY
+        status = jfli.FieldStatus.LIGHTCONE
 
     # Choose geometry keys
     nside = NSIDE if field_type in ("SphericalDensity", "SphericalKappaField") else None
     flatsky_npix = FLAT_NPIX if field_type in ("FlatDensity", "FlatKappaField") else None
 
     field_cls = {
-        "SphericalDensity": ffi.SphericalDensity,
-        "FlatDensity": ffi.FlatDensity,
-        "SphericalKappaField": ffi.SphericalKappaField,
-        "FlatKappaField": ffi.FlatKappaField,
-        "ParticleField": ffi.ParticleField,
-        "DensityField": ffi.DensityField,
+        "SphericalDensity": jfli.SphericalDensity,
+        "FlatDensity": jfli.FlatDensity,
+        "SphericalKappaField": jfli.SphericalKappaField,
+        "FlatKappaField": jfli.FlatKappaField,
+        "ParticleField": jfli.ParticleField,
+        "DensityField": jfli.DensityField,
     }[field_type]
 
     field = field_cls(
@@ -207,7 +207,7 @@ def test_spherical_density_ndim_validation():
     # (2, 3, 192) is now valid as (N, S, npix). A 4D array is still invalid.
     array_4d = jnp.ones((2, 3, 4, 192))
     with pytest.raises(ValueError, match="SphericalDensity array must have shape"):
-        ffi.SphericalDensity(
+        jfli.SphericalDensity(
             array=array_4d,
             mesh_size=MESH_SIZE,
             box_size=BOX_SIZE,
@@ -221,8 +221,8 @@ def test_spherical_density_ndim_validation():
             scale_factors=jnp.array(0.8),
             comoving_centers=jnp.array(300.0),
             density_width=jnp.array(25.0),
-            status=ffi.FieldStatus.LIGHTCONE,
-            unit=ffi.DensityUnit.DENSITY,
+            status=jfli.FieldStatus.LIGHTCONE,
+            unit=jfli.DensityUnit.DENSITY,
         )
 
 
@@ -231,7 +231,7 @@ def test_spherical_density_wrong_npix_validation():
     # npix for nside=4 is 192; use 100 to trigger the npix mismatch error
     array_wrong_npix = jnp.ones((2, 3, 100))
     with pytest.raises(ValueError, match="does not match"):
-        ffi.SphericalDensity(
+        jfli.SphericalDensity(
             array=array_wrong_npix,
             mesh_size=MESH_SIZE,
             box_size=BOX_SIZE,
@@ -245,8 +245,8 @@ def test_spherical_density_wrong_npix_validation():
             scale_factors=jnp.array(0.8),
             comoving_centers=jnp.array(300.0),
             density_width=jnp.array(25.0),
-            status=ffi.FieldStatus.LIGHTCONE,
-            unit=ffi.DensityUnit.DENSITY,
+            status=jfli.FieldStatus.LIGHTCONE,
+            unit=jfli.DensityUnit.DENSITY,
         )
 
 
@@ -270,7 +270,7 @@ def _make_batched_cosmo(n: int) -> jc.Cosmology:
     )
 
 
-def _make_multi_batched_density(N: int, S: int, seed: int = 0) -> ffi.DensityField:
+def _make_multi_batched_density(N: int, S: int, seed: int = 0) -> jfli.DensityField:
     """Create an (N, S, *MESH_SIZE) DensityField with metadata shaped (N, S)."""
     rng = np.random.RandomState(seed)
     array = jnp.asarray(rng.randn(N, S, *MESH_SIZE))
@@ -279,7 +279,7 @@ def _make_multi_batched_density(N: int, S: int, seed: int = 0) -> ffi.DensityFie
     scale_factors = jnp.asarray(rng.uniform(0.5, 1.0, size=(N, S)))
     comoving_centers = jnp.asarray(rng.uniform(100, 500, size=(N, S)))
     density_width = jnp.asarray(rng.uniform(10, 50, size=(N, S)))
-    return ffi.DensityField(
+    return jfli.DensityField(
         array=array,
         mesh_size=MESH_SIZE,
         box_size=BOX_SIZE,
@@ -293,8 +293,8 @@ def _make_multi_batched_density(N: int, S: int, seed: int = 0) -> ffi.DensityFie
         scale_factors=scale_factors,
         comoving_centers=comoving_centers,
         density_width=density_width,
-        status=ffi.FieldStatus.DENSITY_FIELD,
-        unit=ffi.DensityUnit.DENSITY,
+        status=jfli.FieldStatus.DENSITY_FIELD,
+        unit=jfli.DensityUnit.DENSITY,
     )
 
 
@@ -330,21 +330,21 @@ def test_multi_batched_field_shapes(field_type):
 
     if field_type in ("SphericalKappaField", "FlatKappaField"):
         unit = ConvergenceUnit.DIMENSIONLESS
-        status = ffi.FieldStatus.KAPPA
+        status = jfli.FieldStatus.KAPPA
     elif field_type == "ParticleField":
-        unit = ffi.PositionUnit.GRID_RELATIVE
-        status = ffi.FieldStatus.PARTICLES
+        unit = jfli.PositionUnit.GRID_RELATIVE
+        status = jfli.FieldStatus.PARTICLES
     else:
-        unit = ffi.DensityUnit.DENSITY
-        status = ffi.FieldStatus.LIGHTCONE
+        unit = jfli.DensityUnit.DENSITY
+        status = jfli.FieldStatus.LIGHTCONE
 
     field_cls = {
-        "SphericalDensity": ffi.SphericalDensity,
-        "FlatDensity": ffi.FlatDensity,
-        "SphericalKappaField": ffi.SphericalKappaField,
-        "FlatKappaField": ffi.FlatKappaField,
-        "ParticleField": ffi.ParticleField,
-        "DensityField": ffi.DensityField,
+        "SphericalDensity": jfli.SphericalDensity,
+        "FlatDensity": jfli.FlatDensity,
+        "SphericalKappaField": jfli.SphericalKappaField,
+        "FlatKappaField": jfli.FlatKappaField,
+        "ParticleField": jfli.ParticleField,
+        "DensityField": jfli.DensityField,
     }[field_type]
 
     field = field_cls(
@@ -371,7 +371,7 @@ def test_multi_batched_field_shapes(field_type):
 def test_stack_snapshot_to_multi_batched():
     """Stacking two (S, *MESH_SIZE) fields yields an (2, S, *MESH_SIZE) multi-batched field."""
     S = 4
-    f1 = ffi.DensityField(
+    f1 = jfli.DensityField(
         array=jnp.zeros((S, *MESH_SIZE)),
         mesh_size=MESH_SIZE,
         box_size=BOX_SIZE,
@@ -382,10 +382,10 @@ def test_stack_snapshot_to_multi_batched():
         scale_factors=jnp.array(0.8),
         comoving_centers=jnp.array(300.0),
         density_width=jnp.array(25.0),
-        status=ffi.FieldStatus.DENSITY_FIELD,
-        unit=ffi.DensityUnit.DENSITY,
+        status=jfli.FieldStatus.DENSITY_FIELD,
+        unit=jfli.DensityUnit.DENSITY,
     )
-    f2 = ffi.DensityField(
+    f2 = jfli.DensityField(
         array=jnp.ones((S, *MESH_SIZE)),
         mesh_size=MESH_SIZE,
         box_size=BOX_SIZE,
@@ -396,10 +396,10 @@ def test_stack_snapshot_to_multi_batched():
         scale_factors=jnp.array(0.75),
         comoving_centers=jnp.array(350.0),
         density_width=jnp.array(20.0),
-        status=ffi.FieldStatus.DENSITY_FIELD,
-        unit=ffi.DensityUnit.DENSITY,
+        status=jfli.FieldStatus.DENSITY_FIELD,
+        unit=jfli.DensityUnit.DENSITY,
     )
-    stacked = ffi.DensityField.stack([f1, f2])
+    stacked = jfli.DensityField.stack([f1, f2])
     assert stacked.array.shape == (2, S, *MESH_SIZE)
     assert stacked.is_multi_batched()
 
@@ -409,7 +409,7 @@ def test_stack_multi_batched_raises():
     N, S = 2, 4
     f = _make_multi_batched_density(N, S)
     with pytest.raises(ValueError, match="concat"):
-        ffi.DensityField.stack([f, f])
+        jfli.DensityField.stack([f, f])
 
 
 def test_concat_multi_batched():
@@ -417,7 +417,7 @@ def test_concat_multi_batched():
     N, S = 2, 4
     f1 = _make_multi_batched_density(N, S, seed=1)
     f2 = _make_multi_batched_density(N, S, seed=2)
-    result = ffi.DensityField.concat([f1, f2])
+    result = jfli.DensityField.concat([f1, f2])
     assert result.array.shape[0] == 2 * N
     assert result.array.shape[1:] == (S, *MESH_SIZE)
     assert result.is_multi_batched()
@@ -426,7 +426,7 @@ def test_concat_multi_batched():
 def test_concat_snapshot_raises():
     """DensityField.concat on a plain snapshot (S, ...) field should raise ValueError mentioning stack."""
     S = 4
-    f = ffi.DensityField(
+    f = jfli.DensityField(
         array=jnp.zeros((S, *MESH_SIZE)),
         mesh_size=MESH_SIZE,
         box_size=BOX_SIZE,
@@ -437,11 +437,11 @@ def test_concat_snapshot_raises():
         scale_factors=jnp.array(0.8),
         comoving_centers=jnp.array(300.0),
         density_width=jnp.array(25.0),
-        status=ffi.FieldStatus.DENSITY_FIELD,
-        unit=ffi.DensityUnit.DENSITY,
+        status=jfli.FieldStatus.DENSITY_FIELD,
+        unit=jfli.DensityUnit.DENSITY,
     )
     with pytest.raises(ValueError, match="stack"):
-        ffi.DensityField.concat([f])
+        jfli.DensityField.concat([f])
 
 
 def test_catalog_auto_expand_multi_batched():
@@ -466,7 +466,7 @@ def test_catalog_auto_expand_snapshot():
     scale_factors = jnp.asarray(rng.uniform(0.5, 1.0, size=S))
     comoving_centers = jnp.asarray(rng.uniform(100, 500, size=S))
     density_width = jnp.asarray(rng.uniform(10, 50, size=S))
-    field = ffi.DensityField(
+    field = jfli.DensityField(
         array=array,
         mesh_size=MESH_SIZE,
         box_size=BOX_SIZE,
@@ -477,8 +477,8 @@ def test_catalog_auto_expand_snapshot():
         scale_factors=scale_factors,
         comoving_centers=comoving_centers,
         density_width=density_width,
-        status=ffi.FieldStatus.DENSITY_FIELD,
-        unit=ffi.DensityUnit.DENSITY,
+        status=jfli.FieldStatus.DENSITY_FIELD,
+        unit=jfli.DensityUnit.DENSITY,
     )
     cosmo = _make_batched_cosmo(S)
     cat = Catalog(field=field, cosmology=cosmo)

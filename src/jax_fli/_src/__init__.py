@@ -1,1 +1,1 @@
-"""Internal implementation modules for fwd_model_tools."""
+"""Internal implementation modules for jax_fli."""

@@ -1,4 +1,4 @@
-"""ffi-samples: generate prior-predictive samples from a probabilistic model."""
+"""fli-samples: generate prior-predictive samples from a probabilistic model."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from jax.sharding import AxisType, NamedSharding
 from jax.sharding import PartitionSpec as P
 from numpyro.infer import Predictive
 
-import fwd_model_tools as ffi
+import jax_fli as jfli
 
 # ---------------------------------------------------------------------------
 # Sharding setup
@@ -140,10 +140,10 @@ def main() -> None:
         parser().error("Only one of --nside or --flatsky-npix can be specified.")
 
     # --- hardcoded priors and nz_shear ---
-    nz_shear = ffi.io.get_stage3_nz_shear()
+    nz_shear = jfli.io.get_stage3_nz_shear()
     priors = {
-        "Omega_c": ffi.infer.PreconditionnedUniform(0.1, 0.5),
-        "sigma8": ffi.infer.PreconditionnedUniform(0.6, 1.0),
+        "Omega_c": jfli.infer.PreconditionnedUniform(0.1, 0.5),
+        "sigma8": jfli.infer.PreconditionnedUniform(0.6, 1.0),
     }
 
     # --- determine geometry ---
@@ -156,7 +156,7 @@ def main() -> None:
     sharding = _build_sharding(args)
 
     # --- build Configurations ---
-    config = ffi.ppl.Configurations(
+    config = jfli.ppl.Configurations(
         mesh_size=tuple(args.mesh_size),
         box_size=tuple(args.box_size),
         nside=nside,
@@ -177,9 +177,9 @@ def main() -> None:
 
     # --- select model ---
     if args.model == "full":
-        model = ffi.ppl.full_field_probmodel(config)
+        model = jfli.ppl.full_field_probmodel(config)
     else:
-        model = ffi.ppl.mock_probmodel(config)
+        model = jfli.ppl.mock_probmodel(config)
 
     # --- sample with NumPyro Predictive ---
     rng_key = jax.random.PRNGKey(args.seed)
@@ -187,7 +187,7 @@ def main() -> None:
     samples = pred(rng_key)
 
     # --- save via sample2catalog ---
-    saving_fn = ffi.ppl.sample2catalog(config)
+    saving_fn = jfli.ppl.sample2catalog(config)
     saving_fn(samples, args.path, args.batch_id)
 
 
