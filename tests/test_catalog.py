@@ -13,8 +13,8 @@ import pytest
 
 datasets = pytest.importorskip("datasets")
 
-import jax_fli as jfli
 import jax_cosmo as jc
+import jax_fli as jfli
 from jax_fli._src.base._enums import ConvergenceUnit
 from jax_fli.io.catalog import Catalog
 
