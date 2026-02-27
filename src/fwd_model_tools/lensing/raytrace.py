@@ -58,10 +58,11 @@ def _raytrace_z_grid(
     interp: str,
     parallel_transport: bool,
     born: bool,
+    raytrace: bool = True,
     shell_widths: np.ndarray | None = None,
     nufft_threads: int = 4,
     n_workers=None,
-) -> np.ndarray:
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Run dorian ray-tracing for each source redshift.
 
     Parameters
@@ -89,14 +90,18 @@ def _raytrace_z_grid(
     parallel_transport : bool
         Whether to apply parallel transport of distortion matrix.
     born : bool
-        Whether to return Born approximation convergence.
+        Whether to include Born approximation convergence in the output.
+    raytrace : bool, optional
+        Whether to include full ray-traced convergence in the output. Default: True.
+        When both ``born`` and ``raytrace`` are True, returns a tuple.
     shell_widths : np.ndarray or None, optional
         Shell thickness d_R per shell in Mpc/h.
 
     Returns
     -------
-    np.ndarray
-        Convergence maps, shape (n_sources, npix).
+    np.ndarray or tuple[np.ndarray, np.ndarray]
+        Convergence maps, shape (n_sources, npix). When both ``born`` and
+        ``raytrace`` are True, returns ``(raytraced_maps, born_maps)``.
     """
     assert (
         raytrace_from_density is not None
@@ -112,11 +117,18 @@ def _raytrace_z_grid(
         omega_l=omega_l,
         nside=nside,
         interp=interp,
-        shell_widths=list(shell_widths) if shell_widths is not None else None,
+        shell_widths=list(shell_widths),
         parallel_transport=parallel_transport,
         n_workers=n_workers,
     )
-    return result["convergence_born" if born else "convergence_raytraced"]
+    if raytrace and born:
+        return result["convergence_raytraced"], result["convergence_born"]
+    elif raytrace:
+        return result["convergence_raytraced"]
+    elif born:
+        return result["convergence_born"]
+    else:
+        raise ValueError("At least one of raytrace or born must be True to return results.")
 
 
 def _integrate_nz(
@@ -164,8 +176,9 @@ def raytrace(
     interp="bilinear",
     parallel_transport=True,
     born=False,
+    raytrace=True,
     n_workers=None,
-):
+) -> tuple[SphericalKappaField | None, SphericalKappaField | None]:
     """Multi-plane ray-tracing using dorian.
 
     Computes weak lensing convergence maps by propagating light rays through
@@ -205,17 +218,30 @@ def raytrace(
     parallel_transport : bool, optional
         Whether to apply parallel transport of distortion matrix.
         Default: True.
+    born : bool, optional
+        Whether to compute the Born approximation convergence. Default: False.
+    raytrace : bool, optional
+        Whether to compute the full ray-traced convergence. Default: True.
 
     Returns
     -------
-    SphericalKappaField
-        Convergence maps with shape (n_sources, npix) if multiple sources,
-        or (npix,) if single source.
+    tuple[SphericalKappaField | None, SphericalKappaField | None]
+        A ``(raytraced, born)`` tuple. The flag combination determines what is
+        returned:
+
+        - ``raytrace=True, born=False`` (default): ``(SphericalKappaField, None)``
+        - ``raytrace=False, born=True``: ``(None, SphericalKappaField)``
+        - ``raytrace=True, born=True``: ``(SphericalKappaField, SphericalKappaField)``
+
+        Each non-None field has shape ``(n_sources, npix)`` if multiple sources,
+        or ``(npix,)`` if a single source.
 
     Raises
     ------
     ValueError
         If lightcone status is not LIGHTCONE.
+    ValueError
+        If both ``born`` and ``raytrace`` are False (nothing to compute).
     TypeError
         If lightcone is not SphericalDensity (flat-sky not supported).
 
@@ -233,28 +259,23 @@ def raytrace(
     --------
     >>> import jax_cosmo as jc
     >>> from fwd_model_tools.lensing import raytrace
-    >>> # With scalar redshifts
-    >>> kappa = raytrace(cosmo, lightcone, nz_shear=[0.5, 1.0, 1.5])
-    >>> kappa.array.shape  # (3, npix)
+    >>> # Default: ray-traced only
+    >>> kappa_rt, _ = raytrace(cosmo, lightcone, nz_shear=[0.5, 1.0, 1.5])
+    >>> kappa_rt.array.shape  # (3, npix)
+    >>> # Both outputs simultaneously (single dorian call)
+    >>> kappa_rt, kappa_born = raytrace(cosmo, lightcone, [1.0], born=True, raytrace=True)
+    >>> # Born approximation only
+    >>> _, kappa_born = raytrace(cosmo, lightcone, [1.0], born=True, raytrace=False)
     >>> # With redshift distribution
     >>> nz = jc.redshift.smail_nz(1.0, 2.0, 1.0)
-    >>> kappa = raytrace(cosmo, lightcone, nz_shear=nz)
+    >>> kappa_rt, _ = raytrace(cosmo, lightcone, nz_shear=nz)
     >>> # JIT-compatible
-    >>> kappa = jax.jit(lambda lc: raytrace(cosmo, lc, [1.0]))(lightcone)
+    >>> kappa_rt, _ = jax.jit(lambda lc: raytrace(cosmo, lc, [1.0]))(lightcone)
 
     See Also
     --------
     born : Born approximation (faster, fully-JAX, no post-Born corrections).
     """
-    if jax.process_count() > 1:
-        raise NotImplementedError(
-            """
-            raytrace() does not support multi-process execution.
-            Run with a single process (e.g. --pdim 1 1) or use the born() function for multi-process compatibility.
-            However it supports multi-processing by setting n_workers > 1, which uses multiprocessing within the dorian callback.
-            It does not support the JAX multi-process model where the entire function is replicated across processes
-            """
-        )
     # 1. Validate on static metadata — safe inside JIT
     if lightcone.status != FieldStatus.LIGHTCONE:
         raise ValueError(f"Expected lightcone with status=LIGHTCONE, got {lightcone.status}")
@@ -271,11 +292,16 @@ def raytrace(
     nside = lightcone.nside  # static=True field, always concrete at trace
     assert nside is not None  # type narrowing for checker + closures
 
+    # 2b. Validate flag combination — must request at least one output
+    if not born and not raytrace:
+        raise ValueError("At least one of `born` or `raytrace` must be True.")
+
     # 3. Normalize sources — determines output shape at trace time
     source_kind, sources = _normalize_sources(nz_shear)
     n_sources = len(sources) if source_kind == "distribution" else sources.shape[0]
     npix = 12 * nside**2
-    result_shape = jax.ShapeDtypeStruct((n_sources, npix), jnp.float32)
+    single_shape = jax.ShapeDtypeStruct((n_sources, npix), jnp.float32)
+    result_shape = (single_shape, single_shape) if (born and raytrace) else single_shape
 
     # 4. Closure + pure_callback — split by source_kind because "distribution"
     #    objects are concrete Python (safe in closures) while "redshift" sources
@@ -303,12 +329,18 @@ def raytrace(
                 interp,
                 parallel_transport,
                 born=born,
+                raytrace=raytrace,
                 shell_widths=density_widths_np,
                 n_workers=n_workers,
             )
             # sources is a list of jc.redshift distributions — concrete Python, safe in closure
-            kappa_maps = _integrate_nz(kappa_grid, z_grid, sources)
-            return kappa_maps.astype(np.float32)
+            if born and raytrace:
+                kappa_grid_rt, kappa_grid_born = kappa_grid
+                return (
+                    _integrate_nz(kappa_grid_rt, z_grid, sources).astype(np.float32),
+                    _integrate_nz(kappa_grid_born, z_grid, sources).astype(np.float32),
+                )
+            return _integrate_nz(kappa_grid, z_grid, sources).astype(kappa_grid.dtype)
 
         kappa = jax.pure_callback(
             _callback_dist,
@@ -330,7 +362,7 @@ def raytrace(
             density_widths_np = np.atleast_1d(np.asarray(density_widths))
             # z_sources is passed as a positional arg — JAX materializes it as concrete numpy
             z_sources_np = np.atleast_1d(np.asarray(z_sources))
-            kappa_maps = _raytrace_z_grid(
+            kappa_grid = _raytrace_z_grid(
                 density_maps_np,
                 shell_redshifts,
                 z_sources_np,
@@ -343,9 +375,10 @@ def raytrace(
                 interp,
                 parallel_transport,
                 born=born,
+                raytrace=raytrace,
                 shell_widths=density_widths_np,
             )
-            return kappa_maps.astype(np.float32)
+            return kappa_grid
 
         kappa = jax.pure_callback(
             _callback_z,
@@ -358,20 +391,24 @@ def raytrace(
             sources,
         )
 
-    # Handle single source case - squeeze to 1D
-    if n_sources == 1:
-        kappa = kappa[0]
+    # 7. Build output fields — helper avoids repetition across the three return paths
+    def _build_field(arr):
+        if n_sources == 1:
+            arr = arr[0]
+        base_field = lightcone.replace(status=FieldStatus.KAPPA)
+        field = SphericalKappaField.FromDensityMetadata(
+            array=arr,
+            field=base_field,
+            status=FieldStatus.KAPPA,
+            unit=ConvergenceUnit.DIMENSIONLESS,
+            z_sources=nz_shear,
+        )
+        return _attach_source_metadata(field, cosmo, source_kind, sources, min_z, max_z, n_integrate)
 
-    # 7. Return SphericalKappaField
-    base_field = lightcone.replace(status=FieldStatus.KAPPA)
-    kappa_field = SphericalKappaField.FromDensityMetadata(
-        array=kappa,
-        field=base_field,
-        status=FieldStatus.KAPPA,
-        unit=ConvergenceUnit.DIMENSIONLESS,
-        z_sources=nz_shear,
-    )
-
-    # Replace shell-level metadata (inherited from lightcone) with per-source-bin metadata
-    kappa_field = _attach_source_metadata(kappa_field, cosmo, source_kind, sources, min_z, max_z, n_integrate)
-    return kappa_field
+    if born and raytrace:
+        kappa_rt_raw, kappa_born_raw = kappa
+        return _build_field(kappa_rt_raw), _build_field(kappa_born_raw)
+    elif raytrace:
+        return _build_field(kappa), None
+    else:  # born only
+        return None, _build_field(kappa)

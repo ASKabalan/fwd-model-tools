@@ -6,9 +6,11 @@ jax.distributed.initialize() happens before any JAX backend touches.
 """
 import os
 
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.97"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
 os.environ["JAX_ENABLE_X64"] = "False"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.97"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 
 def _maybe_init_distributed():

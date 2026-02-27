@@ -9,6 +9,7 @@ JAX is imported lazily (after argument parsing) so --help is instantaneous.
 """
 
 import os
+import re
 import sys
 from argparse import ArgumentParser, Namespace
 from functools import partial
@@ -87,19 +88,50 @@ def _resolve_ts(args: Namespace):
 # ---------------------------------------------------------------------------
 
 
+def _try_parse_s3(token: str):
+    """Parse s3/stage3 with an optional bin selector. Returns None if token is not s3.
+
+    Supported forms:
+      s3            → all 4 Stage-3 bins
+      s3[0]         → first bin only (wrapped in a list)
+      s3[1:3]       → bins 1 and 2
+      s3[:2]        → first two bins
+      s3[::2]       → every other bin
+    """
+    m = re.fullmatch(r"(?:stage3|s3)(?:\[([^\]]*)\])?", token, re.IGNORECASE)
+    if m is None:
+        return None
+    distributions = ffi.io.get_stage3_nz_shear()
+    selector = m.group(1)
+    if selector is None:
+        return distributions
+    # Integer index → wrap in list for uniform downstream handling
+    if re.fullmatch(r"-?\d+", selector):
+        return [distributions[int(selector)]]
+    # Slice notation  start:stop  or  start:stop:step
+    parts = selector.split(":")
+    if 2 <= len(parts) <= 3:
+        opt = lambda s: int(s) if s else None  # noqa: E731
+        slc = slice(opt(parts[0]), opt(parts[1]), opt(parts[2]) if len(parts) == 3 else None)
+        return distributions[slc]
+    raise ValueError(f"Cannot parse s3 selector '[{selector}]'. Use s3[i] or s3[start:stop[:step]].")
+
+
 def _resolve_nz_shear(args: Namespace):
     """Return nz_shear list from CLI --nz-shear values."""
     nz_shear = getattr(args, "nz_shear", None)
     if nz_shear is None:
         return None
     values = nz_shear
-    if len(values) == 1 and values[0].lower() in ("stage3", "s3"):
-        return ffi.io.get_stage3_nz_shear()
+    if len(values) == 1:
+        s3 = _try_parse_s3(values[0])
+        if s3 is not None:
+            return s3
     # Otherwise parse as floats
     try:
         return jnp.array(values, dtype=jnp.float32)
     except ValueError as exc:
-        raise ValueError(f"--nz-shear values must be floats or 'stage3': {values}") from exc
+        raise ValueError(f"--nz-shear values must be floats or s3/s3[i]/s3[start:stop]: {values}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -151,16 +183,15 @@ def _build_sharding(args: Namespace):
 # ---------------------------------------------------------------------------
 
 
-def _save_result(result, cosmo, args: Namespace) -> None:
+def _save_result(result, cosmo, args: Namespace, output: str | None = None) -> None:
     """Save result to parquet (process 0 only)."""
-    # Create folder if it doesn't exist
-    # If file has parent folders create them, otherwise do nothing
-    parent_folder = os.path.dirname(args.output)
+    out_path = output if output is not None else args.output
+    parent_folder = os.path.dirname(out_path)
     if parent_folder:
         os.makedirs(parent_folder, exist_ok=True)
     catalog = ffi.io.Catalog(field=result, cosmology=cosmo)
-    catalog.to_parquet(args.output)
-    print(f"Saved to {args.output}")
+    catalog.to_parquet(out_path)
+    print(f"Saved to {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -361,10 +392,11 @@ def parser() -> ArgumentParser:
         metavar="Z",
         help="Source redshifts or 'stage3'/'s3' for 4-bin Stage 3 distributions",
     )
-    lensing_method = lensing_p.add_mutually_exclusive_group()
-    lensing_method.add_argument("--born", action="store_true", default=True, help="Use Born approximation (default)")
-    lensing_method.add_argument(
-        "--raytrace", action="store_true", default=False, help="Use multi-plane ray-tracing via dorian"
+    lensing_p.add_argument(
+        "--lensing",
+        choices=["born", "raytrace", "both"],
+        default="born",
+        help="Lensing method: 'born' (default), 'raytrace' (dorian multi-plane), or 'both' (saves two output files)",
     )
     lensing_p.add_argument(
         "--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)"
@@ -411,11 +443,11 @@ def _validate_args(args: Namespace, parser: ArgumentParser) -> None:
     if args.subcommand == "lensing":
         nside = getattr(args, "nside", None)
         flatsky_npix = getattr(args, "flatsky_npix", None)
-        use_raytrace = getattr(args, "raytrace", False)
+        lensing_method = getattr(args, "lensing", "born")
         if nside is None and flatsky_npix is None:
             parser.error("lensing subcommand requires --nside or --flatsky-npix")
-        if use_raytrace and nside is None:
-            parser.error("--raytrace requires --nside (spherical painting)")
+        if lensing_method in ("raytrace", "both") and nside is None:
+            parser.error("--lensing raytrace/both requires --nside (spherical painting)")
 
     # --perf and --trace are mutually exclusive (perf wins)
     if getattr(args, "perf", False) and getattr(args, "trace", False):
@@ -477,13 +509,15 @@ def run_simulations(
 
     # Run lensing
     if sim_type == "born":
-        kappa = ffi.born(cosmo, lightcone, nz_shear)
+        return ffi.born(cosmo, lightcone, nz_shear)
     elif sim_type == "raytrace":
-        kappa = ffi.raytrace(cosmo, lightcone, nz_shear)
+        kappa_rt, _ = ffi.raytrace(cosmo, lightcone, nz_shear)
+        return kappa_rt
+    elif sim_type == "both":
+        kappa_rt, kappa_born = ffi.raytrace(cosmo, lightcone, nz_shear, born=True, raytrace=True)
+        return kappa_rt, kappa_born
     else:
         raise ValueError(f"Unknown sim_type: {sim_type}")
-
-    return kappa
 
 
 def main() -> None:
@@ -530,7 +564,7 @@ def main() -> None:
     sim_type = args.subcommand
     lpt_order = args.order
     if args.subcommand == "lensing":
-        sim_type = "raytrace" if args.raytrace else "born"
+        sim_type = args.lensing
 
     run_kwargs = {
         "cosmo": cosmo,
@@ -586,12 +620,18 @@ def main() -> None:
         timer.report(report_file, function=sim_type, extra_info=extra_info, **metadata)
         print(f"Performance report saved to {report_file}")
     else:
-        result = run_simulations(**run_kwargs).block_until_ready()
+        result = jax.block_until_ready(run_simulations(**run_kwargs))
 
     print("Simulation completed... saving results.")
     sync_global_devices("Done")
     # --- Save output ---
-    _save_result(result, cosmo, args)
+    if sim_type == "both":
+        result_rt, result_born = result
+        base, ext = os.path.splitext(args.output)
+        _save_result(result_rt, cosmo, args, output=base + "_raytraced" + ext)
+        _save_result(result_born, cosmo, args, output=base + "_born" + ext)
+    else:
+        _save_result(result, cosmo, args)
     jax.distributed.shutdown()
 
 
