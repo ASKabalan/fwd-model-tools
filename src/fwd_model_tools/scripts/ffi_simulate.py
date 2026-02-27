@@ -593,11 +593,15 @@ def main() -> None:
         print("Compiling and running first iteration...")
         # chrono_jit measures compilation + first run
         result = timer.chrono_jit(run_simulations, **run_kwargs)
-
+        del result  # free memory from warmup run before timed iterations
         print(f"Running {args.iterations} timed iterations...")
         for i in range(args.iterations):
             # chrono_fun measures execution time
             result = timer.chrono_fun(run_simulations, **run_kwargs)
+            print(f"Iteration {i + 1}/{args.iterations} completed.")
+            # if not last iteration del result
+            if i < args.iterations - 1:
+                del result
 
         metadata = {
             "precision": "float64" if jax.config.jax_enable_x64 else "float32",
@@ -626,12 +630,12 @@ def main() -> None:
     sync_global_devices("Done")
     # --- Save output ---
     if sim_type == "both":
-        result_rt, result_born = result
+        result_rt, result_born = result  # pyright: ignore
         base, ext = os.path.splitext(args.output)
         _save_result(result_rt, cosmo, args, output=base + "_raytraced" + ext)
         _save_result(result_born, cosmo, args, output=base + "_born" + ext)
     else:
-        _save_result(result, cosmo, args)
+        _save_result(result, cosmo, args)  # pyright: ignore
     jax.distributed.shutdown()
 
 

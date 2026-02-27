@@ -53,7 +53,7 @@ def _normalize_z_source(
     """Normalize z_source to a list of redshift distributions."""
     # Handle single values
     if isinstance(z_source, numbers.Real):
-        return [jc.redshift.delta_nz(float(z_source))]
+        return [jc.redshift.delta_nz(z_source)]
     if isinstance(z_source, jc.redshift.redshift_distribution):
         return [z_source]
 
@@ -62,9 +62,7 @@ def _normalize_z_source(
         result = []
         for zs in z_source:
             if isinstance(zs, Array):
-                zs = float(zs)
-            if isinstance(zs, numbers.Real):
-                result.append(jc.redshift.delta_nz(float(zs)))
+                result.append(jc.redshift.delta_nz(zs))
             elif isinstance(zs, jc.redshift.redshift_distribution):
                 result.append(zs)
             else:

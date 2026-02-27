@@ -13,6 +13,7 @@ import orbax.checkpoint as ocp
 from jaxtyping import Key, PyTree
 
 from ..io import load_sharded, save_sharded
+from .sample_converter import default_save
 
 _Param = ParamSpec("_Param")
 _Return = TypeVar("_Return")
@@ -50,7 +51,7 @@ def batched_sampling(
     backend: str = "numpyro",
     init_params: PyTree | None = None,
     progress_bar: bool = True,
-    save_callback: Callable[[dict, str, int], None] | None = None,
+    save_callback: Callable[[dict, dict, str, int], None] = default_save,
     *model_args,
     **model_kwargs,
 ):
@@ -109,85 +110,47 @@ def batched_sampling(
         postprocess_fn = None
 
     state_exists = os.path.exists(state_path)
-    if state_exists:
-        num_warmup = 1  # No warmup when resuming
 
-    if backend == "blackjax":
-        assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
-        assert initial_position is not None, "initial_position must be defined for blackjax backend"
-        if sampler == "NUTS":
-            adapt = blackjax.window_adaptation(
-                blackjax.nuts, logdensity_fn, progress_bar=progress_bar, target_acceptance_rate=0.8
-            )
-            (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
-        elif sampler == "HMC":
-            adapt = blackjax.window_adaptation(
-                blackjax.hmc,
-                logdensity_fn,
-                progress_bar=progress_bar,
-                target_acceptance_rate=0.8,
-                num_integration_steps=10,
-            )
-            (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
-        elif sampler == "MCLMC":
-            initial_state = blackjax.mcmc.mclmc.init(
-                position=initial_position, logdensity_fn=logdensity_fn, rng_key=init_key
-            )
-            if state_exists:
+    if state_exists:
+        # ── Resume from checkpoint: build cheap dummy state for Orbax shape inference ──
+        print("Found existing sampling state, skipping warmup compilation...")
+        if backend == "blackjax":
+            assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
+            assert initial_position is not None, "initial_position must be defined for blackjax backend"
+            if sampler in ("NUTS", "HMC"):
+                init_fn = blackjax.nuts.init if sampler == "NUTS" else blackjax.hmc.init
+                last_state = init_fn(initial_position, logdensity_fn)
+                flat_positions = jax.tree.leaves(initial_position)
+                num_params = sum(p.size for p in flat_positions)
                 parameters = {
-                    "L": jax.ShapeDtypeStruct((), jnp.asarray(0.0).dtype),
-                    "step_size": jax.ShapeDtypeStruct((), jnp.asarray(0.0).dtype),
+                    "step_size": jnp.array(0.0),
+                    "inverse_mass_matrix": jnp.zeros(num_params),
                 }
-                tuned_state = initial_state
+            elif sampler == "MCLMC":
+                last_state = blackjax.mcmc.mclmc.init(
+                    position=initial_position, logdensity_fn=logdensity_fn, rng_key=init_key
+                )
+                parameters = {"L": jnp.array(0.0), "step_size": jnp.array(0.0)}
             else:
-                kernel_builder = lambda imm: blackjax.mcmc.mclmc.build_kernel(
-                    logdensity_fn=logdensity_fn,
-                    integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
-                    inverse_mass_matrix=imm,
-                )
-                print("Tuning MCLMC parameters (L and step_size)...")
-
-                tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
-                    mclmc_kernel=kernel_builder,
-                    num_steps=num_warmup,
-                    state=initial_state,
-                    rng_key=warmup_key,
-                    diagonal_preconditioning=False,
-                    desired_energy_var=1e-3,
-                )
-                parameters = {"L": tuned_params.L, "step_size": tuned_params.step_size}
-            last_state = tuned_state
+                raise ValueError(f"Unsupported sampler: {sampler}")
+        elif backend == "numpyro":
+            numpyro_kwargs = {}
+            if init_params is not None:
+                numpyro_kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
+            kernel = (
+                numpyro.infer.NUTS(model, **numpyro_kwargs)
+                if sampler == "NUTS"
+                else numpyro.infer.HMC(model, **numpyro_kwargs)
+            )
+            last_state = kernel.init(warmup_key, 0, init_params=None, model_args=model_args, model_kwargs=model_kwargs)
+            parameters = {}
         else:
-            raise ValueError(f"Unsupported sampler: {sampler}")
-    elif backend == "numpyro":
-        kwargs = {}
-        if init_params is not None:
-            kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
+            raise ValueError(f"Unsupported backend: {backend}")
 
-        mcmc = numpyro.infer.MCMC(
-            numpyro.infer.NUTS(model, **kwargs) if sampler == "NUTS" else numpyro.infer.HMC(model, **kwargs),
-            num_warmup=num_warmup,
-            num_samples=num_samples,
-            progress_bar=True,
-        )
-        mcmc.warmup(warmup_key, *model_args, **model_kwargs)
-        last_state = mcmc.last_state
-        parameters = {}
-    else:
-        raise ValueError(f"Unsupported backend: {backend}")
-
-    assert last_state is not None, "last_state must be defined to save initial state"
-    assert parameters is not None, "parameters must be defined to save initial state"
-    if save and not state_exists:
-        inference_state = {"nb_samples": jnp.array(0), "last_state": last_state, "parameters": parameters}
-        save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
-
-    if state_exists:
         abstract_state = jax.tree.map(
             ocp.tree.to_shape_dtype_struct,
             {"nb_samples": jnp.array(0), "last_state": last_state, "parameters": parameters},
         )
-
         try:
             saved_state = load_sharded(state_path, abstract_pytree=abstract_state)
         except Exception as e:
@@ -201,6 +164,70 @@ def batched_sampling(
             saved_state["last_state"],
             saved_state["parameters"],
         )
+    else:
+        # ── Fresh run: full warmup / adaptation ──
+        if backend == "blackjax":
+            assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
+            assert initial_position is not None, "initial_position must be defined for blackjax backend"
+            if sampler == "NUTS":
+                adapt = blackjax.window_adaptation(
+                    blackjax.nuts, logdensity_fn, progress_bar=progress_bar, target_acceptance_rate=0.8
+                )
+                (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
+            elif sampler == "HMC":
+                adapt = blackjax.window_adaptation(
+                    blackjax.hmc,
+                    logdensity_fn,
+                    progress_bar=progress_bar,
+                    target_acceptance_rate=0.8,
+                    num_integration_steps=10,
+                )
+                (last_state, parameters), _ = adapt.run(warmup_key, initial_position, num_warmup)
+            elif sampler == "MCLMC":
+                initial_state = blackjax.mcmc.mclmc.init(
+                    position=initial_position, logdensity_fn=logdensity_fn, rng_key=init_key
+                )
+                kernel_builder = lambda imm: blackjax.mcmc.mclmc.build_kernel(
+                    logdensity_fn=logdensity_fn,
+                    integrator=blackjax.mcmc.integrators.isokinetic_mclachlan,
+                    inverse_mass_matrix=imm,
+                )
+                print("Tuning MCLMC parameters (L and step_size)...")
+                tuned_state, tuned_params, _ = blackjax.mclmc_find_L_and_step_size(
+                    mclmc_kernel=kernel_builder,
+                    num_steps=num_warmup,
+                    state=initial_state,
+                    rng_key=warmup_key,
+                    diagonal_preconditioning=False,
+                    desired_energy_var=1e-3,
+                )
+                last_state = tuned_state
+                parameters = {"L": tuned_params.L, "step_size": tuned_params.step_size}
+            else:
+                raise ValueError(f"Unsupported sampler: {sampler}")
+        elif backend == "numpyro":
+            numpyro_kwargs = {}
+            if init_params is not None:
+                numpyro_kwargs["init_strategy"] = partial(numpyro.infer.init_to_value, values=init_params)
+            mcmc = numpyro.infer.MCMC(
+                numpyro.infer.NUTS(model, **numpyro_kwargs)
+                if sampler == "NUTS"
+                else numpyro.infer.HMC(model, **numpyro_kwargs),
+                num_warmup=num_warmup,
+                num_samples=num_samples,
+                progress_bar=True,
+            )
+            mcmc.warmup(warmup_key, *model_args, **model_kwargs)
+            last_state = mcmc.last_state
+            parameters = {}
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
+
+        assert last_state is not None, "last_state must be defined to save initial state"
+        assert parameters is not None, "parameters must be defined to save initial state"
+        if save:
+            inference_state = {"nb_samples": jnp.array(0), "last_state": last_state, "parameters": parameters}
+            save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
 
     if backend == "blackjax":
         assert logdensity_fn is not None, "logdensity_fn must be defined for blackjax backend"
@@ -227,11 +254,17 @@ def batched_sampling(
         run_key, batch_key = jax.random.split(run_key)
 
         if backend == "blackjax":
-            transform = lambda x, _: (
-                x.position if postprocess_fn is None else postprocess_fn(*model_args, **model_kwargs)(x.position)
-            )
+
+            def transform(state, info):
+                position = (
+                    postprocess_fn(*model_args, **model_kwargs)(state.position)
+                    if postprocess_fn is not None
+                    else state.position
+                )
+                return position, info
+
             assert sampler_fn is not None, "sampler_fn must be defined for blackjax backend"
-            last_state, samples = blackjax.util.run_inference_algorithm(
+            last_state, (samples, infos) = blackjax.util.run_inference_algorithm(
                 rng_key=batch_key,
                 initial_state=last_state,
                 inference_algorithm=sampler_fn,
@@ -239,7 +272,18 @@ def batched_sampling(
                 transform=transform,
                 progress_bar=progress_bar,
             )
-            nb_evals = 0  # BlackJAX does not expose the number of evaluations
+            if sampler == "MCLMC":
+                metrics = {
+                    "mean_num_steps": None,
+                    "total_divergences": None,
+                    "mean_accept_prob": float(jnp.mean(infos.acceptance_rate)),
+                }
+            else:
+                metrics = {
+                    "mean_num_steps": float(jnp.mean(infos.num_integration_steps)),
+                    "total_divergences": int(jnp.sum(infos.is_divergent)),
+                    "mean_accept_prob": float(jnp.mean(infos.acceptance_rate)),
+                }
 
         elif backend == "numpyro":
             mcmc = numpyro.infer.MCMC(
@@ -250,9 +294,14 @@ def batched_sampling(
             )
 
             mcmc.post_warmup_state = last_state
-            mcmc.run(batch_key, *model_args, **model_kwargs, extra_fields=("num_steps",))
+            mcmc.run(batch_key, *model_args, **model_kwargs, extra_fields=("num_steps", "diverging", "accept_prob"))
             samples = mcmc.get_samples()
-            nb_evals = mcmc.get_extra_fields()["num_steps"]
+            extra = mcmc.get_extra_fields()
+            metrics = {
+                "mean_num_steps": float(jnp.mean(extra["num_steps"])),
+                "total_divergences": int(jnp.sum(extra["diverging"])),
+                "mean_accept_prob": float(jnp.mean(extra["accept_prob"])),
+            }
             last_state = mcmc.last_state
         else:
             raise ValueError(f"Unsupported backend: {backend}")
@@ -261,11 +310,7 @@ def batched_sampling(
 
         if save:
             print(f"Saving batch {i + 1} samples and state...")
-            samples["num_steps"] = jnp.array(nb_evals)
-            if save_callback is not None:
-                save_callback(samples, samples_prefix, i)
-            else:
-                save_sharded(samples, f"{samples_prefix}_{i}", overwrite=True)
+            save_callback(samples, metrics, samples_prefix, i)
             inference_state = {"nb_samples": jnp.array(nb_samples), "last_state": last_state, "parameters": parameters}
             save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
         del samples
