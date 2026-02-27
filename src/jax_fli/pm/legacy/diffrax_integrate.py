@@ -170,7 +170,7 @@ def integrate(
     Examples
     --------
     >>> from diffrax import ODETerm, SaveAt, RecursiveCheckpointAdjoint
-    >>> from fwd_model_tools.pm.legacy import integrate, ReversibleBaseSolver
+    >>> from jax_fli.pm.legacy import integrate, ReversibleBaseSolver
     >>>
     >>> # Using custom reverse-mode VJP (default)
     >>> solution = integrate(terms, ReversibleBaseSolver(), t0, t1, dt0, y0)

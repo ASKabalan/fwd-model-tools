@@ -34,7 +34,7 @@ def requires_getdist(func: Callable[_Param, _Return]) -> Callable[_Param, _Retur
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'getdist'. Install with: pip install fwd-model-tools[plot]")
+        raise ImportError("Missing optional dependency 'getdist'. Install with: pip install jax-fli[plot]")
 
     return _deferred
 

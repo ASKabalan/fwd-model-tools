@@ -1,4 +1,4 @@
-"""Tests for the ffi-simulate CLI entry point.
+"""Tests for the fli-simulate CLI entry point.
 
 Strategy: inject sys.argv, call main(), verify parquet output exists,
 reload via Catalog.from_parquet(), check shapes and metadata consistency.
@@ -29,11 +29,11 @@ NBODY_EXTRA = "--t1 1.0 --dt0 0.1"
 
 
 def _run(args_str: str, tmp_path: Path):
-    from fwd_model_tools.io import Catalog
-    from fwd_model_tools.scripts.ffi_simulate import main
+    from jax_fli.io import Catalog
+    from jax_fli.scripts.fli_simulate import main
 
     out = tmp_path / "out.parquet"
-    sys.argv = ["ffi-simulate"] + args_str.split() + ["-o", str(out)]
+    sys.argv = ["fli-simulate"] + args_str.split() + ["-o", str(out)]
     main()
     assert out.exists(), f"Output file not created: {out}"
     cat = Catalog.from_parquet(str(out))

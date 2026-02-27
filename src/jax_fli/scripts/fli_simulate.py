@@ -1,4 +1,4 @@
-"""ffi-simulate: CLI entry point for the fwd_model_tools pipeline.
+"""fli-simulate: CLI entry point for the jax_fli pipeline.
 
 Provides subcommands:
   lpt      — IC → LPT → lightcone / particles
@@ -21,7 +21,7 @@ from jax.experimental.multihost_utils import sync_global_devices
 from jax.sharding import AxisType, NamedSharding
 from jax.sharding import PartitionSpec as P
 
-import fwd_model_tools as ffi
+import jax_fli as jfli
 
 # ---------------------------------------------------------------------------
 # Cosmology builder
@@ -50,7 +50,7 @@ def _build_cosmo(args: Namespace):
 
 def _build_painting(args: Namespace):
     """Return a PaintingOptions and (nside, flatsky_npix) for IC generation."""
-    from fwd_model_tools.fields import PaintingOptions
+    from jax_fli.fields import PaintingOptions
 
     nside = getattr(args, "nside", None)
     flatsky_npix = getattr(args, "flatsky_npix", None)
@@ -101,7 +101,7 @@ def _try_parse_s3(token: str):
     m = re.fullmatch(r"(?:stage3|s3)(?:\[([^\]]*)\])?", token, re.IGNORECASE)
     if m is None:
         return None
-    distributions = ffi.io.get_stage3_nz_shear()
+    distributions = jfli.io.get_stage3_nz_shear()
     selector = m.group(1)
     if selector is None:
         return distributions
@@ -145,19 +145,19 @@ def _build_solver(args: Namespace, painting):
     drift_on_lightcone = getattr(args, "drift_on_lightcone", False)
     if inter == "none":
         if drift_on_lightcone:
-            interp_kernel = ffi.DriftInterp(painting=painting)
+            interp_kernel = jfli.DriftInterp(painting=painting)
         else:
-            interp_kernel = ffi.NoInterp(painting=painting)
+            interp_kernel = jfli.NoInterp(painting=painting)
     elif inter == "onion":
         if painting.target != "spherical":
             raise ValueError("--interp onion requires --nside (spherical painting target)")
-        interp_kernel = ffi.OnionTiler(painting=painting, drift_on_lightcone=drift_on_lightcone)
+        interp_kernel = jfli.OnionTiler(painting=painting, drift_on_lightcone=drift_on_lightcone)
     elif inter == "telephoto":
-        interp_kernel = ffi.TelephotoInterp(painting=painting, drift_on_lightcone=drift_on_lightcone)
+        interp_kernel = jfli.TelephotoInterp(painting=painting, drift_on_lightcone=drift_on_lightcone)
     else:
         raise ValueError(f"Unknown --interp value: {inter}")
 
-    return ffi.ReversibleDoubleKickDrift(interp_kernel=interp_kernel)
+    return jfli.ReversibleDoubleKickDrift(interp_kernel=interp_kernel)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ def _save_result(result, cosmo, args: Namespace, output: str | None = None) -> N
     parent_folder = os.path.dirname(out_path)
     if parent_folder:
         os.makedirs(parent_folder, exist_ok=True)
-    catalog = ffi.io.Catalog(field=result, cosmology=cosmo)
+    catalog = jfli.io.Catalog(field=result, cosmology=cosmo)
     catalog.to_parquet(out_path)
     print(f"Saved to {out_path}")
 
@@ -357,8 +357,8 @@ def parser() -> ArgumentParser:
     # Top-level parser
     # ------------------------------------------------------------------
     parser = ArgumentParser(
-        prog="ffi-simulate",
-        description="fwd_model_tools simulation pipeline CLI",
+        prog="fli-simulate",
+        description="jax_fli simulation pipeline CLI",
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
@@ -481,19 +481,19 @@ def run_simulations(
     lpt_order,
     nz_shear,
     sim_type,
-) -> ffi.io.Catalog:
+) -> jfli.io.Catalog:
     jax.config.update("jax_enable_x64", False)
 
     if sim_type == "lpt":
         # lightcone mode — forward ts + nb_shells from CLI
-        dx, p = ffi.lpt(cosmo, initial_conditions, ts=ts, nb_shells=nb_shells, order=lpt_order, painting=painting)
+        dx, p = jfli.lpt(cosmo, initial_conditions, ts=ts, nb_shells=nb_shells, order=lpt_order, painting=painting)
         return dx
 
     # All other modes: LPT to particles snapshot at t0, then run NBody
-    dx, p = ffi.lpt(cosmo, initial_conditions, ts=t0, order=lpt_order, painting=ffi.PaintingOptions(target="particles"))
+    dx, p = jfli.lpt(cosmo, initial_conditions, ts=t0, order=lpt_order, painting=jfli.PaintingOptions(target="particles"))
 
     # Run NBody
-    lightcone = ffi.nbody(
+    lightcone = jfli.nbody(
         cosmo,
         dx,
         p,
@@ -509,19 +509,19 @@ def run_simulations(
 
     # Run lensing
     if sim_type == "born":
-        return ffi.born(cosmo, lightcone, nz_shear)
+        return jfli.born(cosmo, lightcone, nz_shear)
     elif sim_type == "raytrace":
-        kappa_rt, _ = ffi.raytrace(cosmo, lightcone, nz_shear)
+        kappa_rt, _ = jfli.raytrace(cosmo, lightcone, nz_shear)
         return kappa_rt
     elif sim_type == "both":
-        kappa_rt, kappa_born = ffi.raytrace(cosmo, lightcone, nz_shear, born=True, raytrace=True)
+        kappa_rt, kappa_born = jfli.raytrace(cosmo, lightcone, nz_shear, born=True, raytrace=True)
         return kappa_rt, kappa_born
     else:
         raise ValueError(f"Unknown sim_type: {sim_type}")
 
 
 def main() -> None:
-    """CLI entry point registered as ffi-simulate."""
+    """CLI entry point registered as fli-simulate."""
     p = parser()
     args, unknown = p.parse_known_args()
     if unknown:
@@ -549,7 +549,7 @@ def main() -> None:
 
     key = jax.random.key(args.seed)
 
-    initial_field = ffi.gaussian_initial_conditions(
+    initial_field = jfli.gaussian_initial_conditions(
         key,
         tuple(args.mesh_size),
         tuple(args.box_size),

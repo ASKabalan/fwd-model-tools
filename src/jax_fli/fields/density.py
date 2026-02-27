@@ -284,7 +284,7 @@ class DensityField(AbstractField):
     ) -> PowerSpectrum:
         """Compute the 3D matter power spectrum P(k).
 
-        Parameters mirror :func:`fwd_model_tools.power.power`. Any keyword
+        Parameters mirror :func:`jax_fli.power.power`. Any keyword
         arguments are forwarded verbatim to that helper.
         """
         box_shape = tuple(self.box_size)

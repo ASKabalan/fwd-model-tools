@@ -2,7 +2,7 @@
 Core base classes for field objects.
 
 This module contains the foundational abstract classes that define the
-interface for all field types in fwd_model_tools.
+interface for all field types in jax_fli.
 """
 
 from __future__ import annotations

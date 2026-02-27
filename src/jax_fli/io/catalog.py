@@ -47,7 +47,7 @@ def requires_datasets(func: Callable[Param, ReturnType]) -> Callable[Param, Retu
 
     @wraps(func)
     def deferred_func(*args: Param.args, **kwargs: Param.kwargs) -> ReturnType:
-        msg = "Missing optional library 'datasets'. Install with: pip install fwd-model-tools[catalog]"
+        msg = "Missing optional library 'datasets'. Install with: pip install jax-fli[catalog]"
         raise ImportError(msg)
 
     return deferred_func

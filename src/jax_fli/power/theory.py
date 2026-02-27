@@ -157,7 +157,7 @@ def compute_theory_cl(
     Examples
     --------
     >>> import jax_cosmo as jc
-    >>> from fwd_model_tools.power import compute_theory_cl, tophat_z
+    >>> from jax_fli.power import compute_theory_cl, tophat_z
 
     Single source redshift:
     >>> cosmo = jc.Planck15()

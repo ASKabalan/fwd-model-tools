@@ -51,7 +51,7 @@ def sample2catalog(config: Configurations):
     """Build a save callback that writes both orbax checkpoints and parquet Catalogs.
 
     The returned callback is suitable for the ``save_callback`` parameter of
-    :func:`~fwd_model_tools.sampling.batched_sampling`.
+    :func:`~jax_fli.sampling.batched_sampling`.
 
     Parameters
     ----------

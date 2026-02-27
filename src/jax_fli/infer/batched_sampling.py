@@ -33,7 +33,7 @@ def requires_samplers(func: Callable[_Param, _Return]) -> Callable[_Param, _Retu
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'blackjax'. Install with: pip install fwd-model-tools[sampling]")
+        raise ImportError("Missing optional dependency 'blackjax'. Install with: pip install jax-fli[sampling]")
 
     return _deferred
 

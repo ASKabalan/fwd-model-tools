@@ -48,7 +48,7 @@ def get_stage3_nz_shear(
     if gals_per_arcmin2 is None:
         gals_per_arcmin2 = [7.0, 8.5, 7.5, 6.0]
 
-    data_dir = files("fwd_model_tools.io").joinpath("data")
+    data_dir = files("jax_fli.io").joinpath("data")
     nz_files = sorted(data_dir.glob("nz_stage3_*.txt"))
 
     nz_shear = []

@@ -33,7 +33,7 @@ def requires_datasets(func: Callable[_Param, _Return]) -> Callable[_Param, _Retu
 
     @wraps(func)
     def _deferred(*args: _Param.args, **kwargs: _Param.kwargs) -> _Return:
-        raise ImportError("Missing optional dependency 'datasets'. Install with: pip install fwd-model-tools[catalog]")
+        raise ImportError("Missing optional dependency 'datasets'. Install with: pip install jax-fli[catalog]")
 
     return _deferred
 
