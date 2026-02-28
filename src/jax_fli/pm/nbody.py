@@ -25,7 +25,7 @@ def _validate_t0_cb(lpt_t0, t0):
         raise ValueError(f"Starting scale factor t0={t0} does not match LPT fields' scale factor {lpt_t0}.")
 
 
-@partial(jax.jit, static_argnames=["t0", "t1", "dt0", "nb_shells", "adjoint", "checkpoints"])
+@partial(jax.jit, static_argnames=["t0", "t1", "dt0", "nb_shells", "adjoint", "checkpoints", "equal_vol", "min_width"])
 def nbody(
     cosmo,
     dx_field: ParticleField,
@@ -42,6 +42,8 @@ def nbody(
     ),
     adjoint: AdjointType = "checkpointed",
     checkpoints: int | None = None,
+    equal_vol: bool = False,
+    min_width: float = 50.0,
 ) -> jax.Array:
     """
     Evolve particles forward in time and save lightcone density planes.
@@ -118,6 +120,8 @@ def nbody(
         ts=ts,
         nb_shells=nb_shells,
         density_widths=density_widths,
+        equal_vol=equal_vol,
+        min_width=min_width,
     )
 
     max_comoving_distance = dx_field.max_comoving_radius

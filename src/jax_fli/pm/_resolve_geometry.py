@@ -9,7 +9,9 @@ from ..fields import DensityField
 from ..utils import compute_lightcone_shells, distances
 
 
-def resolve_ts_geometry(cosmo, field: DensityField, painting, ts=None, nb_shells=None, density_widths=None):
+def resolve_ts_geometry(
+    cosmo, field: DensityField, painting, ts=None, nb_shells=None, density_widths=None, equal_vol=False, min_width=50.0
+):
     """Resolve the ``ts`` / ``nb_shells`` / ``density_widths`` triple into canonical geometry.
 
     Parameters
@@ -56,7 +58,9 @@ def resolve_ts_geometry(cosmo, field: DensityField, painting, ts=None, nb_shells
 
     # --- nb_shells path ---
     if nb_shells is not None:
-        r_centers, ts_resolved = compute_lightcone_shells(cosmo, field, nb_shells=nb_shells)
+        r_centers, ts_resolved = compute_lightcone_shells(
+            cosmo, field, nb_shells=nb_shells, equal_vol=equal_vol, min_width=min_width
+        )
         if density_widths is not None:
             try:
                 density_widths = jnp.broadcast_to(density_widths, r_centers.shape)

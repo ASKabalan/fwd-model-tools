@@ -16,7 +16,7 @@ from ._resolve_geometry import resolve_ts_geometry
 __all__ = ["lpt"]
 
 
-@partial(jax.jit, static_argnames=["order", "nb_shells", "painting"])
+@partial(jax.jit, static_argnames=["order", "nb_shells", "painting", "equal_vol", "min_width"])
 def lpt(
     cosmo: Any,
     initial_field: DensityField,
@@ -27,6 +27,8 @@ def lpt(
     order: int = 1,
     initial_particles: Array = None,
     painting: PaintingOptions = PaintingOptions(target="particles"),
+    equal_vol: bool = False,
+    min_width: float = 50.0,
 ) -> tuple[Any, ParticleField]:
     """
     Compute LPT displacements/momenta for a DensityField.
@@ -95,7 +97,14 @@ def lpt(
     )
 
     ts_resolved, r_centers, density_widths, is_lightcone = resolve_ts_geometry(
-        cosmo, initial_field, painting=painting, ts=ts, nb_shells=nb_shells, density_widths=density_widths
+        cosmo,
+        initial_field,
+        painting=painting,
+        ts=ts,
+        nb_shells=nb_shells,
+        density_widths=density_widths,
+        equal_vol=equal_vol,
+        min_width=min_width,
     )
 
     if is_lightcone:
