@@ -19,6 +19,58 @@ __all__ = [
 ]
 
 
+def _compute_equal_vol_shells(R_last: float, N_total: int, min_width: float) -> np.ndarray:
+    """Compute shell edges using an equal-volume + minimum-width hybrid.
+
+    Divides ``[0, R_last]`` into ``N_total`` shells where inner shells are equal-volume
+    and at most ``M`` outer shells have exactly ``min_width``.  The algorithm increments
+    ``M`` from 0 until the last inner shell also satisfies the minimum-width floor.
+
+    Parameters
+    ----------
+    R_last : float
+        Outer boundary of the lightcone in Mpc/h.
+    N_total : int
+        Total number of shells.
+    min_width : float
+        Minimum shell width in Mpc/h.
+
+    Returns
+    -------
+    np.ndarray
+        Shell edges of shape ``(N_total + 1,)`` in ascending order, starting at 0.
+
+    Raises
+    ------
+    ValueError
+        If ``min_width`` is so large that ``N_total`` shells cannot fit within ``R_last``,
+        or if no valid partition can be found.
+    """
+    R_start = 0.0
+    if N_total * min_width > R_last - R_start:
+        raise ValueError(
+            f"Cannot fit {N_total} shells of min_width={min_width} Mpc/h " f"in max_radius={R_last:.2f} Mpc/h"
+        )
+
+    for M in range(N_total):
+        R_split = R_last - M * min_width
+        N_inner = N_total - M
+        k_inner = np.arange(N_inner + 1)
+        R_inner = (R_start**3 + (k_inner / N_inner) * (R_split**3 - R_start**3)) ** (1 / 3)
+        last_inner_width = R_inner[-1] - R_inner[-2]
+        if last_inner_width >= min_width - 1e-10:
+            if M > 0:
+                R_outer = R_split + np.arange(1, M + 1) * min_width
+                return np.concatenate((R_inner, R_outer))
+            else:
+                return R_inner
+
+    raise ValueError(
+        f"No valid equal-volume + min_width partition found for "
+        f"nb_shells={N_total}, min_width={min_width}, max_radius={R_last:.2f}"
+    )
+
+
 @partial(jax.jit, static_argnames=["max_redshift", "observer_position"])
 def compute_box_size_from_redshift(cosmo, max_redshift, observer_position):
     """
@@ -121,13 +173,15 @@ def compute_max_redshift_from_box_size(cosmo, box_size, observer_position):
     return max_redshift
 
 
-@partial(jax.jit, static_argnames=["nb_shells"])
+@partial(jax.jit, static_argnames=["nb_shells", "equal_vol", "min_width"])
 def compute_lightcone_shells(
     cosmo,
     field: DensityField,
-    nb_shells,
-) -> tuple[jax.Array, jax.Array, float]:
-    """Return comoving shell centers, scale factors, and shell width.
+    nb_shells: int,
+    equal_vol: bool = False,
+    min_width: float = 50.0,
+) -> tuple[jax.Array, jax.Array]:
+    """Return comoving shell centers and scale factors.
 
     Parameters
     ----------
@@ -137,12 +191,16 @@ def compute_lightcone_shells(
         Field containing box_size, observer_position, and nb_shells metadata.
     nb_shells : int
         Number of radial shells to divide the lightcone into.
+    equal_vol : bool, default=False
+        When ``True``, use equal-volume shells with a minimum-width floor instead
+        of the default equal-comoving-width partition.
+    min_width : float, default=50.0
+        Minimum shell width in Mpc/h comoving.  Only used when ``equal_vol=True``.
 
     Returns
     -------
     tuple
-        ``(r_center, a_center, density_plane_width)`` where ``r_center`` and
-        ``a_center`` have shape ``(nb_shells,)``.
+        ``(r_center, a_center)`` where both arrays have shape ``(nb_shells,)``.
 
     Notes
     -----
@@ -151,14 +209,21 @@ def compute_lightcone_shells(
     is convenient for painting functions that require centers in Mpc.
     """
     max_radius = field.max_comoving_radius
-    density_plane_width = max_radius / nb_shells
-    n_lens = int(max_radius // float(density_plane_width))
 
-    r_edges = jnp.linspace(
-        0.0,
-        float(n_lens) * float(density_plane_width),
-        n_lens + 1,
-    )[::-1]
+    if equal_vol:
+        # Pure Python/NumPy — executes at JIT trace time because nb_shells,
+        # equal_vol, and min_width are all static.
+        r_edges_np = _compute_equal_vol_shells(float(max_radius), nb_shells, float(min_width))
+        r_edges = jnp.array(r_edges_np[::-1])
+    else:
+        density_plane_width = max_radius / nb_shells
+        n_lens = int(max_radius // float(density_plane_width))
+        r_edges = jnp.linspace(
+            0.0,
+            float(n_lens) * float(density_plane_width),
+            n_lens + 1,
+        )[::-1]
+
     r_center = 0.5 * (r_edges[1:] + r_edges[:-1])
     a_center = jc.background.a_of_chi(cosmo, r_center)
 
