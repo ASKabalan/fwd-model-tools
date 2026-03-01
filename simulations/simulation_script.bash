@@ -28,6 +28,8 @@ DT0=0.05
 T1=1.0
 INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
+EQUAL_VOL=false    # set to "true" to enable equal-volume shells
+MIN_WIDTH=50.0     # minimum shell width in Mpc/h (used when EQUAL_VOL=true)
 
 # Simulation-grid parameters
 MESH_SIZES=(
@@ -106,6 +108,8 @@ run_simulations() {
                             --t1 $T1 \
                             --interp $INTERP \
                             $DRIFT_ON_LC \
+                            --min-width $MIN_WIDTH \
+                            $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
                             --nz-shear $NZ_SHEAR \
                             --Omega-c $OC \
                             --sigma8 $S8 \

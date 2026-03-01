@@ -44,6 +44,8 @@ class Configurations:
     adjoint: str = "checkpointed"
     checkpoints: int = 10
     number_of_shells: int = 8
+    equal_vol: bool = False
+    min_width: float = 50.0  # Mpc/h comoving, minimum shell width for equal_vol mode
     geometry: str = "spherical"
     drift_on_lightcone: bool = False
     # Power spectrum settings (for power-spectrum model, not used in full-field model)

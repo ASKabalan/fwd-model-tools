@@ -61,6 +61,8 @@ def make_full_field_model(
             solver=solver,
             adjoint=config.adjoint,
             checkpoints=config.checkpoints,
+            equal_vol=config.equal_vol,
+            min_width=config.min_width,
         )
 
         lensing_fn = raytrace if config.lensing == "raytrace" else born
