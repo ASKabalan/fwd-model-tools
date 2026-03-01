@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
-import jax_cosmo as jc
 import numpy as np
 import pytest
 
 from jax_fli.fields import DensityField, FieldStatus
 from jax_fli.fields.units import DensityUnit
 from jax_fli.utils import _compute_equal_vol_shells, compute_lightcone_shells
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -62,17 +60,21 @@ class TestComputeEqualVolShells:
         """Inner (equal-vol) shells must have equal R^3 increments."""
         R_last, N_total, min_width = 1000.0, 8, 50.0
         edges = _compute_equal_vol_shells(R_last=R_last, N_total=N_total, min_width=min_width)
-        # Count how many outer fixed-width shells there are by finding first width > min_width + eps
         widths = np.diff(edges)
-        n_outer = int(np.sum(np.abs(widths - min_width) < 1e-10) and 0)
-        # All shells satisfy min_width, but inner ones must also be equal-volume.
-        # The total R^3 volume is partitioned uniformly over the inner shells.
-        # We verify: edges[k]^3 - edges[k-1]^3 is constant for inner shells.
+        # Outer fixed-width shells are concatenated at the far end; count consecutive min_width
+        # shells from the tail to identify the inner (equal-volume) region.
+        n_outer = 0
+        for w in widths[::-1]:
+            if abs(w - min_width) < 1e-8:
+                n_outer += 1
+            else:
+                break
+        n_inner = N_total - n_outer
+        # Inner shells must all have equal R^3 increments (equal-volume by construction).
         cube_diffs = np.diff(edges**3)
-        # Outer shells have fixed width, so their cube diffs grow; inner shells have equal cube diffs.
-        # With M=0 (pure equal-vol), all cube diffs should be equal.
-        if np.all(np.abs(widths - widths[0]) < 1.0):  # roughly equal widths → M=0 case
-            assert np.allclose(cube_diffs, cube_diffs[0], rtol=1e-6)
+        assert np.allclose(
+            cube_diffs[:n_inner], cube_diffs[0], rtol=1e-6
+        ), "Inner (equal-vol) shells must have equal R^3 increments"
 
     def test_pure_equal_vol_m0(self):
         """When min_width is small, M=0: all shells are equal-volume."""
@@ -121,24 +123,20 @@ class TestComputeLightconeShells:
 
     def test_equal_vol_r_centers_descending(self, cosmology, small_field):
         """r_centers are returned far-to-near (descending) to match integrator convention."""
-        r_centers, _ = compute_lightcone_shells(
-            cosmology, small_field, nb_shells=8, equal_vol=True, min_width=50.0
-        )
+        r_centers, _ = compute_lightcone_shells(cosmology, small_field, nb_shells=8, equal_vol=True, min_width=50.0)
         assert jnp.all(jnp.diff(r_centers) < 0), "r_centers must be in descending (far-to-near) order"
 
     def test_default_r_centers_descending(self, cosmology, small_field):
         r_centers, _ = compute_lightcone_shells(cosmology, small_field, nb_shells=8)
         assert jnp.all(jnp.diff(r_centers) < 0), "r_centers must be in descending (far-to-near) order"
 
-    def test_equal_vol_all_widths_at_least_min_width(self, cosmology, small_field):
+    def test_equal_vol_all_widths_at_least_min_width(self, small_field):
         """In equal_vol mode every shell must be at least min_width wide."""
         min_width = 50.0
-        r_centers, _ = compute_lightcone_shells(
-            cosmology, small_field, nb_shells=8, equal_vol=True, min_width=min_width
-        )
-        # Reconstruct widths from centers (centers are descending, so negate diff)
-        widths = jnp.abs(jnp.diff(r_centers))
-        assert jnp.all(widths >= min_width - 1e-6), "All shells must be >= min_width"
+        # Use actual shell edges (not center spacing, which approximates (w_k + w_{k+1})/2).
+        edges = _compute_equal_vol_shells(R_last=float(small_field.max_comoving_radius), N_total=8, min_width=min_width)
+        widths = np.diff(edges)
+        assert np.all(widths >= min_width - 1e-10), "All shells must be >= min_width"
 
     def test_equal_vol_different_from_equal_width(self, cosmology, small_field):
         """The two modes should produce different shell distributions."""

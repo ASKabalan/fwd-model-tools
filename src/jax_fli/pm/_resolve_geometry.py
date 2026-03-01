@@ -67,7 +67,7 @@ def resolve_ts_geometry(
             except ValueError:
                 raise ValueError("density_widths must be broadcastable to the shape of r_centers.")
         else:
-            density_widths = distances(r_centers)
+            density_widths = distances(r_centers, 0.0)
         return ts_resolved, r_centers, density_widths, True
 
     ts = jnp.asarray(ts)
@@ -99,7 +99,7 @@ def resolve_ts_geometry(
                 raise ValueError("density_widths must be broadcastable to the shape of ts.")
             density_widths = density_widths
         else:
-            density_widths = distances(r_centers)
+            density_widths = distances(r_centers, 0.0)
         return ts, r_centers, density_widths, True
 
     # --- 2-D array (2, N): near/far ---
