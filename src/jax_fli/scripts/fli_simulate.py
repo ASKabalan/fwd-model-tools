@@ -336,6 +336,19 @@ def parser() -> ArgumentParser:
         metavar="A_FAR",
         help="Far scale factor edge(s) (use with --ts-near; one value per shell pair)",
     )
+    lpt_parent.add_argument(
+        "--equal-vol",
+        action="store_true",
+        default=False,
+        help="Use equal-volume shell partitioning (default: False)",
+    )
+    lpt_parent.add_argument(
+        "--min-width",
+        type=float,
+        default=50.0,
+        dest="min_width",
+        help="Minimum shell width in Mpc/h for equal-volume mode (default: 50.0)",
+    )
 
     # ------------------------------------------------------------------
     # NBody parent (adds t1, dt0, solver, interp)
@@ -466,27 +479,38 @@ def _validate_args(args: Namespace, parser: ArgumentParser) -> None:
 # ---------------------------------------------------------------------------
 
 
-@partial(jax.jit, static_argnums=(3, 4, 6, 7, 10, 12))
+@partial(jax.jit, static_argnums=(3, 4, 6, 7, 10, 12, 13, 14))
 def run_simulations(
     cosmo,
     initial_conditions,
     solver,
-    t0,
-    t1,
+    t0,  # 3 — static
+    t1,  # 4 — static
     ts,
-    dt0,
-    nb_shells,
+    dt0,  # 6 — static
+    nb_shells,  # 7 — static
     painting,
     interp_kernel,
-    lpt_order,
+    lpt_order,  # 10 — static
     nz_shear,
-    sim_type,
+    sim_type,  # 12 — static
+    equal_vol,  # 13 — static
+    min_width,  # 14 — static
 ) -> jfli.io.Catalog:
     jax.config.update("jax_enable_x64", False)
 
     if sim_type == "lpt":
         # lightcone mode — forward ts + nb_shells from CLI
-        dx, p = jfli.lpt(cosmo, initial_conditions, ts=ts, nb_shells=nb_shells, order=lpt_order, painting=painting)
+        dx, p = jfli.lpt(
+            cosmo,
+            initial_conditions,
+            ts=ts,
+            nb_shells=nb_shells,
+            order=lpt_order,
+            painting=painting,
+            equal_vol=equal_vol,
+            min_width=min_width,
+        )
         return dx
 
     # All other modes: LPT to particles snapshot at t0, then run NBody
@@ -505,6 +529,8 @@ def run_simulations(
         ts=ts,
         nb_shells=nb_shells,
         solver=solver,
+        equal_vol=equal_vol,
+        min_width=min_width,
     )
     if sim_type == "nbody":
         return lightcone
@@ -582,6 +608,8 @@ def main() -> None:
         "lpt_order": lpt_order,
         "nz_shear": nz_shear,
         "sim_type": sim_type,
+        "equal_vol": args.equal_vol,
+        "min_width": args.min_width,
     }
 
     if args.perf:
@@ -591,7 +619,7 @@ def main() -> None:
             print("Error: jax-hpc-profiler not found. Please install it to use --perf.", file=sys.stderr)
             sys.exit(1)
 
-        timer = JaxTimer(save_jaxpr=False, static_argnums=(3, 4, 6, 7, 10, 12))
+        timer = JaxTimer(save_jaxpr=False, static_argnums=(3, 4, 6, 7, 10, 12, 13, 14))
         print("Compiling and running first iteration...")
         # chrono_jit measures compilation + first run
         result = timer.chrono_jit(run_simulations, **run_kwargs)
