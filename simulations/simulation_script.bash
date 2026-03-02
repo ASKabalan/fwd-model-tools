@@ -24,7 +24,8 @@ SIMULATION_TYPE='nbody' # can also be lpt or lensing
 NSIDE=512
 NB_SHELLS=10
 T0=0.1
-DT0=0.05
+DT0=""        # set to e.g. 0.05, OR leave empty to use NB_STEPS
+NB_STEPS=18   # ignored if DT0 is set; dt0 = (t1 - t0) / nb_steps
 T1=1.0
 INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
@@ -104,7 +105,7 @@ run_simulations() {
                             --nside $NSIDE \
                             --nb-shells $NB_SHELLS \
                             --t0 $T0 \
-                            --dt0 $DT0 \
+                            $([ -n "$DT0" ] && echo "--dt0 $DT0" || echo "--nb-steps $NB_STEPS") \
                             --t1 $T1 \
                             --interp $INTERP \
                             $DRIFT_ON_LC \
