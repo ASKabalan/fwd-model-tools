@@ -74,7 +74,7 @@ Issues = "https://github.com/DifferentiableUniverseInitiative/jax-fli/issues"
 
 
 [tool.setuptools]
-script-files = ["bin/fli-simulate", "bin/fli-samples", "bin/fli-infer"]
+script-files = ["bin/fli-simulate", "bin/fli-samples", "bin/fli-infer", "bin/fli-raytrace", "bin/fli-grid"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

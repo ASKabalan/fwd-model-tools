@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Union
 
 import h5py
+import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
 import jax_healpy as jhp
@@ -74,6 +75,7 @@ def load_cosmogrid_lc(
     max_redshift: float | None = None,
     max_comoving_distance: float | None = None,
     ud_nside: int | None = None,
+    sharding=None,
 ) -> Catalog:
     """Load raw CosmoGrid lightcone shells.
 
@@ -211,12 +213,15 @@ def load_cosmogrid_lc(
 
     sph_maps = []
     for i in range(len(shells)):
+        _arr = jnp.asarray(shells[i], dtype=jnp.float32)
+        if sharding is not None:
+            _arr = jax.lax.with_sharding_constraint(_arr, sharding)
         sph_map = SphericalDensity(
-            array=jnp.asarray(shells[i], dtype=jnp.float32),
+            array=_arr,
             mesh_size=mesh_size,
             box_size=box_tuple,
             observer_position=(0.5, 0.5, 0.5),
-            sharding=None,
+            sharding=sharding,
             halo_size=(0, 0),
             nside=nside,
             z_sources=jnp.asarray([z_centers[i]]),
@@ -381,6 +386,7 @@ def load_cosmogrid_kappa(
     probe: str = "kg",
     bins: tuple[int, ...] | list[int] | None = None,
     ud_nside: int | None = None,
+    sharding=None,
 ) -> Catalog:
     """Load CosmoGrid Stage 3 projected kappa (or IA/galaxy density) maps.
 
@@ -436,12 +442,15 @@ def load_cosmogrid_kappa(
             nz_bin = nz_shear[bin_idx - 1]  # bins are 1-indexed
             z_eff, a_eff, chi_center, dwidth = _nz_metadata(nz_bin, cosmo)
 
+            _arr = jnp.asarray(data, dtype=jnp.float32)
+            if sharding is not None:
+                _arr = jax.lax.with_sharding_constraint(_arr, sharding)
             kappa_map = SphericalKappaField(
-                array=jnp.asarray(data, dtype=jnp.float32),
+                array=_arr,
                 mesh_size=(1, 1, 1),
                 box_size=(1.0, 1.0, 1.0),
                 observer_position=(0.5, 0.5, 0.5),
-                sharding=None,
+                sharding=sharding,
                 halo_size=(0, 0),
                 nside=nside,
                 z_sources=z_eff,

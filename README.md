@@ -3,7 +3,7 @@
 **Differentiable cosmological forward modeling on JAX**
 
 <p align="center">
-  <img src="assets/lightcone_shells.png" alt="HEALPix spherical lightcone shells from an N-body simulation" width="700">
+  <img src="assets/PIPELINE.png" alt="HEALPix spherical lightcone shells from an N-body simulation" width="700">
 </p>
 
 ## Overview

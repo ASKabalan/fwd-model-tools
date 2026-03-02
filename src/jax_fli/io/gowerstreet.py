@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Union
 
 import healpy as hp
+import jax
+import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 from jax_cosmo.parameters import Planck18
@@ -43,6 +45,7 @@ def load_gowerstreet(
     max_redshift: float | None = None,
     max_comoving_distance: float | None = None,
     ud_nside: int | None = None,
+    sharding=None,
 ) -> Catalog:
     """Load GowerStreet lightcone data.
 
@@ -128,12 +131,15 @@ def load_gowerstreet(
             continue
         # Load map
         map_data = np.load(lc_file)
+        _arr = np.asarray(map_data)
+        if sharding is not None:
+            _arr = jax.lax.with_sharding_constraint(jnp.asarray(_arr), sharding)
         sph_map = SphericalDensity(
-            array=np.asarray(map_data),
+            array=_arr,
             mesh_size=(int(params["nGrid"]), int(params["nGrid"]), int(params["nGrid"])),
             box_size=(float(params["dBoxSize"]), float(params["dBoxSize"]), float(params["dBoxSize"])),
             observer_position=(0.5, 0.5, 0.5),
-            sharding=None,
+            sharding=sharding,
             halo_size=(0, 0),
             nside=hp.npix2nside(map_data.shape[-1]),
             z_sources=np.asarray([z_centers[i]]),

@@ -34,7 +34,7 @@ class Configurations:
     # Lensing parameters
     density_plane_smoothing: float = 0.0
     min_redshift: float = 0.01
-    max_redshift: float = 3.0
+    max_redshift: float = 1.5
     lensing: str = "born"
     # Simulation parameters
     lpt_order: int = 2
