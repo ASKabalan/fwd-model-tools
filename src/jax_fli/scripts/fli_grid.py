@@ -7,7 +7,7 @@ runs that share the same static shapes.
 Range notation
 --------------
 Scalar griddable parameters (--Omega-c, --sigma8, --seed, --nb-shells,
---dt0, --nb-steps) accept either explicit values or a compact
+--nside) accept either explicit values or a compact
 ``start:stop:step`` range token (stop is inclusive).  Both styles can be
 mixed freely in the same argument.
 
@@ -25,7 +25,7 @@ Example
         --seed 0:2:1 \\
         --nb-shells 10 \\
         --nb-steps 18 \\
-        --nside 16 --output-dir /tmp/grid_out --dry-run
+        --nside 16 32 --output-dir /tmp/grid_out --dry-run
 """
 
 from __future__ import annotations
@@ -87,14 +87,14 @@ def _parse_groups(values: list, group_size: int) -> list[tuple]:
 
 
 def _make_stem(
-    subcommand: str, mesh, box, omega_c, sigma8, seed, nb_shells, dt0_or_steps, is_steps: bool, density_widths=None
+    subcommand: str, mesh, box, omega_c, sigma8, seed, nb_shells, nb_steps, nside, density_widths=None
 ) -> str:
     """Build a descriptive filename stem for a single grid combination."""
     mesh_str = "x".join(str(m) for m in mesh)
     box_str = "x".join(str(int(b)) if b == int(b) else str(b) for b in box)
-    step_tag = f"Nst{dt0_or_steps}" if is_steps else f"dt{dt0_or_steps}"
+    nside_tag = f"_nside{nside}" if nside is not None else ""
     dw_tag = f"_dw{density_widths}" if density_widths is not None else ""
-    return f"{subcommand}_M{mesh_str}_B{box_str}_Oc{omega_c}_S8{sigma8}_s{seed}_Ns{nb_shells}_{step_tag}{dw_tag}"
+    return f"{subcommand}_M{mesh_str}_B{box_str}_Oc{omega_c}_S8{sigma8}_s{seed}_Ns{nb_shells}_Nst{nb_steps}{nside_tag}{dw_tag}"
 
 
 # ---------------------------------------------------------------------------
@@ -170,24 +170,30 @@ def parser() -> ArgumentParser:
         help="Number of lightcone shells values; supports start:stop:step range notation",
     )
 
-    # --- Griddable: time-stepping (mutually exclusive) ---
-    dt_group = grid_parent.add_mutually_exclusive_group()
-    dt_group.add_argument(
-        "--dt0",
+    # --- Griddable: nside ---
+    grid_parent.add_argument(
+        "--nside",
         type=str,
         nargs="+",
         default=None,
-        metavar="DT",
-        help="Integration time step(s); supports start:stop:step range notation",
+        metavar="NS",
+        help="HEALPix NSIDE value(s) for spherical painting; supports start:stop:step range notation",
     )
-    dt_group.add_argument(
+
+    # --- Fixed: alternative painting targets (mutually exclusive with each other, not with nside) ---
+    paint_group = grid_parent.add_mutually_exclusive_group()
+    paint_group.add_argument("--flatsky-npix", type=int, nargs=2, default=None, metavar=("H", "W"))
+    paint_group.add_argument("--field-size", type=int, nargs=2, default=None, metavar=("H", "W"))
+    paint_group.add_argument("--density", action="store_true", default=False)
+
+    # --- Fixed: time-stepping ---
+    grid_parent.add_argument(
         "--nb-steps",
-        type=str,
-        nargs="+",
-        default=None,
+        type=int,
+        default=19,
         dest="nb_steps",
         metavar="N",
-        help="Number of integration steps (mutually exclusive with --dt0); supports start:stop:step range notation",
+        help="Number of integration steps (fixed, not griddable); dt0 = (t1 - t0) / (nb_steps - 1). (default: 19)",
     )
 
     # --- Fixed: other cosmology ---
@@ -205,7 +211,7 @@ def parser() -> ArgumentParser:
     grid_parent.add_argument("--t1", type=float, default=1.0)
 
     # --- Fixed: LPT / solver ---
-    grid_parent.add_argument("--order", type=int, default=2, choices=[1, 2])
+    grid_parent.add_argument("--lpt-order", type=int, default=2, choices=[1, 2])
     grid_parent.add_argument("--interp", choices=["none", "onion", "telephoto"], default="none")
     grid_parent.add_argument("--drift-on-lightcone", action="store_true")
 
@@ -218,17 +224,16 @@ def parser() -> ArgumentParser:
     ts_group.add_argument("--ts-near", type=float, nargs="+", default=None, metavar="A_NEAR")
     grid_parent.add_argument("--ts-far", type=float, nargs="+", default=None, metavar="A_FAR")
 
-    # --- Fixed: painting target ---
-    paint_group = grid_parent.add_mutually_exclusive_group()
-    paint_group.add_argument("--nside", type=int, default=None)
-    paint_group.add_argument("--flatsky-npix", type=int, nargs=2, default=None, metavar=("H", "W"))
-    paint_group.add_argument("--field-size", type=int, nargs=2, default=None, metavar=("H", "W"))
-    paint_group.add_argument("--density", action="store_true", default=False)
-
     # --- Fixed: distributed / sharding ---
     grid_parent.add_argument("--pdim", type=int, nargs=2, default=[1, 1], metavar=("PX", "PY"))
     grid_parent.add_argument("--nodes", type=int, default=1)
-    grid_parent.add_argument("--halo-size", type=int, nargs=2, default=[0, 0], metavar=("H0", "H1"))
+    grid_parent.add_argument(
+        "--halo-fraction",
+        type=int,
+        default=8,
+        metavar="F",
+        help="Halo size as mesh // fraction for distributed painting (default: 8)",
+    )
     grid_parent.add_argument(
         "--observer-position", type=float, nargs=3, default=[0.5, 0.5, 0.5], metavar=("OX", "OY", "OZ")
     )
@@ -267,13 +272,12 @@ def main() -> None:
     import jax
     import jax.numpy as jnp
 
+    from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear
     from jax_fli.scripts.fli_simulate import (
         _build_cosmo,
         _build_painting,
-        _build_sharding,
         _build_solver,
         _resolve_dt0,
-        _resolve_nz_shear,
         _resolve_ts,
         _save_result,
         run_simulations,
@@ -288,24 +292,24 @@ def main() -> None:
     args.sigma8 = _expand_range_values(args.sigma8, float)
     args.seed = _expand_range_values(args.seed, int)
     args.nb_shells = _expand_range_values(args.nb_shells, int)
-    if args.dt0 is not None:
-        args.dt0 = _expand_range_values(args.dt0, float)
-    if args.nb_steps is not None:
-        args.nb_steps = _expand_range_values(args.nb_steps, int)
+
+    # Expand nside if provided
+    if args.nside is not None:
+        nside_values = _expand_range_values(args.nside, int)
+    else:
+        nside_values = [None]
+
+    # Validate: cannot use both nside and flatsky-npix/field-size/density
+    if nside_values != [None]:
+        if args.flatsky_npix is not None or args.field_size is not None or args.density:
+            p.error("--nside cannot be combined with --flatsky-npix, --field-size, or --density")
 
     # --- Expand griddable parameters ---
     mesh_configs = _parse_groups(args.mesh_size, 3)
     box_configs = _parse_groups(args.box_size, 3)
 
-    # Resolve dt0 values: either a list from --dt0, from --nb-steps, or the default
-    if args.nb_steps is not None:
-        # Store as negative sentinel so we can distinguish nb_steps vs dt0 later
-        dt_values = [("nb_steps", n) for n in args.nb_steps]
-    elif args.dt0 is not None:
-        dt_values = [("dt0", d) for d in args.dt0]
-    else:
-        # Default: dt0=0.05
-        dt_values = [("dt0", None)]  # None triggers _resolve_dt0 default
+    # Compute dt0 from fixed nb_steps
+    dt0 = _resolve_dt0(args)
 
     # Each --density-widths value is a scalar broadcast to all shells; None = use defaults
     density_width_values = args.density_widths if args.density_widths is not None else [None]
@@ -318,7 +322,7 @@ def main() -> None:
         * len(args.sigma8)
         * len(args.seed)
         * len(args.nb_shells)
-        * len(dt_values)
+        * len(nside_values)
         * len(density_width_values)
     )
     grid = product(
@@ -328,7 +332,7 @@ def main() -> None:
         args.sigma8,
         args.seed,
         args.nb_shells,
-        dt_values,
+        nside_values,
         density_width_values,
     )
     print(f"Grid: {total} combination(s) — subcommand={args.subcommand}")
@@ -347,7 +351,7 @@ def main() -> None:
 
     import jax_fli as jfli
 
-    for idx, (mesh, box, omega_c, sigma8, seed, nb_shells, (dt_kind, dt_val), density_width_val) in enumerate(grid):
+    for idx, (mesh, box, omega_c, sigma8, seed, nb_shells, nside_val, density_width_val) in enumerate(grid):
         # Build combo Namespace by shallow-copying fixed args and overriding grid dims
         combo = copy.copy(args)
         combo.mesh_size = list(mesh)
@@ -356,23 +360,11 @@ def main() -> None:
         combo.sigma8 = sigma8
         combo.seed = seed
         combo.nb_shells = nb_shells
-
-        # Resolve dt0 for this combo
-        if dt_kind == "nb_steps":
-            combo.dt0 = None
-            combo.nb_steps = dt_val
-            dt0 = _resolve_dt0(combo, combo.t1)
-            is_steps = True
-            step_label = dt_val
-        else:
-            combo.dt0 = dt_val  # None triggers default 0.05 inside _resolve_dt0
-            combo.nb_steps = None
-            dt0 = _resolve_dt0(combo, combo.t1)
-            is_steps = False
-            step_label = dt0
+        # Set nside for this combo (used by _build_painting)
+        combo.nside = nside_val
 
         stem = _make_stem(
-            args.subcommand, mesh, box, omega_c, sigma8, seed, nb_shells, step_label, is_steps, density_width_val
+            args.subcommand, mesh, box, omega_c, sigma8, seed, nb_shells, args.nb_steps, nside_val, density_width_val
         )
 
         print(f"[{idx + 1}/{total}] {stem}")
@@ -385,7 +377,7 @@ def main() -> None:
         ts = _resolve_ts(combo)
         solver = _build_solver(combo, painting)
 
-        halo_size = (mesh[0] // 8, mesh[1] // 8)
+        halo_size = (mesh[0] // args.halo_fraction, mesh[1] // args.halo_fraction)
 
         key = jax.random.key(seed)
         initial_field = jfli.gaussian_initial_conditions(
@@ -402,7 +394,7 @@ def main() -> None:
         )
 
         sim_type = args.subcommand
-        lpt_order = combo.order
+        lpt_order = combo.lpt_order
         if args.subcommand == "lensing":
             sim_type = combo.lensing
 

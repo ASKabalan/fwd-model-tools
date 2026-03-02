@@ -68,7 +68,7 @@ def main() -> None:
     import jax
 
     from jax_fli.io import Catalog
-    from jax_fli.scripts.fli_simulate import _build_sharding, _resolve_nz_shear
+    from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear
 
     p = parser()
     args = p.parse_args()

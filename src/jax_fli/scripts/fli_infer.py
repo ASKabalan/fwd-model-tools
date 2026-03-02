@@ -3,48 +3,17 @@
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 import warnings
 from argparse import Namespace
 
 import jax
 import jax_cosmo as jc
-from jax.sharding import AxisType, NamedSharding
-from jax.sharding import PartitionSpec as P
 from numpyro.handlers import condition
 
 import jax_fli as jfli
 from jax_fli.fields import FlatKappaField, SphericalKappaField
-
-# ---------------------------------------------------------------------------
-# Sharding setup
-# ---------------------------------------------------------------------------
-
-
-def _build_sharding(args: Namespace):
-    """Return sharding or None for single-device runs.
-
-    Warns if the product of pdim dimensions does not match the available device count.
-    """
-    print(f"jax devices: {jax.devices()}")
-    pdim = tuple(args.pdim)
-
-    n_devices = jax.device_count()
-    if math.prod(pdim) != n_devices:
-        warnings.warn(
-            f"--pdim {pdim} implies {math.prod(pdim)} devices but jax.device_count() == {n_devices}. "
-            "Results may be incorrect on a misconfigured device mesh.",
-            stacklevel=2,
-        )
-
-    if pdim == (1, 1):
-        return None
-
-    mesh = jax.make_mesh(pdim, ("x", "y"), axis_types=(AxisType.Auto, AxisType.Auto))
-    sharding = NamedSharding(mesh, P("x", "y"))
-    return sharding
-
+from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear
 
 # ---------------------------------------------------------------------------
 # Observable loading
@@ -97,7 +66,7 @@ def _load_observable(path: str):
     else:
         raise ValueError(
             f"Observable must be a SphericalKappaField or FlatKappaField, got {type(obs_field).__name__}. "
-            "Generate observables with ffi-samples or ffi-simulate lensing."
+            "Generate observables with fli-samples or fli-simulate lensing."
         )
 
     # The catalog stores all tomographic bins stacked along axis 0: (n_kappas, npix) or (n_kappas, ny, nx)
@@ -135,14 +104,14 @@ def _load_initial_condition(path: str):
 
 
 def parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser for ffi-infer."""
+    """Build the CLI argument parser for fli-infer."""
     p = argparse.ArgumentParser(
-        prog="ffi-infer",
+        prog="fli-infer",
         description="Run full-field MCMC inference conditioned on observed kappa maps.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    # --- Required positional-style required args ---
+    # --- Required args ---
     p.add_argument(
         "--observable",
         type=str,
@@ -157,7 +126,6 @@ def parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Output directory for MCMC checkpoints and parquet catalogs.",
     )
-    p.add_argument("--nb-shells", type=int, required=True, metavar="INT", help="Number of lightcone shells.")
     p.add_argument(
         "--mesh-size", type=int, nargs=3, required=True, metavar=("NX", "NY", "NZ"), help="Inference mesh resolution."
     )
@@ -189,13 +157,13 @@ def parser() -> argparse.ArgumentParser:
 
     # --- Device mesh / distributed ---
     p.add_argument("--pdim", type=int, nargs=2, default=[1, 1], metavar=("PX", "PY"), help="Device mesh dimensions.")
+    p.add_argument("--nodes", type=int, default=1, help="Number of nodes.")
     p.add_argument(
-        "--halo-size",
+        "--halo-fraction",
         type=int,
-        nargs=2,
-        default=None,
-        metavar=("H0", "H1"),
-        help="Halo exchange depth; required when --pdim != 1 1 and jax.device_count() > 1.",
+        default=8,
+        metavar="F",
+        help="Halo size as mesh // fraction for distributed painting.",
     )
 
     # --- Observer / physics ---
@@ -207,14 +175,77 @@ def parser() -> argparse.ArgumentParser:
         metavar=("OX", "OY", "OZ"),
         help="Observer position in box coordinates.",
     )
+    p.add_argument(
+        "--nz-shear",
+        nargs="+",
+        default=["s3"],
+        metavar="Z",
+        help="Source redshift bins: 's3'/'s3[i]'/'s3[start:stop]' for Stage-3 presets, "
+        "or space-separated floats for delta-function redshifts.",
+    )
     p.add_argument("--sigma-e", type=float, default=0.26, help="Shape noise dispersion.")
     p.add_argument("--density-plane-smoothing", type=float, default=0.0, help="Density plane smoothing scale.")
 
-    # --- Time-stepping ---
+    # --- Simulation parameters ---
+    p.add_argument("--lpt-order", type=int, choices=[1, 2], default=2, help="LPT order.")
     p.add_argument("--t0", type=float, default=0.01, help="LPT start scale factor.")
     p.add_argument("--t1", type=float, default=1.0, help="NBody end scale factor.")
-    p.add_argument("--dt0", type=float, default=0.01, help="Integration time step.")
-    p.add_argument("--lpt-order", type=int, choices=[1, 2], default=2, help="LPT order.")
+    p.add_argument(
+        "--nb-steps",
+        type=int,
+        default=100,
+        dest="nb_steps",
+        help="Number of integration steps (>= 2); dt0 = (t1 - t0) / (nb_steps - 1).",
+    )
+    p.add_argument("--nb-shells", type=int, default=8, metavar="INT", help="Number of lightcone shells.")
+    p.add_argument(
+        "--density-widths", type=float, nargs="+", default=None, metavar="W", help="Override shell widths (Mpc/h)."
+    )
+    # Shell spec alternatives
+    ts_group = p.add_mutually_exclusive_group()
+    ts_group.add_argument(
+        "--ts", type=float, nargs="+", default=None, metavar="A", help="Scale factors for snapshot/shell output."
+    )
+    ts_group.add_argument(
+        "--ts-near",
+        type=float,
+        nargs="+",
+        default=None,
+        metavar="A_NEAR",
+        help="Near scale factor edge(s) (use with --ts-far).",
+    )
+    p.add_argument(
+        "--ts-far",
+        type=float,
+        nargs="+",
+        default=None,
+        metavar="A_FAR",
+        help="Far scale factor edge(s) (use with --ts-near).",
+    )
+    p.add_argument(
+        "--interp",
+        choices=["none", "onion", "telephoto"],
+        default="none",
+        help="Interpolation kernel.",
+    )
+    p.add_argument(
+        "--drift-on-lightcone", action="store_true", help="Apply drift correction when painting lightcone shells."
+    )
+    p.add_argument("--equal-vol", action="store_true", default=False, help="Use equal-volume shell partitioning.")
+    p.add_argument(
+        "--min-width", type=float, default=50.0, dest="min_width", help="Minimum shell width in Mpc/h for equal-vol."
+    )
+
+    # --- Lensing ---
+    p.add_argument(
+        "--lensing",
+        choices=["born", "raytrace"],
+        default="born",
+        help="Lensing method.",
+    )
+    p.add_argument("--min-z", type=float, default=0.01, help="Minimum redshift for nz integration.")
+    p.add_argument("--max-z", type=float, default=1.5, help="Maximum redshift for nz integration.")
+    p.add_argument("--n-integrate", type=int, default=32, help="Number of integration points for nz distributions.")
 
     # --- Gradient strategy ---
     p.add_argument(
@@ -265,10 +296,9 @@ def _validate_args(args: Namespace, p: argparse.ArgumentParser) -> None:
     if args.sampler == "MCLMC" and args.backend != "blackjax":
         p.error("--sampler MCLMC requires --backend blackjax.")
 
-    # 4. If --pdim != 1 1 AND multiple devices: --halo-size is required
-    pdim = tuple(args.pdim)
-    if pdim != (1, 1) and jax.device_count() > 1 and args.halo_size is None:
-        p.error("--halo-size is required when --pdim != 1 1 and jax.device_count() > 1.")
+    # 4. nb_steps must be >= 2
+    if args.nb_steps < 2:
+        p.error(f"--nb-steps must be >= 2, got {args.nb_steps}")
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +307,7 @@ def _validate_args(args: Namespace, p: argparse.ArgumentParser) -> None:
 
 
 def main() -> None:
-    """CLI entry point registered as ffi-infer."""
+    """CLI entry point registered as fli-infer."""
     p = parser()
     args = p.parse_args()
 
@@ -326,11 +356,10 @@ def main() -> None:
     sharding = _build_sharding(args)
 
     # 7. Assemble Configurations, probabilistic model, and conditioned model
-    nz_shear = jfli.io.get_stage3_nz_shear()
-
+    nz_shear = _resolve_nz_shear(args)  # default args.nz_shear = ["s3"]
     if len(nz_shear) != n_kappas:
         print(
-            f"Warning: observable has {n_kappas} kappa maps but Stage-3 nz_shear has {len(nz_shear)} bins. "
+            f"Warning: observable has {n_kappas} kappa maps but nz_shear has {len(nz_shear)} bins. "
             "Inference may fail if the numbers don't match.",
             file=sys.stderr,
         )
@@ -340,8 +369,11 @@ def main() -> None:
         "sigma8": jfli.infer.PreconditionnedUniform(0.6, 1.0),
     }
 
+    mesh = tuple(args.mesh_size)
+    halo_size = (mesh[0] // args.halo_fraction, mesh[1] // args.halo_fraction)
+
     config = jfli.ppl.Configurations(
-        mesh_size=tuple(args.mesh_size),
+        mesh_size=mesh,
         box_size=tuple(args.box_size),
         nside=nside,
         flatsky_npix=flatsky_npix,
@@ -353,16 +385,21 @@ def main() -> None:
         priors=priors,
         sigma_e=args.sigma_e,
         density_plane_smoothing=args.density_plane_smoothing,
-        halo_size=tuple(args.halo_size) if args.halo_size is not None else (0, 0),
+        halo_size=halo_size,
         t0=args.t0,
-        dt0=args.dt0,
+        nb_steps=args.nb_steps,
         t1=args.t1,
         lpt_order=args.lpt_order,
         number_of_shells=args.nb_shells,
-        lensing="born",
+        lensing=args.lensing,
         adjoint=args.adjoint,
         checkpoints=args.checkpoints,
         sharding=sharding,
+        drift_on_lightcone=args.drift_on_lightcone,
+        equal_vol=args.equal_vol,
+        min_width=args.min_width,
+        min_redshift=args.min_z,
+        max_redshift=args.max_z,
     )
 
     prob_model = jfli.ppl.full_field_probmodel(config)

@@ -25,12 +25,12 @@ fi
 SIMULATION_TYPE='nbody'   # lpt | nbody | lensing
 NZ_SHEAR="s3"             # only used when SIMULATION_TYPE=lensing
 LENSING_TYPE="born"       # born | raytrace | both
-NSIDE=512
 NB_SHELLS=10
+NB_STEPS=18               # fixed, not part of grid
 T0=0.1
-DT0=""          # leave empty to use NB_STEPS
-NB_STEPS=18     # ignored if DT0 is set; dt0 = (t1 - t0) / (nb_steps - 1)
 T1=1.0
+LPT_ORDER=2
+HALO_FRACTION=8
 INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false
@@ -59,6 +59,7 @@ BOX_SIZES=(
 OMEGA_C=(0.2:0.5:0.1)
 SIGMA_8=(0.8:0.85:0.01)
 SEED=(0:9:1)
+NSIDE=(512)
 
 read -r PX PY <<< "$PDIMS"
 
@@ -78,10 +79,12 @@ sbatch $BASE_SBATCH_ARGS \
     --sigma8 ${SIGMA_8[*]} \
     --seed ${SEED[*]} \
     --nb-shells $NB_SHELLS \
-    $([ -n "$DT0" ] && echo "--dt0 $DT0" || echo "--nb-steps $NB_STEPS") \
+    --nb-steps $NB_STEPS \
+    --nside ${NSIDE[*]} \
     --t0 $T0 \
     --t1 $T1 \
-    --nside $NSIDE \
+    --lpt-order $LPT_ORDER \
+    --halo-fraction $HALO_FRACTION \
     --pdim $PX $PY \
     --nodes $NODES \
     --interp $INTERP \

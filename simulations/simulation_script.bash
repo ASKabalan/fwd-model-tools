@@ -28,8 +28,10 @@ NSIDE=1024
 NB_SHELLS=10
 T0=0.1
 T1=1.0
-NUM_STEPS=40
-DT0=$(echo "scale=4; ($T1 - $T0) / ($NUM_STEPS - 1)" | bc)
+NB_STEPS=40
+LPT_ORDER=2
+HALO_FRACTION=8
+OBSERVER_POSITION="0.5 0.5 0.5"
 INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false    # set to "true" to enable equal-volume shells
@@ -43,15 +45,6 @@ MESH_SIZES=(
     "2048 2048 2048"
     "3072 3072 3072"
     "4096 4096 4096"
-)
-# 1/8
-HALO_SIZES=(
-    "64 64"
-    "128 128"
-    "192 192"
-    "256 256"
-    "384 384"
-    "512 512"
 )
 BOX_SIZES=(
     "6000.0 6000.0 6000.0"
@@ -75,11 +68,8 @@ run_simulations() {
         BOX_NAME=${BOX// /x}
         BOX_NAME=${BOX_NAME//.0/}
 
-        # Loop 2: Mesh and Halo Sizes (Iterated together using array index)
-        for i in "${!MESH_SIZES[@]}"; do
-            MESH="${MESH_SIZES[$i]}"
-            HALO="${HALO_SIZES[$i]}"
-
+        # Loop 2: Mesh Sizes
+        for MESH in "${MESH_SIZES[@]}"; do
             MESH_NAME=${MESH// /x}
 
             # Loop 3: Omega_c
@@ -91,14 +81,13 @@ run_simulations() {
                     # Loop 5: Seed
                     for SD in "${SEED[@]}"; do
 
-                        JOB_NAME="${CONSTRAINT}_cosmo_M${MESH_NAME}_B${BOX_NAME}_STEPS${NUM_STEPS}_H${HALO}_c${OC}_S8${S8}_s${SD}"
+                        JOB_NAME="${CONSTRAINT}_cosmo_M${MESH_NAME}_B${BOX_NAME}_STEPS${NB_STEPS}_c${OC}_S8${S8}_s${SD}"
 
                         echo "Submitting $JOB_NAME"
-                        echo "  -> Box: $BOX | Mesh: $MESH | Halo: $HALO | NUM_STEPS: $NUM_STEPS | Oc: $OC | S8: $S8 | Seed: $SD"
+                        echo "  -> Box: $BOX | Mesh: $MESH | NB_STEPS: $NB_STEPS | Oc: $OC | S8: $S8 | Seed: $SD"
 
                         OUT_PARQUET_FILE="$OUTPUT_DIR/${JOB_NAME}.parquet"
 
-                        # Notice: removed the duplicate sbatch args since they are in BASE_SBATCH_ARGS
                         sbatch $BASE_SBATCH_ARGS \
                             --job-name="$JOB_NAME" \
                             --output="DEL/LOGS/%x_%j.out" \
@@ -108,14 +97,18 @@ run_simulations() {
                             --box-size $BOX \
                             --pdim $PX $PY \
                             --nodes $NODES \
-                            --halo-size $HALO \
+                            --halo-fraction $HALO_FRACTION \
+                            --observer-position $OBSERVER_POSITION \
                             --nside $NSIDE \
                             --nb-shells $NB_SHELLS \
                             --t0 $T0 \
-                            --dt0 $DT0 \
+                            --nb-steps $NB_STEPS \
                             --t1 $T1 \
+                            --lpt-order $LPT_ORDER \
                             --interp $INTERP \
                             $DRIFT_ON_LC \
+                            $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
+                            --min-width $MIN_WIDTH \
                             --nz-shear $NZ_SHEAR \
                             --lensing $LENSING_METHOD \
                             --Omega-c $OC \

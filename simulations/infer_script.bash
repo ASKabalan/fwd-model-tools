@@ -23,16 +23,25 @@ if [ -z "$SLURM_SCRIPT" ]; then
     exit 1
 fi
 
-# Physics / MCMC parameters
+# Physics / simulation parameters
 MESH_SIZE="256 256 256"
 BOX_SIZE="1000.0 1000.0 1000.0"
 NB_SHELLS=10
-HALO_SIZE="0 0"      # set to e.g. "64 64" when PDIMS != "1 1"
+HALO_FRACTION=8
 T0=0.1
 T1=1.0
-NUM_STEPS=40
-DT0=$(echo "scale=4; ($T1 - $T0) / ($NUM_STEPS - 1)" | bc)
+NB_STEPS=40
 LPT_ORDER=2
+INTERP="none"
+DRIFT_ON_LC=false      # set to "true" to pass --drift-on-lightcone
+EQUAL_VOL=false        # set to "true" to enable equal-volume shells
+MIN_WIDTH=50.0
+LENSING="born"         # born | raytrace
+MIN_Z=0.01
+MAX_Z=1.5
+N_INTEGRATE=32
+
+# MCMC parameters
 ADJOINT="checkpointed"
 CHECKPOINTS=10
 NUM_WARMUP=500
@@ -80,9 +89,19 @@ sbatch $BASE_SBATCH_ARGS \
     --box-size $BOX_SIZE \
     --nb-shells $NB_SHELLS \
     --pdim $PX $PY \
-    $([ -n "$HALO_SIZE" ] && [ "$PDIMS" != "1 1" ] && echo "--halo-size $HALO_SIZE") \
-    --t0 $T0 --t1 $T1 --dt0 $DT0 \
+    --nodes $NODES \
+    --halo-fraction $HALO_FRACTION \
+    --t0 $T0 --t1 $T1 \
+    --nb-steps $NB_STEPS \
     --lpt-order $LPT_ORDER \
+    --interp $INTERP \
+    $([ "$DRIFT_ON_LC" = "true" ] && echo "--drift-on-lightcone") \
+    $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
+    --min-width $MIN_WIDTH \
+    --lensing $LENSING \
+    --min-z $MIN_Z \
+    --max-z $MAX_Z \
+    --n-integrate $N_INTEGRATE \
     --adjoint $ADJOINT \
     --checkpoints $CHECKPOINTS \
     --num-warmup $NUM_WARMUP \

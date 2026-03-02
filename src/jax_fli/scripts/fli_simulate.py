@@ -9,7 +9,6 @@ JAX is imported lazily (after argument parsing) so --help is instantaneous.
 """
 
 import os
-import re
 import sys
 from argparse import ArgumentParser, Namespace
 from functools import partial
@@ -18,10 +17,9 @@ import jax
 import jax.numpy as jnp
 import jax_cosmo as jc
 from jax.experimental.multihost_utils import sync_global_devices
-from jax.sharding import AxisType, NamedSharding
-from jax.sharding import PartitionSpec as P
 
 import jax_fli as jfli
+from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear, _try_parse_s3  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Cosmology builder
@@ -84,57 +82,6 @@ def _resolve_ts(args: Namespace):
 
 
 # ---------------------------------------------------------------------------
-# nz_shear resolver
-# ---------------------------------------------------------------------------
-
-
-def _try_parse_s3(token: str):
-    """Parse s3/stage3 with an optional bin selector. Returns None if token is not s3.
-
-    Supported forms:
-      s3            → all 4 Stage-3 bins
-      s3[0]         → first bin only (wrapped in a list)
-      s3[1:3]       → bins 1 and 2
-      s3[:2]        → first two bins
-      s3[::2]       → every other bin
-    """
-    m = re.fullmatch(r"(?:stage3|s3)(?:\[([^\]]*)\])?", token, re.IGNORECASE)
-    if m is None:
-        return None
-    distributions = jfli.io.get_stage3_nz_shear()
-    selector = m.group(1)
-    if selector is None:
-        return distributions
-    # Integer index → wrap in list for uniform downstream handling
-    if re.fullmatch(r"-?\d+", selector):
-        return [distributions[int(selector)]]
-    # Slice notation  start:stop  or  start:stop:step
-    parts = selector.split(":")
-    if 2 <= len(parts) <= 3:
-        opt = lambda s: int(s) if s else None  # noqa: E731
-        slc = slice(opt(parts[0]), opt(parts[1]), opt(parts[2]) if len(parts) == 3 else None)
-        return distributions[slc]
-    raise ValueError(f"Cannot parse s3 selector '[{selector}]'. Use s3[i] or s3[start:stop[:step]].")
-
-
-def _resolve_nz_shear(args: Namespace):
-    """Return nz_shear list from CLI --nz-shear values."""
-    nz_shear = getattr(args, "nz_shear", None)
-    if nz_shear is None:
-        return None
-    values = nz_shear
-    if len(values) == 1:
-        s3 = _try_parse_s3(values[0])
-        if s3 is not None:
-            return s3
-    # Otherwise parse as floats
-    try:
-        return jnp.array(values, dtype=jnp.float32)
-    except ValueError as exc:
-        raise ValueError(f"--nz-shear values must be floats or s3/s3[i]/s3[start:stop]: {values}") from exc
-
-
-# ---------------------------------------------------------------------------
 # Solver builder
 # ---------------------------------------------------------------------------
 
@@ -158,24 +105,6 @@ def _build_solver(args: Namespace, painting):
         raise ValueError(f"Unknown --interp value: {inter}")
 
     return jfli.ReversibleDoubleKickDrift(interp_kernel=interp_kernel)
-
-
-# ---------------------------------------------------------------------------
-# Sharding setup
-# ---------------------------------------------------------------------------
-
-
-def _build_sharding(args: Namespace):
-    """Return sharding or None for single-device runs."""
-
-    print(f"jax devices: {jax.devices()}")
-    pdim = tuple(args.pdim)
-    if pdim == (1, 1):
-        return None
-
-    mesh = jax.make_mesh(pdim, ("x", "y"), axis_types=(AxisType.Auto, AxisType.Auto))
-    sharding = NamedSharding(mesh, P("x", "y"))
-    return sharding
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +163,11 @@ def parser() -> ArgumentParser:
     )
     common.add_argument("--nodes", type=int, default=1, help="Number of nodes (default: 1)")
     common.add_argument(
-        "--halo-size",
+        "--halo-fraction",
         type=int,
-        nargs=2,
-        default=[0, 0],
-        metavar=("H0", "H1"),
-        help="Halo exchange depth for distributed painting (default: 0 0)",
+        default=8,
+        metavar="F",
+        help="Halo size as mesh // fraction for distributed painting (default: 8)",
     )
     common.add_argument(
         "--observer-position",
@@ -310,7 +238,7 @@ def parser() -> ArgumentParser:
     # ------------------------------------------------------------------
     lpt_parent = ArgumentParser(add_help=False)
     lpt_parent.add_argument("--t0", type=float, default=0.1, help="LPT starting scale factor (default: 0.1)")
-    lpt_parent.add_argument("--order", type=int, default=2, choices=[1, 2], help="LPT order (default: 2)")
+    lpt_parent.add_argument("--lpt-order", type=int, default=2, choices=[1, 2], help="LPT order (default: 2)")
     lpt_parent.add_argument("--nb-shells", type=int, default=None, help="Number of lightcone shells")
     lpt_parent.add_argument(
         "--density-widths", type=float, nargs="+", default=None, metavar="W", help="Override shell widths (Mpc/h)"
@@ -355,14 +283,12 @@ def parser() -> ArgumentParser:
     # ------------------------------------------------------------------
     nbody_parent = ArgumentParser(add_help=False)
     nbody_parent.add_argument("--t1", type=float, default=1.0, help="NBody final scale factor (default: 1.0)")
-    dt_group = nbody_parent.add_mutually_exclusive_group()
-    dt_group.add_argument("--dt0", type=float, default=None, help="Integration time step size (default: 0.05)")
-    dt_group.add_argument(
+    nbody_parent.add_argument(
         "--nb-steps",
         type=int,
-        default=None,
+        default=19,
         dest="nb_steps",
-        help="Number of integration steps (>= 2); dt0 = (t1 - t0) / (nb_steps - 1)",
+        help="Number of integration steps (>= 2); dt0 = (t1 - t0) / (nb_steps - 1). (default: 19)",
     )
     nbody_parent.add_argument(
         "--interp",
@@ -446,20 +372,17 @@ def parser() -> ArgumentParser:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_dt0(args: Namespace, t1: float) -> float:
-    """Resolve dt0 from --dt0 or --nb-steps.
+def _resolve_dt0(args: Namespace) -> float:
+    """Compute dt0 from --nb-steps, --t0, and --t1.
 
     Formula: dt0 = (t1 - t0) / (nb_steps - 1)
-    With default t0=0.1, t1=1.0, nb_steps=18 → dt0 ≈ 0.0529.
     """
-    dt0 = getattr(args, "dt0", None)
-    nb_steps = getattr(args, "nb_steps", None)
+    nb_steps = getattr(args, "nb_steps", 19)
     t0 = getattr(args, "t0", 0.1)
-    if nb_steps is not None:
-        if nb_steps < 2:
-            raise ValueError(f"--nb-steps must be >= 2, got {nb_steps}")
-        return (t1 - t0) / (nb_steps - 1)
-    return dt0 if dt0 is not None else 0.05
+    t1 = getattr(args, "t1", 1.0)
+    if nb_steps < 2:
+        raise ValueError(f"--nb-steps must be >= 2, got {nb_steps}")
+    return (t1 - t0) / (nb_steps - 1)
 
 
 # ---------------------------------------------------------------------------
@@ -608,14 +531,16 @@ def main() -> None:
     ts = _resolve_ts(args)
     nz_shear = _resolve_nz_shear(args)
     solver = _build_solver(args, painting)
-    t1 = getattr(args, "t1", 1.0)
-    dt0 = _resolve_dt0(args, t1)
+    dt0 = _resolve_dt0(args)
+
+    mesh = tuple(args.mesh_size)
+    halo_size = (mesh[0] // args.halo_fraction, mesh[1] // args.halo_fraction)
 
     key = jax.random.key(args.seed)
 
     initial_field = jfli.gaussian_initial_conditions(
         key,
-        tuple(args.mesh_size),
+        mesh,
         tuple(args.box_size),
         observer_position=tuple(args.observer_position),
         cosmo=cosmo,
@@ -623,10 +548,11 @@ def main() -> None:
         flatsky_npix=tuple(args.flatsky_npix) if args.flatsky_npix is not None else None,
         field_size=tuple(args.field_size) if args.field_size is not None else None,
         sharding=sharding,
+        halo_size=halo_size,
     )
 
     sim_type = args.subcommand
-    lpt_order = args.order
+    lpt_order = args.lpt_order
     if args.subcommand == "lensing":
         sim_type = args.lensing
 
@@ -635,7 +561,7 @@ def main() -> None:
         "initial_conditions": initial_field,
         "solver": solver,
         "t0": args.t0,
-        "t1": t1,
+        "t1": getattr(args, "t1", 1.0),
         "dt0": dt0,
         "ts": ts,
         "nb_shells": args.nb_shells,
@@ -680,11 +606,11 @@ def main() -> None:
             "nodes": str(args.nodes),
         }
         extra_info = {
-            "halo_size": str(args.halo_size),
+            "halo_fraction": str(args.halo_fraction),
             "painting_target": painting.target,
             "ts": str(args.ts) if args.ts is not None else f"near={args.ts_near}, far={args.ts_far}",
             "nb_shells": str(args.nb_shells),
-            "lpt_order": str(args.order),
+            "lpt_order": str(args.lpt_order),
         }
 
         report_file = f"perf_{sim_type}.csv"
