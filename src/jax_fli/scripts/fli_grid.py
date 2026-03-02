@@ -249,7 +249,7 @@ def parser() -> ArgumentParser:
     lensing_p.add_argument("--nz-shear", nargs="+", required=True, metavar="Z")
     lensing_p.add_argument("--lensing", choices=["born", "raytrace", "both"], default="born")
     lensing_p.add_argument("--min-z", type=float, default=0.01)
-    lensing_p.add_argument("--max-z", type=float, default=3.0)
+    lensing_p.add_argument("--max-z", type=float, default=1.5)
     lensing_p.add_argument("--n-integrate", type=int, default=32)
     lensing_p.add_argument("--rt-interp", choices=["bilinear", "ngp", "nufft"], default="bilinear")
     lensing_p.add_argument("--no-parallel-transport", action="store_true")
@@ -385,6 +385,8 @@ def main() -> None:
         ts = _resolve_ts(combo)
         solver = _build_solver(combo, painting)
 
+        halo_size = (mesh[0] // 8, mesh[1] // 8)
+
         key = jax.random.key(seed)
         initial_field = jfli.gaussian_initial_conditions(
             key,
@@ -396,6 +398,7 @@ def main() -> None:
             flatsky_npix=tuple(combo.flatsky_npix) if combo.flatsky_npix is not None else None,
             field_size=tuple(combo.field_size) if combo.field_size is not None else None,
             sharding=sharding,
+            halo_size=halo_size,
         )
 
         sim_type = args.subcommand
