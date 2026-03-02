@@ -183,7 +183,7 @@ def _build_sharding(args: Namespace):
 # ---------------------------------------------------------------------------
 
 
-def _save_result(result, cosmo, args: Namespace | None = None, output: str | None = None) -> None:
+def _save_result(result, cosmo, args: Namespace, output: str | None = None) -> None:
     """Save result to parquet (process 0 only)."""
     out_path = output if output is not None else args.output
     parent_folder = os.path.dirname(out_path)
