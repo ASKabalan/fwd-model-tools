@@ -97,8 +97,7 @@ def main() -> None:
         field = catalog.field[0]
         cosmo = catalog.cosmology[0]
 
-        # For single-row files omit the row index suffix; add it from row 1 onward
-        suffix = f"_row{i:04d}" if i > 0 else ""
+        suffix = f"_row{i:04d}"
 
         print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
 
@@ -106,7 +105,7 @@ def main() -> None:
             born_result = jax.block_until_ready(
                 jfli.born(cosmo, field, nz_shear, min_z=min_z, max_z=max_z, n_integrate=n_integrate)
             )
-            out_path = output_dir / f"BORN_{suffix}.parquet"
+            out_path = output_dir / f"BORN{suffix}.parquet"
             os.makedirs(out_path.parent, exist_ok=True)
             Catalog(field=born_result, cosmology=cosmo).to_parquet(str(out_path))
             print(f"    Saved Born kappa → {out_path}")
@@ -127,8 +126,8 @@ def main() -> None:
                     parallel_transport=not args.no_parallel_transport,
                 )
             )
-            out_path_rt = output_dir / f"RAYTRACE_{suffix}.parquet"
-            out_path_born = output_dir / f"RAYTRACE_BORN_{suffix}.parquet"
+            out_path_rt = output_dir / f"RAYTRACE{suffix}.parquet"
+            out_path_born = output_dir / f"RAYTRACE_BORN{suffix}.parquet"
             os.makedirs(out_path_rt.parent, exist_ok=True)
             Catalog(field=kappa_rt, cosmology=cosmo).to_parquet(str(out_path_rt))
             print(f"    Saved raytrace kappa → {out_path_rt}")

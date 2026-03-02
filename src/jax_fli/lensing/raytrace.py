@@ -206,7 +206,7 @@ def raytrace(
         Default: 0.01.
     max_z : float, optional
         Maximum redshift for integration (only used for distributions).
-        Default: 3.0.
+        Default: 1.5.
     n_integrate : int, optional
         Number of integration points for Simpson's rule (only used for
         distributions). Default: 32.
