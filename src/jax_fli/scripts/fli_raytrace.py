@@ -10,7 +10,7 @@ from __future__ import annotations
 import glob as glob_module
 import os
 import sys
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from pathlib import Path
 
 

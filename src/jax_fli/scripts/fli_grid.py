@@ -20,12 +20,9 @@ Example
 from __future__ import annotations
 
 import copy
-import os
-import sys
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from itertools import product
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,9 +36,7 @@ def _parse_groups(values: list, group_size: int) -> list[tuple]:
          → [(64, 64, 64), (128, 128, 128)]
     """
     if len(values) % group_size != 0:
-        raise ValueError(
-            f"Expected a multiple of {group_size} values, got {len(values)}: {values}"
-        )
+        raise ValueError(f"Expected a multiple of {group_size} values, got {len(values)}: {values}")
     return [tuple(values[i : i + group_size]) for i in range(0, len(values), group_size)]
 
 
@@ -104,9 +99,7 @@ def parser() -> ArgumentParser:
 
     # --- Griddable: time-stepping (mutually exclusive) ---
     dt_group = grid_parent.add_mutually_exclusive_group()
-    dt_group.add_argument(
-        "--dt0", type=float, nargs="+", default=None, metavar="DT", help="Integration time step(s)"
-    )
+    dt_group.add_argument("--dt0", type=float, nargs="+", default=None, metavar="DT", help="Integration time step(s)")
     dt_group.add_argument(
         "--nb-steps",
         type=int,
@@ -133,17 +126,13 @@ def parser() -> ArgumentParser:
 
     # --- Fixed: LPT / solver ---
     grid_parent.add_argument("--order", type=int, default=2, choices=[1, 2])
-    grid_parent.add_argument(
-        "--interp", choices=["none", "onion", "telephoto"], default="none"
-    )
+    grid_parent.add_argument("--interp", choices=["none", "onion", "telephoto"], default="none")
     grid_parent.add_argument("--drift-on-lightcone", action="store_true")
 
     # --- Fixed: lightcone geometry ---
     grid_parent.add_argument("--equal-vol", action="store_true", default=False)
     grid_parent.add_argument("--min-width", type=float, default=50.0, dest="min_width")
-    grid_parent.add_argument(
-        "--density-widths", type=float, nargs="+", default=None, metavar="W"
-    )
+    grid_parent.add_argument("--density-widths", type=float, nargs="+", default=None, metavar="W")
     ts_group = grid_parent.add_mutually_exclusive_group()
     ts_group.add_argument("--ts", type=float, nargs="+", default=None, metavar="A")
     ts_group.add_argument("--ts-near", type=float, nargs="+", default=None, metavar="A_NEAR")
