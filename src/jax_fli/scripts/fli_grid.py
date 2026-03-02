@@ -86,12 +86,15 @@ def _parse_groups(values: list, group_size: int) -> list[tuple]:
     return [tuple(values[i : i + group_size]) for i in range(0, len(values), group_size)]
 
 
-def _make_stem(subcommand: str, mesh, box, omega_c, sigma8, seed, nb_shells, dt0_or_steps, is_steps: bool) -> str:
+def _make_stem(
+    subcommand: str, mesh, box, omega_c, sigma8, seed, nb_shells, dt0_or_steps, is_steps: bool, density_widths=None
+) -> str:
     """Build a descriptive filename stem for a single grid combination."""
     mesh_str = "x".join(str(m) for m in mesh)
     box_str = "x".join(str(int(b)) if b == int(b) else str(b) for b in box)
     step_tag = f"Nst{dt0_or_steps}" if is_steps else f"dt{dt0_or_steps}"
-    return f"{subcommand}_M{mesh_str}_B{box_str}_Oc{omega_c}_S8{sigma8}_s{seed}_Ns{nb_shells}_{step_tag}"
+    dw_tag = f"_dw{density_widths}" if density_widths is not None else ""
+    return f"{subcommand}_M{mesh_str}_B{box_str}_Oc{omega_c}_S8{sigma8}_s{seed}_Ns{nb_shells}_{step_tag}{dw_tag}"
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +265,7 @@ def parser() -> ArgumentParser:
 def main() -> None:
     """CLI entry point registered as fli-grid."""
     import jax
+    import jax.numpy as jnp
 
     from jax_fli.scripts.fli_simulate import (
         _build_cosmo,
@@ -303,6 +307,9 @@ def main() -> None:
         # Default: dt0=0.05
         dt_values = [("dt0", None)]  # None triggers _resolve_dt0 default
 
+    # Each --density-widths value is a scalar broadcast to all shells; None = use defaults
+    density_width_values = args.density_widths if args.density_widths is not None else [None]
+
     # Compute total from dimension sizes, then iterate lazily
     total = (
         len(mesh_configs)
@@ -312,6 +319,7 @@ def main() -> None:
         * len(args.seed)
         * len(args.nb_shells)
         * len(dt_values)
+        * len(density_width_values)
     )
     grid = product(
         mesh_configs,
@@ -321,6 +329,7 @@ def main() -> None:
         args.seed,
         args.nb_shells,
         dt_values,
+        density_width_values,
     )
     print(f"Grid: {total} combination(s) — subcommand={args.subcommand}")
     if args.dry_run:
@@ -338,7 +347,7 @@ def main() -> None:
 
     import jax_fli as jfli
 
-    for idx, (mesh, box, omega_c, sigma8, seed, nb_shells, (dt_kind, dt_val)) in enumerate(grid):
+    for idx, (mesh, box, omega_c, sigma8, seed, nb_shells, (dt_kind, dt_val), density_width_val) in enumerate(grid):
         # Build combo Namespace by shallow-copying fixed args and overriding grid dims
         combo = copy.copy(args)
         combo.mesh_size = list(mesh)
@@ -362,7 +371,9 @@ def main() -> None:
             is_steps = False
             step_label = dt0
 
-        stem = _make_stem(args.subcommand, mesh, box, omega_c, sigma8, seed, nb_shells, step_label, is_steps)
+        stem = _make_stem(
+            args.subcommand, mesh, box, omega_c, sigma8, seed, nb_shells, step_label, is_steps, density_width_val
+        )
 
         print(f"[{idx + 1}/{total}] {stem}")
         if args.dry_run:
@@ -408,6 +419,7 @@ def main() -> None:
             "sim_type": sim_type,
             "equal_vol": combo.equal_vol,
             "min_width": combo.min_width,
+            "density_widths": jnp.array(density_width_val) if density_width_val is not None else None,
         }
 
         result = jax.block_until_ready(run_simulations(**run_kwargs))

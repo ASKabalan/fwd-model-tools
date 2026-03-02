@@ -10,6 +10,8 @@ PDIMS="2 1"
 NODES=1
 OUTPUT_DIR="results/cosmology_runs"
 
+CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
+echo "CPUS_PER_TASK: $CPUS_PER_TASK"
 mkdir -p "$OUTPUT_DIR"
 
 # Check for SLURM_SCRIPT environment variable
@@ -21,12 +23,13 @@ fi
 # Simulation fixed parameters
 NZ_SHEAR="s3"
 SIMULATION_TYPE='nbody' # can also be lpt or lensing
-NSIDE=512
+LENSING_METHOD='raytrace' # born, raytrace, or both (only used when SIMULATION_TYPE=lensing)
+NSIDE=1024
 NB_SHELLS=10
 T0=0.1
-DT0=""        # set to e.g. 0.05, OR leave empty to use NB_STEPS
-NB_STEPS=18   # ignored if DT0 is set; dt0 = (t1 - t0) / nb_steps
 T1=1.0
+NUM_STEPS=40
+DT0=$(echo "scale=4; ($T1 - $T0) / ($NUM_STEPS - 1)" | bc)
 INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false    # set to "true" to enable equal-volume shells
@@ -34,28 +37,31 @@ MIN_WIDTH=50.0     # minimum shell width in Mpc/h (used when EQUAL_VOL=true)
 
 # Simulation-grid parameters
 MESH_SIZES=(
-    "64 64 64"
-    "128 128 128"
-    "256 256 256"
     "512 512 512"
+    "1024 1024 1024"
+    "1536 1536 1536"
+    "2048 2048 2048"
+    "3072 3072 3072"
+    "4096 4096 4096"
 )
+# 1/8
 HALO_SIZES=(
-    "8 8"
-    "16 16"
-    "32 32"
     "64 64"
+    "128 128"
+    "192 192"
+    "256 256"
+    "384 384"
+    "512 512"
 )
 BOX_SIZES=(
-    "200.0 200.0 200.0"
-    "400.0 400.0 400.0"
-    "1000.0 1000.0 1000.0"
+    "6000.0 6000.0 6000.0"
 )
-OMEGA_C=(0.2589 0.3 0.4)
-SIGMA_8=(0.8159 0.812 0.8)
-SEED=(0 1 2)
+OMEGA_C=(0.2589)
+SIGMA_8=(0.8159)
+SEED=(0)
 
 # Common SBATCH arguments base
-BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=01:00:00 --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$((CPUS_PER_NODE / TASKS_PER_NODE)) --gpus-per-task=1 --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --exclusive"
+BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=00:30:00 --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=qos_gpu_h100-t3"
 
 # Extract Pdim_X and Pdim_Y
 read -r PX PY <<< "$PDIMS"
@@ -85,18 +91,19 @@ run_simulations() {
                     # Loop 5: Seed
                     for SD in "${SEED[@]}"; do
 
-                        JOB_NAME="cosmo_M${MESH_NAME}_B${BOX_NAME}_Oc${OC}_S8${S8}_s${SD}"
+                        JOB_NAME="${CONSTRAINT}_cosmo_M${MESH_NAME}_B${BOX_NAME}_STEPS${NUM_STEPS}_H${HALO}_c${OC}_S8${S8}_s${SD}"
 
                         echo "Submitting $JOB_NAME"
-                        echo "  -> Box: $BOX | Mesh: $MESH | Halo: $HALO | Oc: $OC | S8: $S8 | Seed: $SD"
+                        echo "  -> Box: $BOX | Mesh: $MESH | Halo: $HALO | NUM_STEPS: $NUM_STEPS | Oc: $OC | S8: $S8 | Seed: $SD"
 
                         OUT_PARQUET_FILE="$OUTPUT_DIR/${JOB_NAME}.parquet"
 
                         # Notice: removed the duplicate sbatch args since they are in BASE_SBATCH_ARGS
                         sbatch $BASE_SBATCH_ARGS \
                             --job-name="$JOB_NAME" \
-                            --output="$OUTPUT_DIR/%x_%j.out" \
-                            $SLURM_SCRIPT LOGS ffi-simulate $SIMULATION_TYPE \
+                            --output="DEL/LOGS/%x_%j.out" \
+                            --error="DEL/LOGS/%x_%j.err" \
+                            $SLURM_SCRIPT LOGS fli-simulate $SIMULATION_TYPE \
                             --mesh-size $MESH \
                             --box-size $BOX \
                             --pdim $PX $PY \
@@ -105,18 +112,19 @@ run_simulations() {
                             --nside $NSIDE \
                             --nb-shells $NB_SHELLS \
                             --t0 $T0 \
-                            $([ -n "$DT0" ] && echo "--dt0 $DT0" || echo "--nb-steps $NB_STEPS") \
+                            --dt0 $DT0 \
                             --t1 $T1 \
                             --interp $INTERP \
                             $DRIFT_ON_LC \
-                            --min-width $MIN_WIDTH \
-                            $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
                             --nz-shear $NZ_SHEAR \
+                            --lensing $LENSING_METHOD \
                             --Omega-c $OC \
                             --sigma8 $S8 \
                             --seed $SD \
                             --h 0.6774 \
-                            --output "$OUT_PARQUET_FILE"
+                            --output "$OUT_PARQUET_FILE" \
+                            --perf \
+                            --iterations 3
 
 
                     done
