@@ -139,7 +139,6 @@ _version.py
 
 external
 *.npz
-*.png
 *.pkl
 logs
 output*
