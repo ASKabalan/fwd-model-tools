@@ -51,6 +51,7 @@ SAMPLER="NUTS"       # NUTS | HMC | MCLMC
 BACKEND="numpyro"    # numpyro | blackjax
 SIGMA_E=0.26
 INITIAL_CONDITION="" # path to IC parquet; empty = don't pass
+INIT_COSMO=false     # set to true to warm-start cosmology from observable (only if --sample includes 'ic' but not 'cosmo')
 SAMPLE="cosmo ic"    # what to sample
 
 # Fiducial / ground-truth cosmology (for reference and job naming; not passed to fli-infer)
@@ -112,5 +113,5 @@ sbatch $BASE_SBATCH_ARGS \
     --sigma-e $SIGMA_E \
     --sample $SAMPLE \
     $([ -n "$INITIAL_CONDITION" ] && echo "--initial-condition $INITIAL_CONDITION") \
-    --seed $SEED \
-    --no-progress-bar
+    $([ "$INIT_COSMO" = "true" ] && echo "--init-cosmo") \
+    --seed $SEED

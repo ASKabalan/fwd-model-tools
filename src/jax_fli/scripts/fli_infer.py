@@ -147,6 +147,11 @@ def parser() -> argparse.ArgumentParser:
         help="Parquet Catalog with IC DensityField for initialization or fixing IC.",
     )
     p.add_argument(
+        "--init-cosmo",
+        action="store_true",
+        help="Warm-start cosmological parameters from the observable's stored cosmology (used when --sample includes 'ic' but not 'cosmo').",
+    )
+    p.add_argument(
         "--sample",
         nargs="+",
         default=["cosmo", "ic"],
@@ -351,6 +356,9 @@ def main() -> None:
     init_params = None
     if "ic" in sample_set and ic_field is not None:
         init_params = {"initial_conditions": ic_field.array}
+    if args.init_cosmo:
+        init_params = init_params or {}
+        init_params.update({"Omega_c": float(obs_cosmo.Omega_c), "sigma8": float(obs_cosmo.sigma8)})
 
     # 6. Build sharding (warns if pdim product != device count)
     sharding = _build_sharding(args)
