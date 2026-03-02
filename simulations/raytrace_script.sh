@@ -34,6 +34,8 @@ echo "Submitting fli-raytrace job for $INPUT_DIR/*.parquet"
 
 sbatch $BASE_SBATCH_ARGS \
     --job-name="fli_raytrace" \
+    --output="DEL/LOGS/%x_%j.out" \
+    --error="DEL/LOGS/%x_%j.err" \
     $SLURM_SCRIPT LOGS fli-raytrace \
     --pdim $PX $PY \
     --nodes $NODES \
