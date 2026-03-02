@@ -183,7 +183,7 @@ def _build_sharding(args: Namespace):
 # ---------------------------------------------------------------------------
 
 
-def _save_result(result, cosmo, args: Namespace, output: str | None = None) -> None:
+def _save_result(result, cosmo, args: Namespace | None = None, output: str | None = None) -> None:
     """Save result to parquet (process 0 only)."""
     out_path = output if output is not None else args.output
     parent_folder = os.path.dirname(out_path)
@@ -355,7 +355,15 @@ def parser() -> ArgumentParser:
     # ------------------------------------------------------------------
     nbody_parent = ArgumentParser(add_help=False)
     nbody_parent.add_argument("--t1", type=float, default=1.0, help="NBody final scale factor (default: 1.0)")
-    nbody_parent.add_argument("--dt0", type=float, default=0.05, help="Integration time step (default: 0.05)")
+    dt_group = nbody_parent.add_mutually_exclusive_group()
+    dt_group.add_argument("--dt0", type=float, default=None, help="Integration time step size (default: 0.05)")
+    dt_group.add_argument(
+        "--nb-steps",
+        type=int,
+        default=None,
+        dest="nb_steps",
+        help="Number of integration steps; dt0 = (t1 - t0) / nb_steps",
+    )
     nbody_parent.add_argument(
         "--interp",
         choices=["none", "onion", "telephoto"],
@@ -431,6 +439,25 @@ def parser() -> ArgumentParser:
     )
 
     return parser
+
+
+# ---------------------------------------------------------------------------
+# dt0 resolver
+# ---------------------------------------------------------------------------
+
+
+def _resolve_dt0(args: Namespace, t1: float) -> float:
+    """Resolve dt0 from --dt0 or --nb-steps.
+
+    Formula: dt0 = (t1 - t0) / nb_steps
+    With default t0=0.1, t1=1.0, nb_steps=18 → dt0 = 0.05.
+    """
+    dt0 = getattr(args, "dt0", None)
+    nb_steps = getattr(args, "nb_steps", None)
+    t0 = getattr(args, "t0", 0.1)
+    if nb_steps is not None:
+        return (t1 - t0) / nb_steps
+    return dt0 if dt0 is not None else 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -564,7 +591,6 @@ def main() -> None:
     # Prepare arguments
 
     cosmo = _build_cosmo(args)
-    cosmo._workspace = {}
 
     painting, nside, flatsky_npix = _build_painting(args)
     sharding = _build_sharding(args)
@@ -573,7 +599,7 @@ def main() -> None:
     nz_shear = _resolve_nz_shear(args)
     solver = _build_solver(args, painting)
     t1 = getattr(args, "t1", 1.0)
-    dt0 = getattr(args, "dt0", 0.05)
+    dt0 = _resolve_dt0(args, t1)
 
     key = jax.random.key(args.seed)
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 import pytest
-
 from jax_fli.fields import DensityField, FieldStatus
 from jax_fli.fields.units import DensityUnit
 from jax_fli.utils import _compute_equal_vol_shells, compute_lightcone_shells
