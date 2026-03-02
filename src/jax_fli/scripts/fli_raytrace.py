@@ -39,7 +39,7 @@ def parser() -> ArgumentParser:
         help="Source redshifts or 's3'/'s3[i]'/'s3[start:stop]' for Stage-3 distributions",
     )
     p.add_argument("--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)")
-    p.add_argument("--max-z", type=float, default=3.0, help="Maximum redshift for nz integration (default: 3.0)")
+    p.add_argument("--max-z", type=float, default=1.5, help="Maximum redshift for nz integration (default: 3.0)")
     p.add_argument(
         "--n-integrate", type=int, default=32, help="Number of integration points for nz distributions (default: 32)"
     )
