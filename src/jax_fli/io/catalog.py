@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 from jax.experimental.multihost_utils import process_allgather
-from jaxtyping import ArrayLike
+from jaxtyping import Array
 
 from .._src.base._core import AbstractField
 from .._src.base._enums import ConvergenceUnit, DensityUnit, FieldStatus, PositionUnit
@@ -251,7 +251,7 @@ def _catalog_to_row(field: AbstractField, cosmology: jc.Cosmology, version: int)
     return data
 
 
-def _row_to_field_cosmo(item: dict) -> tuple[AbstractField, jc.Cosmology, int]:
+def _row_to_field_cosmo(item: dict, sharding=None) -> tuple[AbstractField, jc.Cosmology, int]:
     """Convert a single v2 dataset row (dict) to a (field, cosmology, version) tuple.
 
     In v2 format each row stores the full batched array (B, ...) and
@@ -279,6 +279,8 @@ def _row_to_field_cosmo(item: dict) -> tuple[AbstractField, jc.Cosmology, int]:
 
     # The array is (B, ...) shaped.  Detect unbatched via B == 1.
     array = jnp.asarray(item["array"])
+    if sharding is not None:
+        array = jax.lax.with_sharding_constraint(array, sharding)
     unbatched = array.shape[0] == 1
 
     if unbatched:
@@ -301,7 +303,7 @@ def _row_to_field_cosmo(item: dict) -> tuple[AbstractField, jc.Cosmology, int]:
         mesh_size=_to_static_tuple(item["mesh_size"], int),
         box_size=_to_static_tuple(item["box_size"], float),
         observer_position=_to_static_tuple(item["observer_position"], float),
-        sharding=None,
+        sharding=sharding,
         halo_size=_to_static_tuple(item["halo_size"], float),
         nside=int(item["nside"]) if "nside" in item and item["nside"] is not None else None,
         flatsky_npix=_to_static_tuple(item["flatsky_npix"], int)
@@ -331,7 +333,7 @@ def _row_to_field_cosmo(item: dict) -> tuple[AbstractField, jc.Cosmology, int]:
     )
 
     version = item["version"]
-    if isinstance(version, ArrayLike):
+    if isinstance(version, Array):
         version = int(version.squeeze())  # version should be scalar, but handle case where it's an array of shape (1,)
 
     return field, cosmology, version
@@ -448,13 +450,16 @@ class Catalog(eqx.Module):
 
     @classmethod
     @requires_datasets
-    def from_parquet(cls, path: str) -> Catalog:
+    def from_parquet(cls, path: str, sharding=None) -> Catalog:
         """Load a Catalog from parquet file.
 
         Parameters
         ----------
         path : str
             Path to the parquet file.
+        sharding : jax.sharding.Sharding, optional
+            If provided, apply ``lax.with_sharding_constraint`` to each loaded
+            array and store the sharding on the reconstructed field.
 
         Returns
         -------
@@ -464,17 +469,20 @@ class Catalog(eqx.Module):
         from datasets import load_dataset
 
         ds = load_dataset("parquet", data_files=path, split="train")
-        return cls.from_dataset(ds)
+        return cls.from_dataset(ds, sharding=sharding)
 
     @classmethod
     @requires_datasets
-    def from_dataset(cls, ds: datasets.Dataset) -> Catalog:
+    def from_dataset(cls, ds: datasets.Dataset, sharding=None) -> Catalog:
         """Reconstruct a Catalog from a HuggingFace Dataset.
 
         Parameters
         ----------
         ds : datasets.Dataset
             A HuggingFace Dataset (as returned by :meth:`to_dataset`).
+        sharding : jax.sharding.Sharding, optional
+            If provided, apply ``lax.with_sharding_constraint`` to each loaded
+            array and store the sharding on the reconstructed field.
 
         Returns
         -------
@@ -485,7 +493,7 @@ class Catalog(eqx.Module):
             raise ValueError("Cannot reconstruct Catalog from an empty dataset.")
 
         if isinstance(ds, dict):
-            f, c, v = _row_to_field_cosmo(ds)
+            f, c, v = _row_to_field_cosmo(ds, sharding=sharding)
             return cls(field=[f], cosmology=[c], version=v)
         elif isinstance(ds, datasets.Dataset | datasets.IterableDataset):
             ds_jax = ds.with_format("jax")
@@ -493,7 +501,7 @@ class Catalog(eqx.Module):
             cosmologies = []
             version = CATALOG_VERSION
             for i in range(len(ds_jax)):
-                f, c, v = _row_to_field_cosmo(ds_jax[i])
+                f, c, v = _row_to_field_cosmo(ds_jax[i], sharding=sharding)
                 fields.append(f)
                 cosmologies.append(c)
                 version = v

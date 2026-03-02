@@ -355,7 +355,15 @@ def parser() -> ArgumentParser:
     # ------------------------------------------------------------------
     nbody_parent = ArgumentParser(add_help=False)
     nbody_parent.add_argument("--t1", type=float, default=1.0, help="NBody final scale factor (default: 1.0)")
-    nbody_parent.add_argument("--dt0", type=float, default=0.05, help="Integration time step (default: 0.05)")
+    dt_group = nbody_parent.add_mutually_exclusive_group()
+    dt_group.add_argument("--dt0", type=float, default=None, help="Integration time step size (default: 0.05)")
+    dt_group.add_argument(
+        "--nb-steps",
+        type=int,
+        default=None,
+        dest="nb_steps",
+        help="Number of integration steps (>= 2); dt0 = (t1 - t0) / (nb_steps - 1)",
+    )
     nbody_parent.add_argument(
         "--interp",
         choices=["none", "onion", "telephoto"],
@@ -415,7 +423,7 @@ def parser() -> ArgumentParser:
         "--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)"
     )
     lensing_p.add_argument(
-        "--max-z", type=float, default=3.0, help="Maximum redshift for nz integration (default: 3.0)"
+        "--max-z", type=float, default=1.5, help="Maximum redshift for nz integration (default: 3.0)"
     )
     lensing_p.add_argument(
         "--n-integrate", type=int, default=32, help="Number of integration points for nz distributions (default: 32)"
@@ -431,6 +439,27 @@ def parser() -> ArgumentParser:
     )
 
     return parser
+
+
+# ---------------------------------------------------------------------------
+# dt0 resolver
+# ---------------------------------------------------------------------------
+
+
+def _resolve_dt0(args: Namespace, t1: float) -> float:
+    """Resolve dt0 from --dt0 or --nb-steps.
+
+    Formula: dt0 = (t1 - t0) / (nb_steps - 1)
+    With default t0=0.1, t1=1.0, nb_steps=18 → dt0 ≈ 0.0529.
+    """
+    dt0 = getattr(args, "dt0", None)
+    nb_steps = getattr(args, "nb_steps", None)
+    t0 = getattr(args, "t0", 0.1)
+    if nb_steps is not None:
+        if nb_steps < 2:
+            raise ValueError(f"--nb-steps must be >= 2, got {nb_steps}")
+        return (t1 - t0) / (nb_steps - 1)
+    return dt0 if dt0 is not None else 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +525,7 @@ def run_simulations(
     sim_type,  # 12 — static
     equal_vol,  # 13 — static
     min_width,  # 14 — static
+    density_widths=None,  # 15 — non-static (JAX array or None)
 ) -> jfli.io.Catalog:
     jax.config.update("jax_enable_x64", False)
 
@@ -506,6 +536,7 @@ def run_simulations(
             initial_conditions,
             ts=ts,
             nb_shells=nb_shells,
+            density_widths=density_widths,
             order=lpt_order,
             painting=painting,
             equal_vol=equal_vol,
@@ -515,7 +546,12 @@ def run_simulations(
 
     # All other modes: LPT to particles snapshot at t0, then run NBody
     dx, p = jfli.lpt(
-        cosmo, initial_conditions, ts=t0, order=lpt_order, painting=jfli.PaintingOptions(target="particles")
+        cosmo,
+        initial_conditions,
+        ts=t0,
+        order=lpt_order,
+        painting=jfli.PaintingOptions(target="particles"),
+        density_widths=density_widths,
     )
 
     # Run NBody
@@ -528,6 +564,7 @@ def run_simulations(
         dt0=dt0,
         ts=ts,
         nb_shells=nb_shells,
+        density_widths=density_widths,
         solver=solver,
         equal_vol=equal_vol,
         min_width=min_width,
@@ -564,7 +601,6 @@ def main() -> None:
     # Prepare arguments
 
     cosmo = _build_cosmo(args)
-    cosmo._workspace = {}
 
     painting, nside, flatsky_npix = _build_painting(args)
     sharding = _build_sharding(args)
@@ -573,7 +609,7 @@ def main() -> None:
     nz_shear = _resolve_nz_shear(args)
     solver = _build_solver(args, painting)
     t1 = getattr(args, "t1", 1.0)
-    dt0 = getattr(args, "dt0", 0.05)
+    dt0 = _resolve_dt0(args, t1)
 
     key = jax.random.key(args.seed)
 
@@ -610,6 +646,7 @@ def main() -> None:
         "sim_type": sim_type,
         "equal_vol": args.equal_vol,
         "min_width": args.min_width,
+        "density_widths": jnp.array(args.density_widths) if args.density_widths is not None else None,
     }
 
     if args.perf:
