@@ -303,20 +303,25 @@ def main() -> None:
         # Default: dt0=0.05
         dt_values = [("dt0", None)]  # None triggers _resolve_dt0 default
 
-    # Build the full Cartesian product
-    grid = list(
-        product(
-            mesh_configs,
-            box_configs,
-            args.Omega_c,
-            args.sigma8,
-            args.seed,
-            args.nb_shells,
-            dt_values,
-        )
+    # Compute total from dimension sizes, then iterate lazily
+    total = (
+        len(mesh_configs)
+        * len(box_configs)
+        * len(args.Omega_c)
+        * len(args.sigma8)
+        * len(args.seed)
+        * len(args.nb_shells)
+        * len(dt_values)
     )
-
-    total = len(grid)
+    grid = product(
+        mesh_configs,
+        box_configs,
+        args.Omega_c,
+        args.sigma8,
+        args.seed,
+        args.nb_shells,
+        dt_values,
+    )
     print(f"Grid: {total} combination(s) — subcommand={args.subcommand}")
     if args.dry_run:
         print("Dry run — combinations:")
@@ -411,11 +416,11 @@ def main() -> None:
         if sim_type == "both":
             result_rt, result_born = result
             base = str(out_path.with_suffix(""))
-            _save_result(result_rt, cosmo, output=base + "_raytraced.parquet")
-            _save_result(result_born, cosmo, output=base + "_born.parquet")
+            _save_result(result_rt, cosmo, combo, output=base + "_raytraced.parquet")
+            _save_result(result_born, cosmo, combo, output=base + "_born.parquet")
             del result_rt, result_born
         else:
-            _save_result(result, cosmo, output=str(out_path))
+            _save_result(result, cosmo, combo, output=str(out_path))
             del result
 
         del cosmo, initial_field, solver, painting, ts

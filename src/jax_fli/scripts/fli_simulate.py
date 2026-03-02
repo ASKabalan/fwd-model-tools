@@ -362,7 +362,7 @@ def parser() -> ArgumentParser:
         type=int,
         default=None,
         dest="nb_steps",
-        help="Number of integration steps; dt0 = (t1 - t0) / nb_steps",
+        help="Number of integration steps (>= 2); dt0 = (t1 - t0) / (nb_steps - 1)",
     )
     nbody_parent.add_argument(
         "--interp",
@@ -449,14 +449,16 @@ def parser() -> ArgumentParser:
 def _resolve_dt0(args: Namespace, t1: float) -> float:
     """Resolve dt0 from --dt0 or --nb-steps.
 
-    Formula: dt0 = (t1 - t0) / nb_steps
-    With default t0=0.1, t1=1.0, nb_steps=18 → dt0 = 0.05.
+    Formula: dt0 = (t1 - t0) / (nb_steps - 1)
+    With default t0=0.1, t1=1.0, nb_steps=18 → dt0 ≈ 0.0529.
     """
     dt0 = getattr(args, "dt0", None)
     nb_steps = getattr(args, "nb_steps", None)
     t0 = getattr(args, "t0", 0.1)
     if nb_steps is not None:
-        return (t1 - t0) / nb_steps
+        if nb_steps < 2:
+            raise ValueError(f"--nb-steps must be >= 2, got {nb_steps}")
+        return (t1 - t0) / (nb_steps - 1)
     return dt0 if dt0 is not None else 0.05
 
 
