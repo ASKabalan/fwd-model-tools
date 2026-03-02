@@ -11,6 +11,8 @@ NODES=1
 INPUT_DIR="results/cosmology_runs"
 OUTPUT_DIR="results/lensing"
 
+CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
+echo "CPUS_PER_TASK: $CPUS_PER_TASK"
 mkdir -p "$OUTPUT_DIR"
 
 if [ -z "$SLURM_SCRIPT" ]; then
