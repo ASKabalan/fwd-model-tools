@@ -7,9 +7,7 @@ Memory is freed after each row to stay frugal on large grids.
 
 from __future__ import annotations
 
-import glob as glob_module
 import os
-import sys
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -53,15 +51,16 @@ def parser() -> ArgumentParser:
     )
     p.add_argument("--no-parallel-transport", action="store_true", help="Disable parallel transport in raytrace")
     p.add_argument("--enable-x64", action="store_true", help="Enable JAX 64-bit precision (default: False)")
+    p.add_argument(
+        "--pdim",
+        type=int,
+        nargs=2,
+        default=[1, 1],
+        metavar=("PX", "PY"),
+        help="Process mesh dimensions (default: 1 1 = single device)",
+    )
+    p.add_argument("--nodes", type=int, default=1, help="Number of nodes (default: 1)")
     return p
-
-
-def _resolve_input_files(pattern: str) -> list[str]:
-    """Expand a path or glob pattern to a sorted list of parquet files."""
-    files = sorted(glob_module.glob(pattern))
-    if not files:
-        raise FileNotFoundError(f"No files matched: {pattern}")
-    return files
 
 
 def main() -> None:
@@ -69,17 +68,12 @@ def main() -> None:
     import jax
 
     from jax_fli.io import Catalog
-    from jax_fli.scripts.fli_simulate import _resolve_nz_shear
+    from jax_fli.scripts.fli_simulate import _build_sharding, _resolve_nz_shear
 
     p = parser()
     args = p.parse_args()
     jax.config.update("jax_enable_x64", args.enable_x64)
-
-    try:
-        input_files = _resolve_input_files(args.input)
-    except FileNotFoundError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    sharding = _build_sharding(args)
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -96,53 +90,57 @@ def main() -> None:
     max_z = args.max_z
     n_integrate = args.n_integrate
 
-    for file_path in input_files:
-        stem = Path(file_path).stem
-        print(f"\nProcessing {file_path} ...")
+    ds = datasets.load_dataset("parquet", data_files=args.input, split="train", streaming=True).with_format("numpy")
+    row_count = 0
+    for i, row in enumerate(ds):
+        catalog = Catalog.from_dataset(row, sharding=sharding)
+        field = catalog.field[0]
+        cosmo = catalog.cosmology[0]
 
-        # Stream row-by-row to stay memory-frugal
-        ds = datasets.load_dataset("parquet", data_files=file_path, split="train", streaming=True)
+        # For single-row files omit the row index suffix; add it from row 1 onward
+        suffix = f"_row{i:04d}" if i > 0 else ""
 
-        row_count = 0
-        for i, row in enumerate(ds):
-            catalog = Catalog.from_dataset(row)
-            field = catalog.field[0]
-            cosmo = catalog.cosmology[0]
+        print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
 
-            # For single-row files omit the row index suffix; add it from row 1 onward
-            suffix = f"_row{i:04d}" if i > 0 else ""
+        if lensing in ("born", "both"):
+            born_result = jax.block_until_ready(
+                jfli.born(cosmo, field, nz_shear, min_z=min_z, max_z=max_z, n_integrate=n_integrate)
+            )
+            out_path = output_dir / f"BORN_{suffix}.parquet"
+            os.makedirs(out_path.parent, exist_ok=True)
+            Catalog(field=born_result, cosmology=cosmo).to_parquet(str(out_path))
+            print(f"    Saved Born kappa → {out_path}")
+            del born_result
 
-            print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
-
-            if lensing in ("born", "both"):
-                born_result = jax.block_until_ready(
-                    jfli.born(cosmo, field, nz_shear, min_z=min_z, max_z=max_z, n_integrate=n_integrate)
+        if lensing in ("raytrace", "both"):
+            kappa_rt, kappa_born = jax.block_until_ready(
+                jfli.raytrace(
+                    cosmo,
+                    field,
+                    nz_shear,
+                    born=(lensing == "both"),
+                    raytrace=True,
+                    min_z=min_z,
+                    max_z=max_z,
+                    n_integrate=n_integrate,
+                    interp=args.rt_interp,
+                    parallel_transport=not args.no_parallel_transport,
                 )
-                out_path = output_dir / f"BORN_{stem}{suffix}.parquet"
-                os.makedirs(out_path.parent, exist_ok=True)
-                Catalog(field=born_result, cosmology=cosmo).to_parquet(str(out_path))
-                print(f"    Saved Born kappa → {out_path}")
-                del born_result
+            )
+            out_path_rt = output_dir / f"RAYTRACE_{suffix}.parquet"
+            out_path_born = output_dir / f"RAYTRACE_BORN_{suffix}.parquet"
+            os.makedirs(out_path_rt.parent, exist_ok=True)
+            Catalog(field=kappa_rt, cosmology=cosmo).to_parquet(str(out_path_rt))
+            print(f"    Saved raytrace kappa → {out_path_rt}")
+            if lensing == "both":
+                Catalog(field=kappa_born, cosmology=cosmo).to_parquet(str(out_path_born))
+                print(f"    Saved raytrace-born kappa → {out_path_born}")
+            del kappa_rt, kappa_born
 
-            if lensing in ("raytrace", "both"):
-                kappa_rt, kappa_born = jax.block_until_ready(
-                    jfli.raytrace(cosmo, field, nz_shear, born=(lensing == "both"), raytrace=True)
-                )
-                out_path_rt = output_dir / f"RAYTRACE_{stem}{suffix}.parquet"
-                out_path_born = output_dir / f"RAYTRACE_BORN_{stem}{suffix}.parquet"
-                os.makedirs(out_path_rt.parent, exist_ok=True)
-                Catalog(field=kappa_rt, cosmology=cosmo).to_parquet(str(out_path_rt))
-                print(f"    Saved raytrace kappa → {out_path_rt}")
-                if lensing == "both":
-                    Catalog(field=kappa_born, cosmology=cosmo).to_parquet(str(out_path_born))
-                    print(f"    Saved raytrace-born kappa → {out_path_born}")
-                del kappa_rt, kappa_born
+        del field, cosmo, catalog
+        row_count += 1
 
-            del field, cosmo, catalog
-            row_count += 1
-
-        print(f"  Done: {row_count} row(s) processed from {Path(file_path).name}")
-
+    print(f"  Done: {row_count} row(s)")
     print("\nAll files processed.")
 
 

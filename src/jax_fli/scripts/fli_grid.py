@@ -4,14 +4,25 @@ Accepts list-valued parameters for the griddable dimensions and runs all
 Cartesian combinations sequentially, reusing the same JAX JIT cache across
 runs that share the same static shapes.
 
+Range notation
+--------------
+Scalar griddable parameters (--Omega-c, --sigma8, --seed, --nb-shells,
+--dt0, --nb-steps) accept either explicit values or a compact
+``start:stop:step`` range token (stop is inclusive).  Both styles can be
+mixed freely in the same argument.
+
+    --Omega-c 0.2:0.4:0.01          # 21 values: 0.20, 0.21, …, 0.40
+    --seed 0:9:1                     # 10 seeds: 0, 1, …, 9
+    --sigma8 0.7 0.8:0.9:0.05       # explicit 0.7 + range 0.80, 0.85, 0.90
+
 Example
 -------
     fli-grid nbody \\
         --mesh-size 64 64 64 128 128 128 \\
         --box-size 200 200 200 \\
-        --Omega-c 0.2589 0.3 \\
-        --sigma8 0.8159 \\
-        --seed 0 1 \\
+        --Omega-c 0.2:0.4:0.1 \\
+        --sigma8 0.7:0.9:0.1 \\
+        --seed 0:2:1 \\
         --nb-shells 10 \\
         --nb-steps 18 \\
         --nside 16 --output-dir /tmp/grid_out --dry-run
@@ -24,9 +35,44 @@ from argparse import ArgumentParser
 from itertools import product
 from pathlib import Path
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _expand_range_values(raw: list, dtype: type) -> list:
+    """Expand a mixed list of plain scalars and ``start:stop:step`` range tokens.
+
+    Each element of *raw* is either:
+
+    * A plain scalar (string or already-converted number) → converted to *dtype*.
+    * A ``"start:stop:step"`` string → expanded via ``np.arange``; *stop* is
+      inclusive (uses a small epsilon to guard against floating-point rounding).
+
+    Examples
+    --------
+    >>> _expand_range_values(["0.2:0.4:0.1"], float)
+    [0.2, 0.3, 0.4]
+    >>> _expand_range_values(["0:2:1"], int)
+    [0, 1, 2]
+    >>> _expand_range_values([0.8159, "0.9:1.0:0.05"], float)
+    [0.8159, 0.9, 0.95, 1.0]
+    """
+    result: list = []
+    for v in raw:
+        s = str(v)
+        if ":" in s:
+            parts = s.split(":")
+            if len(parts) != 3:
+                raise ValueError(f"Range notation must be 'start:stop:step', got {v!r}")
+            start, stop, step = float(parts[0]), float(parts[1]), float(parts[2])
+            arr = np.arange(start, stop + step * 1e-9, step)
+            result.extend(dtype(x) for x in arr)
+        else:
+            result.append(dtype(s))
+    return result
 
 
 def _parse_groups(values: list, group_size: int) -> list[tuple]:
@@ -87,27 +133,58 @@ def parser() -> ArgumentParser:
 
     # --- Griddable: cosmology / seed ---
     grid_parent.add_argument(
-        "--Omega-c", type=float, nargs="+", default=[0.2589], metavar="OC", help="Cold dark matter density values"
+        "--Omega-c",
+        type=str,
+        nargs="+",
+        default=[0.2589],
+        metavar="OC",
+        help="Cold dark matter density values; supports start:stop:step range notation",
     )
-    grid_parent.add_argument("--sigma8", type=float, nargs="+", default=[0.8159], metavar="S8", help="sigma8 values")
-    grid_parent.add_argument("--seed", type=int, nargs="+", default=[0], metavar="S", help="Random seed(s)")
+    grid_parent.add_argument(
+        "--sigma8",
+        type=str,
+        nargs="+",
+        default=[0.8159],
+        metavar="S8",
+        help="sigma8 values; supports start:stop:step range notation",
+    )
+    grid_parent.add_argument(
+        "--seed",
+        type=str,
+        nargs="+",
+        default=[0],
+        metavar="S",
+        help="Random seed(s); supports start:stop:step range notation (e.g. 0:9:1)",
+    )
 
     # --- Griddable: shells ---
     grid_parent.add_argument(
-        "--nb-shells", type=int, nargs="+", default=[10], metavar="N", help="Number of lightcone shells values"
+        "--nb-shells",
+        type=str,
+        nargs="+",
+        default=[10],
+        metavar="N",
+        help="Number of lightcone shells values; supports start:stop:step range notation",
     )
 
     # --- Griddable: time-stepping (mutually exclusive) ---
     dt_group = grid_parent.add_mutually_exclusive_group()
-    dt_group.add_argument("--dt0", type=float, nargs="+", default=None, metavar="DT", help="Integration time step(s)")
+    dt_group.add_argument(
+        "--dt0",
+        type=str,
+        nargs="+",
+        default=None,
+        metavar="DT",
+        help="Integration time step(s); supports start:stop:step range notation",
+    )
     dt_group.add_argument(
         "--nb-steps",
-        type=int,
+        type=str,
         nargs="+",
         default=None,
         dest="nb_steps",
         metavar="N",
-        help="Number of integration steps (mutually exclusive with --dt0)",
+        help="Number of integration steps (mutually exclusive with --dt0); supports start:stop:step range notation",
     )
 
     # --- Fixed: other cosmology ---
@@ -201,6 +278,16 @@ def main() -> None:
     p = parser()
     args = p.parse_args()
     jax.config.update("jax_enable_x64", args.enable_x64)
+
+    # --- Expand range notation for griddable scalar parameters ---
+    args.Omega_c = _expand_range_values(args.Omega_c, float)
+    args.sigma8 = _expand_range_values(args.sigma8, float)
+    args.seed = _expand_range_values(args.seed, int)
+    args.nb_shells = _expand_range_values(args.nb_shells, int)
+    if args.dt0 is not None:
+        args.dt0 = _expand_range_values(args.dt0, float)
+    if args.nb_steps is not None:
+        args.nb_steps = _expand_range_values(args.nb_steps, int)
 
     # --- Expand griddable parameters ---
     mesh_configs = _parse_groups(args.mesh_size, 3)

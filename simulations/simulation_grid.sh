@@ -6,7 +6,7 @@ CONSTRAINT="h100"
 GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-PDIMS="2 1"
+PDIMS="1 1"
 NODES=1
 OUTPUT_DIR="results/grid_runs"
 TIME_LIMIT="24:00:00"   # fli-grid runs ALL combos in one job — set generously
@@ -35,6 +35,11 @@ MIN_WIDTH=50.0
 HALO_SIZE="0 0"    # single value (fli-grid does not support per-mesh halo sizes)
 
 # Grid parameters
+# MESH_SIZES and BOX_SIZES use groups-of-3 space-separated tokens (no range notation).
+# OMEGA_C, SIGMA_8, SEED support two styles (can be mixed):
+#   Explicit list:  OMEGA_C=(0.2589 0.3 0.4)
+#   Range notation: OMEGA_C=("0.25:0.45:0.05")   → 0.25 0.30 0.35 0.40 0.45 (stop inclusive)
+#   Seed range:     SEED=("0:9:1")                → seeds 0..9
 MESH_SIZES=(
     "64 64 64"
     "128 128 128"
@@ -46,9 +51,9 @@ BOX_SIZES=(
     "400.0 400.0 400.0"
     "1000.0 1000.0 1000.0"
 )
-OMEGA_C=(0.2589 0.3 0.4)
-SIGMA_8=(0.8159 0.812 0.8)
-SEED=(0 1 2)
+OMEGA_C=(0.2:0.5:0.1)
+SIGMA_8=(0.8:0.85:0.01)
+SEED=(0:9:1)
 
 read -r PX PY <<< "$PDIMS"
 

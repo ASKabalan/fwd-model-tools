@@ -170,7 +170,7 @@ def raytrace(
     lightcone,
     nz_shear,
     min_z=0.01,
-    max_z=3.0,
+    max_z=1.5,
     n_integrate=32,
     # Dorian options
     interp="bilinear",

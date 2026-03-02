@@ -6,7 +6,7 @@ CONSTRAINT="h100"
 GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-PDIMS="2 1"
+PDIMS="1 1"
 NODES=1
 INPUT_DIR="results/cosmology_runs"
 OUTPUT_DIR="results/lensing"
@@ -20,9 +20,9 @@ fi
 
 # Raytrace parameters
 NZ_SHEAR="s3"
-LENSING="born"      # born | raytrace | both
+LENSING="both"      # born | raytrace | both
 MAX_Z=3.0
-N_INTEGRATE=32
+N_INTEGRATE=2
 
 BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=02:00:00 \
   --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$((CPUS_PER_NODE / TASKS_PER_NODE)) \
@@ -35,6 +35,8 @@ echo "Submitting fli-raytrace job for $INPUT_DIR/*.parquet"
 sbatch $BASE_SBATCH_ARGS \
     --job-name="fli_raytrace" \
     $SLURM_SCRIPT LOGS fli-raytrace \
+    --pdim $PX $PY \
+    --nodes $NODES \
     --input "$INPUT_DIR/*.parquet" \
     --output "$OUTPUT_DIR" \
     --lensing $LENSING \
