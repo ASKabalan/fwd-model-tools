@@ -32,11 +32,13 @@ INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false
 MIN_WIDTH=50.0
-HALO_SIZE="0 0"    # single value (fli-grid does not support per-mesh halo sizes)
+# Space-separated scalar density widths (each becomes a separate grid dimension).
+# Leave empty for default behaviour.
+DENSITY_WIDTHS=""
 
 # Grid parameters
-# MESH_SIZES and BOX_SIZES use groups-of-3 space-separated tokens (no range notation).
-# OMEGA_C, SIGMA_8, SEED support two styles (can be mixed):
+# MESH_SIZES: each element is "MX MY MZ"; halo is computed as MX/8 MY/8 per mesh.
+# BOX_SIZES, OMEGA_C, SIGMA_8, SEED support two styles (can be mixed):
 #   Explicit list:  OMEGA_C=(0.2589 0.3 0.4)
 #   Range notation: OMEGA_C=("0.25:0.45:0.05")   → 0.25 0.30 0.35 0.40 0.45 (stop inclusive)
 #   Seed range:     SEED=("0:9:1")                → seeds 0..9
@@ -61,30 +63,38 @@ BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT \
   --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$((CPUS_PER_NODE / TASKS_PER_NODE)) \
   --gpus-per-task=1 --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --exclusive"
 
-TOTAL=$(( ${#MESH_SIZES[@]} * ${#BOX_SIZES[@]} * ${#OMEGA_C[@]} * ${#SIGMA_8[@]} * ${#SEED[@]} ))
-echo "Submitting fli-grid job: $TOTAL combinations, time limit $TIME_LIMIT"
+echo "Submitting fli-grid jobs: one per mesh size, time limit $TIME_LIMIT"
 
-sbatch $BASE_SBATCH_ARGS \
-    --time=$TIME_LIMIT \
-    --job-name="fli_grid_${SIMULATION_TYPE}" \
-    $SLURM_SCRIPT LOGS fli-grid $SIMULATION_TYPE \
-    --mesh-size ${MESH_SIZES[*]} \
-    --box-size ${BOX_SIZES[*]} \
-    --Omega-c ${OMEGA_C[*]} \
-    --sigma8 ${SIGMA_8[*]} \
-    --seed ${SEED[*]} \
-    --nb-shells $NB_SHELLS \
-    $([ -n "$DT0" ] && echo "--dt0 $DT0" || echo "--nb-steps $NB_STEPS") \
-    --t0 $T0 \
-    --t1 $T1 \
-    --nside $NSIDE \
-    --pdim $PX $PY \
-    --nodes $NODES \
-    --halo-size $HALO_SIZE \
-    --interp $INTERP \
-    $DRIFT_ON_LC \
-    --min-width $MIN_WIDTH \
-    $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
-    $([ "$SIMULATION_TYPE" = "lensing" ] && echo "--nz-shear $NZ_SHEAR --lensing $LENSING_TYPE") \
-    --h 0.6774 \
-    --output-dir "$OUTPUT_DIR"
+for MESH in "${MESH_SIZES[@]}"; do
+    read -r MX MY MZ <<< "$MESH"
+    HX=$((MX / 8))
+    HY=$((MY / 8))
+
+    sbatch $BASE_SBATCH_ARGS \
+        --time=$TIME_LIMIT \
+        --job-name="fli_grid_${SIMULATION_TYPE}_${MX}x${MY}x${MZ}" \
+        --output="DEL/LOGS/%x_%j.out" \
+        --error="DEL/LOGS/%x_%j.err" \
+        $SLURM_SCRIPT LOGS fli-grid $SIMULATION_TYPE \
+        --mesh-size $MX $MY $MZ \
+        --box-size ${BOX_SIZES[*]} \
+        --Omega-c ${OMEGA_C[*]} \
+        --sigma8 ${SIGMA_8[*]} \
+        --seed ${SEED[*]} \
+        --nb-shells $NB_SHELLS \
+        $([ -n "$DT0" ] && echo "--dt0 $DT0" || echo "--nb-steps $NB_STEPS") \
+        --t0 $T0 \
+        --t1 $T1 \
+        --nside $NSIDE \
+        --pdim $PX $PY \
+        --nodes $NODES \
+        --halo-size $HX $HY \
+        --interp $INTERP \
+        $DRIFT_ON_LC \
+        --min-width $MIN_WIDTH \
+        $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
+        $([ -n "$DENSITY_WIDTHS" ] && echo "--density-widths $DENSITY_WIDTHS") \
+        $([ "$SIMULATION_TYPE" = "lensing" ] && echo "--nz-shear $NZ_SHEAR --lensing $LENSING_TYPE") \
+        --h 0.6774 \
+        --output-dir "$OUTPUT_DIR"
+done

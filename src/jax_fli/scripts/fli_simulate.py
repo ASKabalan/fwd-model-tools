@@ -525,6 +525,7 @@ def run_simulations(
     sim_type,  # 12 — static
     equal_vol,  # 13 — static
     min_width,  # 14 — static
+    density_widths=None,  # 15 — non-static (JAX array or None)
 ) -> jfli.io.Catalog:
     jax.config.update("jax_enable_x64", False)
 
@@ -535,6 +536,7 @@ def run_simulations(
             initial_conditions,
             ts=ts,
             nb_shells=nb_shells,
+            density_widths=density_widths,
             order=lpt_order,
             painting=painting,
             equal_vol=equal_vol,
@@ -544,7 +546,12 @@ def run_simulations(
 
     # All other modes: LPT to particles snapshot at t0, then run NBody
     dx, p = jfli.lpt(
-        cosmo, initial_conditions, ts=t0, order=lpt_order, painting=jfli.PaintingOptions(target="particles")
+        cosmo,
+        initial_conditions,
+        ts=t0,
+        order=lpt_order,
+        painting=jfli.PaintingOptions(target="particles"),
+        density_widths=density_widths,
     )
 
     # Run NBody
@@ -557,6 +564,7 @@ def run_simulations(
         dt0=dt0,
         ts=ts,
         nb_shells=nb_shells,
+        density_widths=density_widths,
         solver=solver,
         equal_vol=equal_vol,
         min_width=min_width,
@@ -638,6 +646,7 @@ def main() -> None:
         "sim_type": sim_type,
         "equal_vol": args.equal_vol,
         "min_width": args.min_width,
+        "density_widths": jnp.array(args.density_widths) if args.density_widths is not None else None,
     }
 
     if args.perf:
