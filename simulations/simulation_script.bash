@@ -1,6 +1,8 @@
 #!/bin/bash
+# Submits independent cosmological N-body simulations over a mesh/box/cosmology/seed
+# grid via SLURM using `fli-simulate`.
 
-# Configuration
+# --- SLURM / Cluster configuration ---
 ACCOUNT="XXX"
 CONSTRAINT="h100"
 GPUS_PER_NODE=4
@@ -8,36 +10,36 @@ CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
 PDIMS="2 1"
 NODES=1
+QOS="qos_gpu_h100-t3"
+TIME_LIMIT="00:30:00"
+
+# --- I/O paths ---
 OUTPUT_DIR="results/cosmology_runs"
 
-CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
-echo "CPUS_PER_TASK: $CPUS_PER_TASK"
-mkdir -p "$OUTPUT_DIR"
-
-# Check for SLURM_SCRIPT environment variable
-if [ -z "$SLURM_SCRIPT" ]; then
-    echo "Error: SLURM_SCRIPT environment variable is not set."
-    exit 1
-fi
-
-# Simulation fixed parameters
-NZ_SHEAR="s3"
+# --- Simulation parameters ---
 SIMULATION_TYPE='nbody' # can also be lpt or lensing
-LENSING_METHOD='raytrace' # born, raytrace, or both (only used when SIMULATION_TYPE=lensing)
 NSIDE=1024
-NB_SHELLS=10
+LPT_ORDER=2
+INTERP="none"
+
+# --- Integration parameters ---
 T0=0.1
 T1=1.0
 NB_STEPS=40
-LPT_ORDER=2
-HALO_FRACTION=8
-OBSERVER_POSITION="0.5 0.5 0.5"
-INTERP="none"
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false    # set to "true" to enable equal-volume shells
 MIN_WIDTH=50.0     # minimum shell width in Mpc/h (used when EQUAL_VOL=true)
 
-# Simulation-grid parameters
+# --- Shell / Lightcone parameters ---
+NB_SHELLS=10
+HALO_FRACTION=8
+OBSERVER_POSITION="0.5 0.5 0.5"
+
+# --- Lensing parameters ---
+NZ_SHEAR="s3"
+LENSING_METHOD='raytrace' # born, raytrace, or both (only used when SIMULATION_TYPE=lensing)
+
+# --- Grid parameters ---
 MESH_SIZES=(
     "512 512 512"
     "1024 1024 1024"
@@ -53,8 +55,18 @@ OMEGA_C=(0.2589)
 SIGMA_8=(0.8159)
 SEED=(0)
 
+CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
+echo "CPUS_PER_TASK: $CPUS_PER_TASK"
+mkdir -p "$OUTPUT_DIR"
+
+# Check for SLURM_SCRIPT environment variable
+if [ -z "$SLURM_SCRIPT" ]; then
+    echo "Error: SLURM_SCRIPT environment variable is not set."
+    exit 1
+fi
+
 # Common SBATCH arguments base
-BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=00:30:00 --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=qos_gpu_h100-t3"
+BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=$TIME_LIMIT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"
 
 # Extract Pdim_X and Pdim_Y
 read -r PX PY <<< "$PDIMS"
@@ -90,9 +102,9 @@ run_simulations() {
 
                         sbatch $BASE_SBATCH_ARGS \
                             --job-name="$JOB_NAME" \
-                            --output="DEL/LOGS/%x_%j.out" \
-                            --error="DEL/LOGS/%x_%j.err" \
-                            $SLURM_SCRIPT LOGS fli-simulate $SIMULATION_TYPE \
+                            --output="SLURM_LOGS/%x_%j.out" \
+                            --error="SLURM_LOGS/%x_%j.err" \
+                            $SLURM_SCRIPT FLI_SIMULATION fli-simulate $SIMULATION_TYPE \
                             --mesh-size $MESH \
                             --box-size $BOX \
                             --pdim $PX $PY \

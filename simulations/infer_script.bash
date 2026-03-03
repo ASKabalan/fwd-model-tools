@@ -1,6 +1,8 @@
 #!/bin/bash
+# Submits an MCMC inference job (NUTS/HMC/MCLMC) on a pre-computed observable
+# via SLURM using `fli-infer`.
 
-# Configuration
+# --- SLURM / Cluster configuration ---
 ACCOUNT="XXX"
 CONSTRAINT="h100"
 GPUS_PER_NODE=1
@@ -8,40 +10,38 @@ CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
 NODES=1
 PDIMS="1 1"          # e.g. "2 1" for 2-GPU mesh
-TIME_LIMIT="24:00:00"
+QOS="qos_gpu_h100-t3"
+TIME_LIMIT="00:30:00"
 
+# --- I/O paths ---
 OBSERVABLE_DIR="results/observables"
 OUTPUT_DIR="results/inference_runs"
 
-CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
-echo "CPUS_PER_TASK: $CPUS_PER_TASK"
-mkdir -p "$OUTPUT_DIR"
-
-# Check for SLURM_SCRIPT environment variable
-if [ -z "$SLURM_SCRIPT" ]; then
-    echo "Error: SLURM_SCRIPT environment variable is not set."
-    exit 1
-fi
-
-# Physics / simulation parameters
+# --- Simulation parameters ---
 MESH_SIZE="256 256 256"
 BOX_SIZE="1000.0 1000.0 1000.0"
-NB_SHELLS=10
-HALO_FRACTION=8
+LPT_ORDER=2
+INTERP="none"
+
+# --- Integration parameters ---
 T0=0.1
 T1=1.0
 NB_STEPS=40
-LPT_ORDER=2
-INTERP="none"
 DRIFT_ON_LC=false      # set to "true" to pass --drift-on-lightcone
 EQUAL_VOL=false        # set to "true" to enable equal-volume shells
 MIN_WIDTH=50.0
+
+# --- Shell / Lightcone parameters ---
+NB_SHELLS=10
+HALO_FRACTION=8
+
+# --- Lensing parameters ---
 LENSING="born"         # born | raytrace
 MIN_Z=0.01
 MAX_Z=1.5
 N_INTEGRATE=32
 
-# MCMC parameters
+# --- Sampling / MCMC parameters ---
 ADJOINT="checkpointed"
 CHECKPOINTS=10
 NUM_WARMUP=500
@@ -54,19 +54,27 @@ INITIAL_CONDITION="" # path to IC parquet; empty = don't pass
 INIT_COSMO=false     # set to true to warm-start cosmology from observable (only if --sample includes 'ic' but not 'cosmo')
 SAMPLE="cosmo ic"    # what to sample
 
-# Fiducial / ground-truth cosmology (for reference and job naming; not passed to fli-infer)
+# --- Fiducial cosmology ---
 OMEGA_C=0.2589
 SIGMA_8=0.8159
 H=0.6774
 
-# Observable catalog (parquet filename relative to OBSERVABLE_DIR)
+# --- Job settings ---
 OBSERVABLE="obs_seed0.parquet"
-
-# Seed for the MCMC chain
 SEED=0
 
+CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
+echo "CPUS_PER_TASK: $CPUS_PER_TASK"
+mkdir -p "$OUTPUT_DIR"
+
+# Check for SLURM_SCRIPT environment variable
+if [ -z "$SLURM_SCRIPT" ]; then
+    echo "Error: SLURM_SCRIPT environment variable is not set."
+    exit 1
+fi
+
 # Common SBATCH arguments (no --qos: inference jobs may need long queues)
-BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=$TIME_LIMIT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=qos_gpu_h100-t3"
+BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=$TIME_LIMIT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"
 
 # Extract Pdim_X and Pdim_Y
 read -r PX PY <<< "$PDIMS"
@@ -81,9 +89,9 @@ echo "  -> Observable: $OBS_PATH | Seed: $SEED | Mesh: $MESH_SIZE"
 
 sbatch $BASE_SBATCH_ARGS \
     --job-name="$JOB_NAME" \
-    --output="DEL/LOGS/%x_%j.out" \
-    --error="DEL/LOGS/%x_%j.err" \
-    $SLURM_SCRIPT LOGS fli-infer \
+    --output="SLURM_LOGS/%x_%j.out" \
+    --error="SLURM_LOGS/%x_%j.err" \
+    $SLURM_SCRIPT FLI_INFERENCE fli-infer \
     --observable "$OBS_PATH" \
     --path "$OUT_PATH" \
     --mesh-size $MESH_SIZE \

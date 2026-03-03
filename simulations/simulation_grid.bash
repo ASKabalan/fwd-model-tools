@@ -1,6 +1,8 @@
 #!/bin/bash
+# Submits a single SLURM job running the full parameter-grid exploration in one
+# process using `fli-grid` (supports range notation).
 
-# Configuration
+# --- SLURM / Cluster configuration ---
 ACCOUNT="XXX"
 CONSTRAINT="h100"
 GPUS_PER_NODE=4
@@ -8,30 +10,21 @@ CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
 PDIMS="1 1"
 NODES=1
-OUTPUT_DIR="results/grid_runs"
+QOS="qos_gpu_h100-t3"
 TIME_LIMIT="24:00:00"   # fli-grid runs ALL combos in one job — set generously
 
-CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
-echo "CPUS_PER_TASK: $CPUS_PER_TASK"
+# --- I/O paths ---
+OUTPUT_DIR="results/grid_runs"
 
-mkdir -p "$OUTPUT_DIR"
-
-if [ -z "$SLURM_SCRIPT" ]; then
-    echo "Error: SLURM_SCRIPT environment variable is not set."
-    exit 1
-fi
-
-# Fixed simulation parameters
+# --- Simulation parameters ---
 SIMULATION_TYPE='nbody'   # lpt | nbody | lensing
-NZ_SHEAR="s3"             # only used when SIMULATION_TYPE=lensing
-LENSING_TYPE="born"       # born | raytrace | both
-NB_SHELLS=10
-NB_STEPS=18               # fixed, not part of grid
+LPT_ORDER=2
+INTERP="none"
+
+# --- Integration parameters ---
 T0=0.1
 T1=1.0
-LPT_ORDER=2
-HALO_FRACTION=8
-INTERP="none"
+NB_STEPS=18               # fixed, not part of grid
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false
 MIN_WIDTH=50.0
@@ -39,7 +32,15 @@ MIN_WIDTH=50.0
 # Leave empty for default behaviour.
 DENSITY_WIDTHS=""
 
-# Grid parameters
+# --- Shell / Lightcone parameters ---
+NB_SHELLS=10
+HALO_FRACTION=8
+
+# --- Lensing parameters ---
+NZ_SHEAR="s3"             # only used when SIMULATION_TYPE=lensing
+LENSING_TYPE="born"       # born | raytrace | both
+
+# --- Grid parameters ---
 # MESH_SIZES: each element is "MX MY MZ"; all are passed as a flat list to fli-grid.
 # BOX_SIZES, OMEGA_C, SIGMA_8, SEED support two styles (can be mixed):
 #   Explicit list:  OMEGA_C=(0.2589 0.3 0.4)
@@ -61,18 +62,28 @@ SIGMA_8=(0.8:0.85:0.01)
 SEED=(0:9:1)
 NSIDE=(512)
 
+CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
+echo "CPUS_PER_TASK: $CPUS_PER_TASK"
+
+mkdir -p "$OUTPUT_DIR"
+
+if [ -z "$SLURM_SCRIPT" ]; then
+    echo "Error: SLURM_SCRIPT environment variable is not set."
+    exit 1
+fi
+
 read -r PX PY <<< "$PDIMS"
 
-BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=qos_gpu_h100-t3"
+BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"
 
 echo "Submitting single fli-grid job, time limit $TIME_LIMIT"
 
 sbatch $BASE_SBATCH_ARGS \
     --time=$TIME_LIMIT \
     --job-name="fli_grid_${SIMULATION_TYPE}" \
-    --output="DEL/LOGS/%x_%j.out" \
-    --error="DEL/LOGS/%x_%j.err" \
-    $SLURM_SCRIPT LOGS fli-grid $SIMULATION_TYPE \
+    --output="SLURM_LOGS/%x_%j.out" \
+    --error="SLURM_LOGS/%x_%j.err" \
+    $SLURM_SCRIPT FLI_GRID fli-grid $SIMULATION_TYPE \
     --mesh-size ${MESH_SIZES[*]} \
     --box-size ${BOX_SIZES[*]} \
     --Omega-c ${OMEGA_C[*]} \
