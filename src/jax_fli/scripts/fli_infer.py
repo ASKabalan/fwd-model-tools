@@ -20,7 +20,7 @@ from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear
 # ---------------------------------------------------------------------------
 
 
-def _load_observable(path: str):
+def _load_observable(path: str, sharding):
     """Load a kappa Catalog from parquet and extract per-bin arrays + metadata.
 
     Parameters
@@ -49,7 +49,7 @@ def _load_observable(path: str):
     n_kappas : int
         Number of tomographic kappa bins.
     """
-    catalog = jfli.io.Catalog.from_parquet(path)
+    catalog = jfli.io.Catalog.from_parquet(path, sharding=sharding)
     obs_field = catalog.field[0]
     obs_cosmo = catalog.cosmology[0]
 
@@ -319,10 +319,12 @@ def main() -> None:
     jax.config.update("jax_enable_x64", args.enable_x64)
 
     _validate_args(args, p)
+    # 6. Build sharding (warns if pdim product != device count)
+    sharding = _build_sharding(args)
 
     # 1. Load observable → kappa arrays and geometry metadata
     kappa_arrays, obs_cosmo, obs_box_size, geometry, nside, flatsky_npix, field_size, n_kappas = _load_observable(
-        args.observable
+        args.observable, sharding
     )
 
     # 2. Warn if CLI box_size differs from observable's stored box_size

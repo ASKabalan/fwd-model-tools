@@ -36,11 +36,10 @@ def _nz_to_distributions(nz_shear):
     """Ensure every nz entry is a redshift_distribution; wrap floats in delta_nz."""
     if isinstance(nz_shear, (list | tuple)):
         return [
-            nz if isinstance(nz, jc.redshift.redshift_distribution) else jc.redshift.delta_nz(float(nz))
-            for nz in nz_shear
+            nz if isinstance(nz, jc.redshift.redshift_distribution) else jc.redshift.delta_nz(nz) for nz in nz_shear
         ]
     # JAX float array (from _resolve_nz_shear scalar path)
-    return [jc.redshift.delta_nz(float(z)) for z in nz_shear]
+    return [jc.redshift.delta_nz(z) for z in nz_shear]
 
 
 def full_field_probmodel(

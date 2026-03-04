@@ -7,11 +7,11 @@ RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
-GPUS_PER_NODE=4
+GPUS_PER_NODE=2
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-NODES=4
-PDIMS="16 1"          # e.g. "2 1" for 2-GPU mesh
+NODES=1
+PDIMS="2 1"          # e.g. "2 1" for 2-GPU mesh
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
@@ -98,6 +98,8 @@ if [ "$RUN_LOCALLY" = false ] && [ -z "$SLURM_SCRIPT" ]; then
     echo "Error: SLURM_SCRIPT environment variable is not set."
     exit 1
 fi
+
+export JAX_PLATFORMS=cpu
 
 # Common SBATCH arguments (no --qos: inference jobs may need long queues)
 BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=$TIME_LIMIT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"

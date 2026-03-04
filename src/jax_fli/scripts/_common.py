@@ -95,4 +95,5 @@ def _build_sharding(args: Namespace):
 
     mesh = jax.make_mesh(pdim, ("x", "y"), axis_types=(AxisType.Auto, AxisType.Auto))
     sharding = NamedSharding(mesh, P("x", "y"))
+    jax.set_mesh(mesh)
     return sharding
