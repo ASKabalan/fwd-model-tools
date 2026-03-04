@@ -97,7 +97,7 @@ def sample2catalog(config: Configurations):
         if initial_conditions is None:
             # Power-spectrum model: no IC field, save cosmo params as npz instead
             print("No initial conditions found, saving cosmo parameters to npz.")
-            cosmo_dir = os.path.join(path, "samples")
+            cosmo_dir = path
             os.makedirs(cosmo_dir, exist_ok=True)
             cosmo_dict = {
                 "Omega_c": cosmo.Omega_c,
@@ -113,7 +113,7 @@ def sample2catalog(config: Configurations):
             np.savez(os.path.join(cosmo_dir, f"cosmo_{batch_id}.npz"), **cosmo_dict)
         else:
             # Save the IC samples as a parquet Catalog
-            ic_dir = os.path.join(path, "samples")
+            ic_dir = path
             os.makedirs(ic_dir, exist_ok=True)
 
             intitial_condition_meta_data = samples["initial_conditions_meta_data"]

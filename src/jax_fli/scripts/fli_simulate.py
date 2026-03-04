@@ -555,8 +555,6 @@ def main() -> None:
         sim_type = args.lensing
 
     run_kwargs = {
-        "cosmo": cosmo,
-        "initial_conditions": initial_field,
         "solver": solver,
         "t0": args.t0,
         "t1": getattr(args, "t1", 1.0),
@@ -583,12 +581,12 @@ def main() -> None:
         timer = JaxTimer(save_jaxpr=False, static_argnums=(3, 4, 6, 7, 8, 9, 10, 12, 13, 14))
         print("Compiling and running first iteration...")
         # chrono_jit measures compilation + first run
-        result = timer.chrono_jit(run_simulations, **run_kwargs)
+        result = timer.chrono_jit(run_simulations, cosmo, initial_field, **run_kwargs)
         del result  # free memory from warmup run before timed iterations
         print(f"Running {args.iterations} timed iterations...")
         for i in range(args.iterations):
             # chrono_fun measures execution time
-            result = timer.chrono_fun(run_simulations, **run_kwargs)
+            result = timer.chrono_fun(run_simulations, cosmo, initial_field, **run_kwargs)
             print(f"Iteration {i + 1}/{args.iterations} completed.")
             # if not last iteration del result
             if i < args.iterations - 1:
@@ -617,7 +615,7 @@ def main() -> None:
         timer.report(report_file, function=func_name, extra_info=extra_info, **metadata)
         print(f"Performance report saved to {report_file}")
     else:
-        result = jax.block_until_ready(run_simulations(**run_kwargs))
+        result = jax.block_until_ready(run_simulations(cosmo, initial_field, **run_kwargs))
 
     print("Simulation completed... saving results.")
     sync_global_devices("Done")

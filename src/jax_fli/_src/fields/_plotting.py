@@ -516,10 +516,13 @@ def plot_spherical_density(
     vmin=None,
     vmax=None,
     show_colorbar=True,
-    show_ticks=True,
+    show_ticks=False,
     title="",
+    projection_type="mollweide",
+    fontsize=None,
+    border_linewidth=3.0,
 ):
-    """Plot a single HEALPix spherical map using healpy.mollview.
+    """Plot a single HEALPix spherical map using healpy.projview.
 
     Parameters
     ----------
@@ -534,9 +537,15 @@ def plot_spherical_density(
     show_colorbar : bool
         Whether to show colorbar.
     show_ticks : bool
-        Whether to show graticule (coordinate grid lines) on the Mollweide projection.
+        Whether to show graticule lines and labels. Default False.
     title : str
         Title for the plot.
+    projection_type : str
+        Healpy projection type (e.g. "mollweide", "cart", "polar").
+    fontsize : dict or int, optional
+        Font sizes passed to hp.projview.
+    border_linewidth : float
+        Spine border width in points. Set to 0 to disable.
     """
     import healpy as hp
 
@@ -555,9 +564,12 @@ def plot_spherical_density(
     fig = ax.get_figure()
     map_np = np.asarray(data)
 
+    import matplotlib.axes as mpl_axes
+
     ax.axis("off")
     sub = _sub_from_ax(ax)
-    delegate = hp.mollview(
+    axes_before = set(id(a) for a in fig.axes)
+    hp.projview(
         map_np,
         fig=fig,
         sub=sub,
@@ -569,18 +581,23 @@ def plot_spherical_density(
         max=vmax
         if vmax is not None
         else (np.percentile(map_np[map_np > 0], 95) if np.any(map_np > 0) else np.max(map_np)),
+        projection_type=projection_type,
+        graticule=show_ticks,
+        graticule_labels=show_ticks,
+        fontsize=fontsize,
+    )
+    new_axes = [a for a in fig.axes if id(a) not in axes_before]
+    delegate = next(
+        (a for a in new_axes if type(a) is not mpl_axes.Axes),
+        new_axes[0] if new_axes else None,
     )
     if delegate is None:
-        delegate = next(
-            (a for a in fig.axes if isinstance(a, hp.projaxes.HpxMollweideAxes)),
-            None,
-        )
-    if delegate is None:
-        raise RuntimeError("healpy.mollview did not return a Mollweide axes.")
+        raise RuntimeError("healpy.projview did not add any axes to the figure.")
     _attach_delegate(ax, delegate)
 
-    # Control graticule display
-    if not show_ticks:
-        hp.graticule(verbose=False, alpha=0)
+    if border_linewidth > 0:
+        for spine in delegate.spines.values():
+            spine.set_linewidth(border_linewidth)
+            spine.set_color("black")
 
     return ax
