@@ -349,7 +349,7 @@ def parser() -> ArgumentParser:
         "--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)"
     )
     lensing_p.add_argument(
-        "--max-z", type=float, default=1.5, help="Maximum redshift for nz integration (default: 3.0)"
+        "--max-z", type=float, default=1.5, help="Maximum redshift for nz integration (default: 1.5)"
     )
     lensing_p.add_argument(
         "--n-integrate", type=int, default=32, help="Number of integration points for nz distributions (default: 32)"
@@ -450,8 +450,6 @@ def run_simulations(
     min_width,  # 14 — static
     density_widths=None,  # 15 — non-static (JAX array or None)
 ) -> jfli.io.Catalog:
-    jax.config.update("jax_enable_x64", False)
-
     if sim_type == "lpt":
         # lightcone mode — forward ts + nb_shells from CLI
         dx, p = jfli.lpt(

@@ -251,13 +251,48 @@ def parser() -> ArgumentParser:
 
     # --- lensing subcommand ---
     lensing_p = subparsers.add_parser("lensing", parents=[grid_parent], help="Grid over full lensing pipeline runs")
-    lensing_p.add_argument("--nz-shear", nargs="+", required=True, metavar="Z")
-    lensing_p.add_argument("--lensing", choices=["born", "raytrace", "both"], default="born")
-    lensing_p.add_argument("--min-z", type=float, default=0.01)
-    lensing_p.add_argument("--max-z", type=float, default=1.5)
-    lensing_p.add_argument("--n-integrate", type=int, default=32)
-    lensing_p.add_argument("--rt-interp", choices=["bilinear", "ngp", "nufft"], default="bilinear")
-    lensing_p.add_argument("--no-parallel-transport", action="store_true")
+    lensing_p.add_argument(
+        "--nz-shear",
+        nargs="+",
+        required=True,
+        metavar="Z",
+        help="Source redshifts or 's3'/'s3[i]' for Stage-3 bins",
+    )
+    lensing_p.add_argument(
+        "--lensing",
+        choices=["born", "raytrace", "both"],
+        default="born",
+        help="Lensing method: born (default), raytrace, or both",
+    )
+    lensing_p.add_argument(
+        "--min-z",
+        type=float,
+        default=0.01,
+        help="Minimum redshift for n(z) integration (default: 0.01)",
+    )
+    lensing_p.add_argument(
+        "--max-z",
+        type=float,
+        default=1.5,
+        help="Maximum redshift for n(z) integration (default: 1.5)",
+    )
+    lensing_p.add_argument(
+        "--n-integrate",
+        type=int,
+        default=32,
+        help="Number of Simpson quadrature points for n(z) distributions (default: 32)",
+    )
+    lensing_p.add_argument(
+        "--rt-interp",
+        choices=["bilinear", "ngp", "nufft"],
+        default="bilinear",
+        help="Pixel interpolation for raytrace (default: bilinear)",
+    )
+    lensing_p.add_argument(
+        "--no-parallel-transport",
+        action="store_true",
+        help="Disable parallel transport in raytrace",
+    )
 
     return p
 

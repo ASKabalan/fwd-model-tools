@@ -23,6 +23,9 @@ CONFIG=""            # space-separated config names, one per chain, e.g. "01-cha
 TRUTH_PARQUET="test_fli_samples/chain_0/samples/samples_0.parquet"     # path to truth Catalog parquet; leave empty to skip
 OUTPUT_FILE="results/extracts/extract.parquet"
 
+# --- Precision ---
+ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
+
 # --- Extract parameters ---
 COSMO_KEYS="Omega_c sigma8"
 SET_NAME="my_extract"
@@ -111,4 +114,5 @@ $SBATCH_CMD fli-extract \
     $([ "$POWER_STATISTIC" = "true" ] && echo "--power-statistic") \
     --ddof $DDOF \
     --pdim $PX $PY \
-    --nodes $NODES
+    --nodes $NODES \
+    $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64")

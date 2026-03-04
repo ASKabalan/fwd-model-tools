@@ -3,11 +3,11 @@
 # pre-computed simulation outputs using `fli-raytrace`.
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=false # (true, false, or dryrun)
+RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
-GPUS_PER_NODE=4
+GPUS_PER_NODE=1
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
 PDIMS="1 1"
@@ -16,14 +16,18 @@ QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
 # --- I/O paths ---
-INPUT_DIR="results/cosmology_runs"
+INPUT_DIR="results/grid_runs"
 OUTPUT_DIR="results/lensing"
+
+# --- Precision ---
+ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
 LENSING="both"      # born | raytrace | both
-MAX_Z=3.0
-N_INTEGRATE=2
+MIN_Z=0.01          # minimum redshift for n(z) integration (default: 0.01)
+MAX_Z=3.0           # maximum redshift for n(z) integration (default: 1.5)
+N_INTEGRATE=2       # Simpson quadrature points for n(z) distributions (default: 32)
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
 TOTAL_GPUS=$((GPUS_PER_NODE * NODES))
@@ -71,7 +75,7 @@ if [ "$RUN_LOCALLY" = true ]; then
         SBATCH_CMD=""
     else
         SBATCH_CMD="mpirun -n $TOTAL_GPUS --oversubscribe"
-    fi    
+    fi
 elif [ "$RUN_LOCALLY" = dryrun ]; then
     SBATCH_CMD=dry_run_submit
 else
@@ -85,5 +89,7 @@ $SBATCH_CMD fli-raytrace \
     --output "$OUTPUT_DIR" \
     --lensing $LENSING \
     --nz-shear $NZ_SHEAR \
+    --min-z $MIN_Z \
     --max-z $MAX_Z \
-    --n-integrate $N_INTEGRATE
+    --n-integrate $N_INTEGRATE \
+    $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64")

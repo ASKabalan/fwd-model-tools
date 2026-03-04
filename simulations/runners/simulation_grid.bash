@@ -40,8 +40,14 @@ NB_SHELLS=10
 HALO_FRACTION=8
 
 # --- Lensing parameters ---
-NZ_SHEAR="s3"             # only used when SIMULATION_TYPE=lensing
-LENSING_TYPE="born"       # born | raytrace | both
+NZ_SHEAR="s3"           # only used when SIMULATION_TYPE=lensing
+LENSING_TYPE="raytrace"     # born | raytrace | both
+MIN_Z=0.01              # minimum redshift for n(z) integration (default: 0.01)
+MAX_Z=1.5               # maximum redshift for n(z) integration (default: 1.5)
+N_INTEGRATE=32          # Simpson quadrature points for n(z) distributions (default: 32)
+
+# --- Precision ---
+ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 
 # --- Grid parameters ---
 # MESH_SIZES: each element is "MX MY MZ"; all are passed as a flat list to fli-grid.
@@ -54,6 +60,7 @@ MESH_SIZES=(
     "128 128 128"
 )
 BOX_SIZES=(
+    "500.0 500.0 500.0"
     "1000.0 1000.0 1000.0"
 )
 OMEGA_C=(0.2)
@@ -105,7 +112,7 @@ if [ "$RUN_LOCALLY" = true ]; then
         SBATCH_CMD=""
     else
         SBATCH_CMD="mpirun -n $TOTAL_GPUS --oversubscribe"
-    fi    
+    fi
 elif [ "$RUN_LOCALLY" = dryrun ]; then
     SBATCH_CMD=dry_run_submit
 else
@@ -132,6 +139,7 @@ $SBATCH_CMD fli-grid $SIMULATION_TYPE \
     --min-width $MIN_WIDTH \
     $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
     $([ -n "$DENSITY_WIDTHS" ] && echo "--density-widths $DENSITY_WIDTHS") \
-    $([ "$SIMULATION_TYPE" = "lensing" ] && echo "--nz-shear $NZ_SHEAR --lensing $LENSING_TYPE") \
+    $([ "$SIMULATION_TYPE" = "lensing" ] && echo "--nz-shear $NZ_SHEAR --lensing $LENSING_TYPE --min-z $MIN_Z --max-z $MAX_Z --n-integrate $N_INTEGRATE") \
     --h 0.6774 \
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$OUTPUT_DIR" \
+    $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64")

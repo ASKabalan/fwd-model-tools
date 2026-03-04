@@ -48,14 +48,13 @@ def build_mcsamples(
     catalog_extracts: CatalogExtract | list[CatalogExtract],
     params: list[str] | None = None,
     labels: dict | None = None,
-    model_labels: list[str] | None = None,
 ) -> list[MCSamples]:
     """Build one GetDist MCSamples per CatalogExtract.
 
     Chains within each extract are **concatenated** (flattened) so GetDist
     draws KDE from all draws collectively.  The ``label`` attribute of each
-    MCSamples is set to the corresponding entry in ``model_labels``, which
-    GetDist uses to build the triangle-plot legend.
+    MCSamples is set from ``ce.name``, which GetDist uses to build the
+    triangle-plot legend.
 
     Parameters
     ----------
@@ -65,8 +64,6 @@ def build_mcsamples(
         Parameters to include.  Defaults to all keys in the first extract.
     labels : dict, optional
         LaTeX labels per parameter, e.g. ``{"Omega_c": r"\\Omega_c"}``.
-    model_labels : list of str, optional
-        Legend labels per model.  Defaults to ``None`` per model (no legend entry).
 
     Returns
     -------
@@ -77,16 +74,14 @@ def build_mcsamples(
 
     if isinstance(catalog_extracts, CatalogExtract):
         catalog_extracts = [catalog_extracts]
-    if model_labels is None:
-        model_labels = [None] * len(catalog_extracts)
     if params is None:
         params = catalog_extracts[0].cosmo_keys
 
     result = []
-    for ce, lbl in zip(catalog_extracts, model_labels):
+    for ce in catalog_extracts:
         param_labels = [_strip_dollars(labels.get(p, p) if labels else p) for p in params]
         flat_samples = np.column_stack([np.asarray(ce.cosmo[p]).flatten() for p in params])
-        mc = MCSamples(samples=flat_samples, names=params, labels=param_labels, label=lbl)
+        mc = MCSamples(samples=flat_samples, names=params, labels=param_labels, label=ce.name)
         result.append(mc)
     return result
 
@@ -97,8 +92,6 @@ def plot_posterior(
     outpath: str | Path | None = None,
     params: list[str] | None = None,
     labels: dict | None = None,
-    model_labels: list[str] | None = None,
-    truth: dict | None = None,
     filled: bool = True,
     shaded: bool = False,
     title_limit: int = 1,
@@ -113,17 +106,14 @@ def plot_posterior(
     ----------
     catalog_extracts : CatalogExtract or list[CatalogExtract]
         One or more extract results.  Multiple models are overlaid in one plot.
+        Legend labels are taken from ``ce.name`` and truth markers from
+        ``catalog_extracts[0].truth_cosmo``.
     outpath : str or Path, optional
         Full output file path.  If *None*, calls ``plt.show()``.
     params : list of str, optional
         Parameters to include.  Defaults to all keys in the first extract.
     labels : dict, optional
         LaTeX labels per parameter, e.g. ``{"Omega_c": r"\\Omega_c"}``.
-    model_labels : list of str, optional
-        Legend labels per model.  Pass a list when overlaying multiple models.
-    truth : dict, optional
-        True cosmology values shown as red dashed markers,
-        e.g. ``{"Omega_c": 0.27, "sigma8": 0.8}``.
     filled : bool, optional
         Use filled contours.  Default ``True``.
     shaded : bool, optional
@@ -148,7 +138,7 @@ def plot_posterior(
     if params is None:
         params = catalog_extracts[0].cosmo_keys
 
-    all_mc = build_mcsamples(catalog_extracts, params=params, labels=labels, model_labels=model_labels)
+    all_mc = build_mcsamples(catalog_extracts, params=params, labels=labels)
 
     settings = GetDistPlotSettings()
     settings.fontsize = fontsize
@@ -162,11 +152,13 @@ def plot_posterior(
     gdplt = gdplots.get_subplot_plotter(width_inch=width_inch, settings=settings)
 
     try:
+        legend_labels = [ce.name for ce in catalog_extracts]
+        truth = catalog_extracts[0].truth_cosmo
         plot_kwargs = {
             "filled": filled,
             "shaded": shaded,
             "title_limit": title_limit,
-            "legend_labels": model_labels,
+            "legend_labels": legend_labels,
         }
         if truth:
             markers = {p: truth[p] for p in params if p in truth}

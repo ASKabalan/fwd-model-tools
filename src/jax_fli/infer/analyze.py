@@ -90,9 +90,6 @@ def analyze(
     summary_parts: list[str] = []
 
     for ce in catalog_extract:
-        # Auto-use truth_cosmo embedded in CatalogExtract when no external truth is given
-        effective_truth = truth if truth is not None else ce.truth_cosmo
-
         safe = ce.name.replace(" ", "_").replace("/", "_")
         n_chains = ce.n_chains
 

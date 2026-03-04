@@ -19,7 +19,7 @@ TIME_LIMIT="00:30:00"
 OUTPUT_DIR="results/cosmology_runs"
 
 # --- Simulation parameters ---
-SIMULATION_TYPE='lpt' # can also be lpt or lensing
+SIMULATION_TYPE='lpt' # lpt | nbody | lensing
 NSIDE=64
 LPT_ORDER=2
 INTERP="none"
@@ -37,16 +37,28 @@ NB_SHELLS=10
 HALO_FRACTION=8
 OBSERVER_POSITION="0.5 0.5 0.5"
 
+# --- Precision ---
+ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
+
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
-LENSING_METHOD='born' # born, raytrace, or both (only used when SIMULATION_TYPE=lensing)
+LENSING_METHOD='born' # born | raytrace | both (only used when SIMULATION_TYPE=lensing)
+MIN_Z=0.01            # minimum redshift for n(z) integration (default: 0.01)
+MAX_Z=1.5             # maximum redshift for n(z) integration (default: 1.5)
+N_INTEGRATE=32        # Simpson quadrature points for n(z) distributions (default: 32)
 
 # --- Grid parameters ---
+# MESH_SIZES: each element is "MX MY MZ"; all are passed as a flat list to fli-simulate.
+# BOX_SIZES, OMEGA_C, SIGMA_8, SEED support two styles (can be mixed):
+#   Explicit list:  OMEGA_C=(0.2589 0.3 0.4)
+#   Range notation: OMEGA_C=("0.25:0.45:0.05")   → 0.25 0.30 0.35 0.40 0.45 (stop inclusive)
+#   Seed range:     SEED=("0:9:1")                → seeds 0..9
 MESH_SIZES=(
     "64 64 64"
     "128 128 128"
 )
 BOX_SIZES=(
+    "1000.0 1000.0 1000.0"
     "6000.0 6000.0 6000.0"
 )
 OMEGA_C=(0.2589)
@@ -124,7 +136,7 @@ run_simulations() {
                                 SBATCH_CMD=""
                             else
                                 SBATCH_CMD="mpirun -n $TOTAL_GPUS --oversubscribe"
-                            fi    
+                            fi
                         elif [ "$RUN_LOCALLY" = dryrun ]; then
                             SBATCH_CMD=dry_run_submit
                         else
@@ -150,13 +162,17 @@ run_simulations() {
                             --min-width $MIN_WIDTH \
                             --nz-shear $NZ_SHEAR \
                             --lensing $LENSING_METHOD \
+                            --min-z $MIN_Z \
+                            --max-z $MAX_Z \
+                            --n-integrate $N_INTEGRATE \
                             --Omega-c $OC \
                             --sigma8 $S8 \
                             --seed $SD \
                             --h 0.6774 \
                             --output "$OUT_PARQUET_FILE" \
                             --perf \
-                            --iterations 3
+                            --iterations 3 \
+                            $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64")
 
 
                     done

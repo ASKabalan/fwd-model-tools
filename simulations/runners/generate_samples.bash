@@ -37,14 +37,20 @@ OBSERVER_POSITION="0.5 0.5 0.5"
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
-LENSING="born"
+LENSING="born"    # born | raytrace | both
+MIN_Z=0.01        # minimum redshift for n(z) integration (default: 0.01)
+MAX_Z=1.5         # maximum redshift for n(z) integration (default: 1.5)
+N_INTEGRATE=32    # Simpson quadrature points for n(z) distributions (default: 32)
 INTERP="none"
+
+# --- Precision ---
+ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 
 # --- Sampling parameters ---
 NUM_SAMPLES=10
 
 # --- Job settings ---
-CHAINS=(0)
+CHAINS=(1)
 # Make 20 batches
 BATCHES=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
 
@@ -116,10 +122,14 @@ for chain in "${CHAINS[@]}"; do
             --observer-position $OBSERVER_POSITION \
             --nz-shear $NZ_SHEAR \
             --lensing $LENSING \
+            --min-z $MIN_Z \
+            --max-z $MAX_Z \
+            --n-integrate $N_INTEGRATE \
             --interp $INTERP \
             --num-samples $NUM_SAMPLES \
             --seed $batch \
             --path "$OUTPUT_DIR/chain_$chain" \
-            --batch-id $batch
+            --batch-id $batch \
+            $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64")
     done
 done

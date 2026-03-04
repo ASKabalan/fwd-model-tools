@@ -333,7 +333,10 @@ def raytrace(
                 shell_widths=density_widths_np,
                 n_workers=n_workers,
             )
-            # sources is a list of jc.redshift distributions — concrete Python, safe in closure
+            # warmstart NZ — reset cached _norm before integration to avoid stale values across runs
+            for nz in sources:
+                if callable(nz) and hasattr(nz, "_norm"):
+                    nz._norm = None
             if born and raytrace:
                 kappa_grid_rt, kappa_grid_born = kappa_grid
                 return (

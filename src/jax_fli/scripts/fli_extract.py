@@ -105,6 +105,7 @@ def parser() -> argparse.ArgumentParser:
         default=1,
         help="Number of nodes.",
     )
+    p.add_argument("--enable-x64", action="store_true", help="Enable JAX 64-bit precision (default: False)")
 
     return p
 
@@ -113,6 +114,8 @@ def main() -> None:
     """CLI entry point registered as fli-extract."""
     p = parser()
     args = p.parse_args()
+
+    jax.config.update("jax_enable_x64", args.enable_x64)
 
     # Validate: --config required when --repo-id is set
     if args.repo_id is not None and args.config is None:
@@ -128,7 +131,7 @@ def main() -> None:
     # Load truth Catalog if provided
     truth = None
     if args.truth is not None:
-        truth = Catalog.from_parquet(args.truth)
+        truth = Catalog.from_parquet(args.truth, sharding=sharding)
 
     # Run streaming extraction
     ce = extract_catalog(

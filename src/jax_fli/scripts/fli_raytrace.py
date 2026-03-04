@@ -101,7 +101,7 @@ def main() -> None:
 
         print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
 
-        if lensing in ("born", "both"):
+        if lensing in ("born"):
             born_result = jax.block_until_ready(
                 jfli.born(cosmo, field, nz_shear, min_z=min_z, max_z=max_z, n_integrate=n_integrate)
             )

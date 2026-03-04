@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 import equinox as eqx
 import jax
@@ -226,7 +226,7 @@ class CatalogExtract(eqx.Module):
         )
 
     @requires_datasets
-    def to_dataset(self) -> datasets.Dataset | None:
+    def to_dataset(self) -> Any:
         """Serialise this CatalogExtract to a HuggingFace Dataset (one row).
 
         Columns are added dynamically: truth cosmo, field arrays, and power spectra
@@ -247,8 +247,9 @@ class CatalogExtract(eqx.Module):
         if self.true_ic is not None:
             gathered_ic_arr = process_allgather(self.true_ic.array, tiled=True)
 
-        gathered_mean_chains: list = []
-        gathered_std_chains: list = []
+        mean_arr = None
+        std_arr = None
+
         if self.mean_field is not None:
             assert self.std_field is not None
             mean_arr = process_allgather(self.mean_field.array, tiled=True)
@@ -373,7 +374,7 @@ class CatalogExtract(eqx.Module):
         """
         import datasets as hf_datasets
 
-        if isinstance(ds, (hf_datasets.Dataset, hf_datasets.IterableDataset)):
+        if isinstance(ds, (hf_datasets.Dataset | hf_datasets.IterableDataset)):
             row = ds.with_format("numpy")[0]
         elif isinstance(ds, dict):
             row = ds
