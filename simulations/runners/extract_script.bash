@@ -3,36 +3,32 @@
 # via SLURM using `fli-extract`.
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=false  # (true, false, or dryrun)
+RUN_LOCALLY=true  # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
-GPUS_PER_NODE=1
+GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-NODES=1
-PDIMS="1 1"          # e.g. "2 1" for 2-GPU mesh
+NODES=4
+PDIMS="16 1"          # e.g. "2 1" for 2-GPU mesh
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
 # --- I/O paths ---
 # Source: provide either INPUT_DIR (local) or REPO_ID + CONFIG (HF Hub), not both.
-INPUT_DIR=""         # local root dir (chain_N/samples layout); leave empty to use HF Hub
+INPUT_DIR="test_fli_samples"         # local root dir (chain_N/samples layout); leave empty to use HF Hub
 REPO_ID=""           # HuggingFace Hub repo ID, e.g. "ASKabalan/jax-fli-experiments"
 CONFIG=""            # space-separated config names, one per chain, e.g. "01-chain_0 01-chain_1"
-TRUTH_PARQUET=""     # path to truth Catalog parquet; leave empty to skip
+TRUTH_PARQUET="test_fli_samples/chain_0/samples/samples_0.parquet"     # path to truth Catalog parquet; leave empty to skip
 OUTPUT_FILE="results/extracts/extract.parquet"
 
 # --- Extract parameters ---
 COSMO_KEYS="Omega_c sigma8"
 SET_NAME="my_extract"
-FIELD_STATISTIC=false   # set to true to compute per-chain mean/std fields
-POWER_STATISTIC=false   # set to true to compute per-chain transfer/coherence (requires TRUTH_PARQUET)
+FIELD_STATISTIC=true   # set to true to compute per-chain mean/std fields
+POWER_STATISTIC=true   # set to true to compute per-chain transfer/coherence (requires TRUTH_PARQUET)
 DDOF=0
-
-# --- Device mesh ---
-PDIMS="1 1"
-NODES=1
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
 TOTAL_GPUS=$((GPUS_PER_NODE * NODES))

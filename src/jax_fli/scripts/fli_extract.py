@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 
+import jax
+
 from jax_fli.io.catalog import Catalog
 from jax_fli.io.extract import extract_catalog
 from jax_fli.scripts._common import _build_sharding
@@ -141,10 +143,13 @@ def main() -> None:
         ddof=args.ddof,
         sharding=sharding,
     )
+    if args.field_statistic and ce.mean_field is not None and jax.process_index() == 0:
+        print(f"sharding of mean fields {ce.mean_field.array.sharding}")
 
     # Save to parquet
     ce.to_parquet(args.output)
-    print(f"Saved CatalogExtract '{ce.name}' with {ce.n_chains} chains to {args.output}")
+    if jax.process_index() == 0:
+        print(f"Saved CatalogExtract '{ce.name}' with {ce.n_chains} chains to {args.output}")
 
 
 if __name__ == "__main__":

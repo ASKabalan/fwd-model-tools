@@ -9,7 +9,6 @@ from typing import ParamSpec, TypeVar
 import equinox as eqx
 import jax
 import jax.core
-import jax.numpy as jnp
 import jax_cosmo as jc
 import numpy as np
 from jax.experimental.multihost_utils import process_allgather
@@ -53,7 +52,7 @@ def requires_datasets(func: Callable[Param, ReturnType]) -> Callable[Param, Retu
     return deferred_func
 
 
-def _ensure_batch_dim(array: jnp.ndarray, field_type: str) -> jnp.ndarray:
+def _ensure_batch_dim(array: np.ndarray, field_type: str) -> np.ndarray:
     """Ensure array has batch dimension."""
     if field_type in ("SphericalDensity", "SphericalKappaField"):  # Check of SphericalDensity or subclass
         # Expected shape: (batch, npix) or (npix,)
@@ -278,9 +277,7 @@ def _row_to_field_cosmo(item: dict, sharding=None) -> tuple[AbstractField, jc.Co
         return tuple(_type(x) for x in v)
 
     # The array is (B, ...) shaped.  Detect unbatched via B == 1.
-    array = jnp.asarray(item["array"])
-    if sharding is not None:
-        array = jax.lax.with_sharding_constraint(array, sharding)
+    array = np.asarray(item["array"])
     unbatched = array.shape[0] == 1
 
     if unbatched:
@@ -288,7 +285,7 @@ def _row_to_field_cosmo(item: dict, sharding=None) -> tuple[AbstractField, jc.Co
 
     # Dynamic metadata: stored as sequences of length B
     def _read_dynamic(key):
-        val = jnp.asarray(item[key], dtype=jnp.float64)
+        val = np.asarray(item[key], dtype=np.float64)
         if unbatched:
             return val[0] if val.ndim >= 1 else val  # scalar
         return val
@@ -296,7 +293,7 @@ def _row_to_field_cosmo(item: dict, sharding=None) -> tuple[AbstractField, jc.Co
     # Reconstruct z_sources as plain numeric (same as scale_factors etc.)
     z_sources = _read_dynamic("z_sources")
     if not unbatched:
-        z_sources = jnp.atleast_1d(z_sources)
+        z_sources = np.atleast_1d(z_sources)
 
     field = field_cls(
         array=array,
@@ -319,6 +316,7 @@ def _row_to_field_cosmo(item: dict, sharding=None) -> tuple[AbstractField, jc.Co
         status=FieldStatus[item["status"]],
         unit=unit,
     )
+    field = field.apply_sharding()
 
     cosmology = jc.Cosmology(
         Omega_c=item["Omega_c"],
@@ -362,7 +360,8 @@ class Catalog(eqx.Module):
     def __init__(self, field, cosmology, version=CATALOG_VERSION):
         if isinstance(field, AbstractField) and isinstance(cosmology, jc.Cosmology):
             cosmo_n = int(np.asarray(cosmology.Omega_c).size)  # 1 for scalar, N for batched
-            if cosmo_n > 1:
+            cosmo_is_batched = int(np.asarray(cosmology.Omega_c).ndim) > 0
+            if cosmo_is_batched:
                 field_n = field.array.shape[0] if field.is_batched() else 1
                 if field_n != cosmo_n:
                     raise ValueError(f"Cosmology batch size {cosmo_n} != field leading dimension {field_n}.")
@@ -468,7 +467,7 @@ class Catalog(eqx.Module):
         """
         from datasets import load_dataset
 
-        ds = load_dataset("parquet", data_files=path, split="train")
+        ds = load_dataset("parquet", data_files=path, split="train").with_format("numpy")
         return cls.from_dataset(ds, sharding=sharding)
 
     @classmethod
@@ -496,7 +495,7 @@ class Catalog(eqx.Module):
             f, c, v = _row_to_field_cosmo(ds, sharding=sharding)
             return cls(field=[f], cosmology=[c], version=v)
         elif isinstance(ds, datasets.Dataset | datasets.IterableDataset):
-            ds_jax = ds.with_format("jax")
+            ds_jax = ds.with_format("numpy")
             fields = []
             cosmologies = []
             version = CATALOG_VERSION

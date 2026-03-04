@@ -11,6 +11,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax.experimental.multihost_utils import process_allgather
 
 from ..fields import DensityField
 from .catalog import Catalog
@@ -50,11 +51,11 @@ class _RunningStats:
 
     def __init__(self, template):
         self.n = 0
-        self.mean = template.apply_fn(lambda x: np.zeros_like(np.asarray(x), dtype=np.float64))
-        self.M2 = template.apply_fn(lambda x: np.zeros_like(np.asarray(x), dtype=np.float64))
+        self.mean = template.apply_fn(lambda x: jnp.zeros_like(jnp.asarray(x), dtype=jnp.float64))
+        self.M2 = template.apply_fn(lambda x: jnp.zeros_like(jnp.asarray(x), dtype=jnp.float64))
 
     def update(self, obj):
-        x = obj.apply_fn(lambda arr: np.asarray(arr, dtype=np.float64))
+        x = obj.apply_fn(lambda arr: jnp.asarray(arr, dtype=jnp.float64))
         self.n += 1
         delta = x - self.mean
         self.mean = self.mean + delta * (1.0 / self.n)
@@ -66,9 +67,9 @@ class _RunningStats:
 
     def get_std(self, ddof: int = 0):
         if self.n < 2:
-            return self.mean.apply_fn(lambda x: np.zeros_like(x))
+            return self.mean.apply_fn(lambda x: jnp.zeros_like(x))
         denom = self.n - ddof
-        return self.M2.apply_fn(lambda arr: np.sqrt(arr / denom))
+        return self.M2.apply_fn(lambda arr: jnp.sqrt(arr / denom))
 
 
 def _detect_chains(path: Path) -> list[str]:
@@ -131,7 +132,7 @@ def _field_to_metadata_dict(field: DensityField, prefix: str) -> dict:
     }
     for attr in ["z_sources", "scale_factors", "comoving_centers", "density_width"]:
         val = getattr(field, attr, None)
-        d[f"{prefix}{attr}"] = np.asarray(val).flatten().tolist() if val is not None else []
+        d[f"{prefix}{attr}"] = jnp.asarray(val).flatten().tolist() if val is not None else []
     return d
 
 
@@ -180,7 +181,7 @@ class CatalogExtract(eqx.Module):
         vals = list(self.cosmo.values())
         if not vals:
             return 0
-        arr = np.asarray(vals[0])
+        arr = jnp.asarray(vals[0])
         return arr.shape[0] if arr.ndim == 2 else 1
 
     @property
@@ -202,7 +203,7 @@ class CatalogExtract(eqx.Module):
         if isinstance(idx, int):
             idx = slice(idx, idx + 1)
 
-        new_cosmo = {k: np.asarray(v)[idx] for k, v in self.cosmo.items()}
+        new_cosmo = {k: jnp.asarray(v)[idx] for k, v in self.cosmo.items()}
 
         new_mean_field = (
             self.mean_field.replace(array=self.mean_field.array[idx]) if self.mean_field is not None else None
@@ -225,18 +226,36 @@ class CatalogExtract(eqx.Module):
         )
 
     @requires_datasets
-    def to_dataset(self):
+    def to_dataset(self) -> datasets.Dataset | None:
         """Serialise this CatalogExtract to a HuggingFace Dataset (one row).
 
         Columns are added dynamically: truth cosmo, field arrays, and power spectra
         columns are omitted when the corresponding attribute is ``None``.
 
+        In multi-process runs this method performs a collective ``process_allgather``
+        on all sharded arrays and then returns ``None`` on non-zero processes.
+
         Returns
         -------
-        datasets.Dataset
-            Single-row dataset with all present data.
+        datasets.Dataset or None
+            Single-row dataset on process 0; ``None`` on all other processes.
         """
         from datasets import Array2D, Array3D, Array4D, Dataset, Features, Sequence, Value
+
+        # --- Gather sharded field arrays (collective, all processes participate) ---
+        gathered_ic_arr = None
+        if self.true_ic is not None:
+            gathered_ic_arr = process_allgather(self.true_ic.array, tiled=True)
+
+        gathered_mean_chains: list = []
+        gathered_std_chains: list = []
+        if self.mean_field is not None:
+            assert self.std_field is not None
+            mean_arr = process_allgather(self.mean_field.array, tiled=True)
+            std_arr = process_allgather(self.std_field.array, tiled=True)
+
+        if jax.process_index() != 0:
+            return None
 
         data: dict = {"name": [self.name], "cosmo_keys": [self.cosmo_keys]}
         feature_dict: dict = {
@@ -260,7 +279,7 @@ class CatalogExtract(eqx.Module):
 
         # --- True IC field ---
         if self.true_ic is not None:
-            ic_arr = np.asarray(self.true_ic.array, dtype=np.float64)
+            ic_arr = gathered_ic_arr
             data["ic_array"] = [ic_arr]
             feature_dict["ic_array"] = Array3D(shape=ic_arr.shape, dtype="float64")
             for k, v in _field_to_metadata_dict(self.true_ic, "ic_").items():
@@ -283,8 +302,6 @@ class CatalogExtract(eqx.Module):
         # --- Mean / std field arrays: shape (n_chains, X, Y, Z) ---
         if self.mean_field is not None:
             assert self.std_field is not None
-            mean_arr = np.asarray(self.mean_field.array, dtype=np.float64)
-            std_arr = np.asarray(self.std_field.array, dtype=np.float64)
             data["mean_field_array"] = [mean_arr]
             data["std_field_array"] = [std_arr]
             feature_dict["mean_field_array"] = Array4D(shape=mean_arr.shape, dtype="float64")
@@ -333,7 +350,9 @@ class CatalogExtract(eqx.Module):
         path : str
             Destination parquet file path.
         """
-        self.to_dataset().to_parquet(path)
+        ds = self.to_dataset()
+        if ds is not None:
+            ds.to_parquet(path)
 
     @classmethod
     @requires_datasets
@@ -371,29 +390,26 @@ class CatalogExtract(eqx.Module):
             truth_cosmo = {k: float(row[f"truth_cosmo_{k}"]) for k in _truth_params if f"truth_cosmo_{k}" in row}
 
         # --- Cosmo samples ---
-        cosmo = {key: np.asarray(row[f"cosmo_{key}"], dtype=np.float64) for key in cosmo_keys}
+        cosmo = {key: jnp.asarray(row[f"cosmo_{key}"], dtype=np.float64) for key in cosmo_keys}
 
         # --- True IC ---
         true_ic = None
         if "ic_array" in row and row.get("ic_array") is not None:
-            ic_arr = jnp.asarray(row["ic_array"])
-            if sharding is not None:
-                ic_arr = jax.lax.with_sharding_constraint(ic_arr, sharding)
+            ic_arr = np.asarray(row["ic_array"])
             kwargs = _metadata_dict_to_field_kwargs(row, "ic_")
             true_ic = DensityField(array=ic_arr, sharding=sharding, **kwargs)
-
+            true_ic = true_ic.apply_sharding()
         # --- Mean / std fields ---
         mean_field = None
         std_field = None
         if "mean_field_array" in row and row.get("mean_field_array") is not None:
-            mean_arr = jnp.asarray(row["mean_field_array"])
-            std_arr = jnp.asarray(row["std_field_array"])
-            if sharding is not None:
-                mean_arr = jax.lax.with_sharding_constraint(mean_arr, sharding)
-                std_arr = jax.lax.with_sharding_constraint(std_arr, sharding)
+            mean_arr = np.asarray(row["mean_field_array"])
+            std_arr = np.asarray(row["std_field_array"])
             kwargs = _metadata_dict_to_field_kwargs(row, "field_")
             mean_field = DensityField(array=mean_arr, sharding=sharding, **kwargs)
             std_field = DensityField(array=std_arr, sharding=sharding, **kwargs)
+            mean_field = mean_field.apply_sharding()
+            std_field = std_field.apply_sharding()
 
         # --- Power spectra ---
         power_spectra = None
@@ -435,7 +451,7 @@ class CatalogExtract(eqx.Module):
         """
         from datasets import load_dataset
 
-        ds = load_dataset("parquet", data_files=path, split="train")
+        ds = load_dataset("parquet", data_files=path, split="train").with_format("numpy")
         return cls.from_dataset(ds, sharding=sharding)
 
 
@@ -548,7 +564,7 @@ def extract_catalog(
 
             # --- density field (cast to float64 for stable accumulation) ---
             # Welfords online mean calculating is iterative and relies on the arithmetic operators of the object, so we convert to numpy arrays here to ensure all intermediate calculations are done in float64 precision.
-            field = catalog.field[0].apply_fn(lambda x: np.asarray(x, dtype=np.float64))
+            field = catalog.field[0].apply_fn(lambda x: jnp.asarray(x, dtype=jnp.float64))
 
             # --- field statistics ---
             if field_statistic:
@@ -558,8 +574,8 @@ def extract_catalog(
 
             # --- power spectra statistics ---
             if power_statistic:
-                transfer_ps = field.transfer(true_ic_field).apply_fn(lambda x: np.asarray(x, dtype=np.float64))
-                coherence_ps = field.coherence(true_ic_field).apply_fn(lambda x: np.asarray(x, dtype=np.float64))
+                transfer_ps = field.transfer(true_ic_field).apply_fn(lambda x: jnp.asarray(x, dtype=jnp.float64))
+                coherence_ps = field.coherence(true_ic_field).apply_fn(lambda x: jnp.asarray(x, dtype=jnp.float64))
                 if transfer_stats is None:
                     transfer_stats = _RunningStats(transfer_ps)
                     coherence_stats = _RunningStats(coherence_ps)
@@ -572,7 +588,7 @@ def extract_catalog(
         chain_coherence_stats[chain_idx] = coherence_stats
 
     # --- Build cosmo dict: shape (n_chains, n_samples) ---
-    cosmo_dict = {key: np.array(cosmo_lists[key]) for key in cosmo_keys}
+    cosmo_dict = {key: jnp.array(cosmo_lists[key]) for key in cosmo_keys}
 
     result_mean_field = None
     result_std_field = None
@@ -582,8 +598,8 @@ def extract_catalog(
     if field_statistic:
         chain_means = [chain_field_stats[c].get_mean() for c in range(n_chains)]
         chain_stds = [chain_field_stats[c].get_std(ddof) for c in range(n_chains)]
-        stacked_mean = np.stack([np.asarray(f.array) for f in chain_means], axis=0)
-        stacked_std = np.stack([np.asarray(f.array) for f in chain_stds], axis=0)
+        stacked_mean = jnp.stack([f.array for f in chain_means], axis=0)
+        stacked_std = jnp.stack([f.array for f in chain_stds], axis=0)
         result_mean_field = chain_means[0].replace(array=jnp.array(stacked_mean))
         result_std_field = chain_stds[0].replace(array=jnp.array(stacked_std))
 
@@ -591,8 +607,8 @@ def extract_catalog(
     if power_statistic:
 
         def _stack_ps(ps_list):
-            stacked = np.stack([np.asarray(ps.array) for ps in ps_list], axis=0)
-            return ps_list[0].replace(array=jnp.array(stacked))
+            stacked = jnp.stack([ps.array for ps in ps_list], axis=0)
+            return ps_list[0].replace(array=stacked)
 
         mean_transfer = _stack_ps([chain_transfer_stats[c].get_mean() for c in range(n_chains)])
         std_transfer = _stack_ps([chain_transfer_stats[c].get_std(ddof) for c in range(n_chains)])

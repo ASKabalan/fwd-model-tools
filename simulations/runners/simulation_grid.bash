@@ -3,15 +3,15 @@
 # process using `fli-grid` (supports range notation).
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=false # (true, false, or dryrun)
+RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
 GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-PDIMS="1 1"
-NODES=1
+PDIMS="16 1"
+NODES=4
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="24:00:00"   # fli-grid runs ALL combos in one job — set generously
 
@@ -19,7 +19,8 @@ TIME_LIMIT="24:00:00"   # fli-grid runs ALL combos in one job — set generously
 OUTPUT_DIR="results/grid_runs"
 
 # --- Simulation parameters ---
-SIMULATION_TYPE='nbody'   # lpt | nbody | lensing
+
+SIMULATION_TYPE='lensing'   # lpt | nbody | lensing
 LPT_ORDER=2
 INTERP="none"
 
@@ -51,17 +52,13 @@ LENSING_TYPE="born"       # born | raytrace | both
 MESH_SIZES=(
     "64 64 64"
     "128 128 128"
-    "256 256 256"
-    "512 512 512"
 )
 BOX_SIZES=(
-    "200.0 200.0 200.0"
-    "400.0 400.0 400.0"
     "1000.0 1000.0 1000.0"
 )
-OMEGA_C=(0.2:0.5:0.1)
-SIGMA_8=(0.8:0.85:0.01)
-SEED=(0:9:1)
+OMEGA_C=(0.2)
+SIGMA_8=(0.8)
+SEED=(0)
 NSIDE=(512)
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))

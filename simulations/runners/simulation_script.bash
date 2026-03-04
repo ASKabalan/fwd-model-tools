@@ -3,15 +3,15 @@
 # grid via SLURM using `fli-simulate`.
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=false # (true, false, or dryrun)
+RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
 GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-PDIMS="2 1"
-NODES=1
+PDIMS="16 1"
+NODES=4
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
@@ -19,8 +19,8 @@ TIME_LIMIT="00:30:00"
 OUTPUT_DIR="results/cosmology_runs"
 
 # --- Simulation parameters ---
-SIMULATION_TYPE='nbody' # can also be lpt or lensing
-NSIDE=1024
+SIMULATION_TYPE='lpt' # can also be lpt or lensing
+NSIDE=64
 LPT_ORDER=2
 INTERP="none"
 
@@ -39,16 +39,12 @@ OBSERVER_POSITION="0.5 0.5 0.5"
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
-LENSING_METHOD='raytrace' # born, raytrace, or both (only used when SIMULATION_TYPE=lensing)
+LENSING_METHOD='born' # born, raytrace, or both (only used when SIMULATION_TYPE=lensing)
 
 # --- Grid parameters ---
 MESH_SIZES=(
-    "512 512 512"
-    "1024 1024 1024"
-    "1536 1536 1536"
-    "2048 2048 2048"
-    "3072 3072 3072"
-    "4096 4096 4096"
+    "64 64 64"
+    "128 128 128"
 )
 BOX_SIZES=(
     "6000.0 6000.0 6000.0"

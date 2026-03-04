@@ -1,5 +1,6 @@
 """Probabilistic model utilities."""
 
+from ..infer.sample_converter import sample2catalog
 from .config import Configurations
 from .forward_model import make_full_field_model
 from .full_field_model import full_field_probmodel, mock_probmodel
@@ -17,4 +18,5 @@ __all__ = [
     "make_2pt_model",
     "pixel_window_function",
     "powerspec_probmodel",
+    "sample2catalog",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -139,17 +140,27 @@ def sample2catalog(config: Configurations):
         fields_dir = os.path.join(path, "kappa_fields")
         os.makedirs(fields_dir, exist_ok=True)
         # find out how many kappa bins there are by counting keys
-        kappa_keys = [k for k in samples if k.startswith("kappa_")]
+        kappa_keys = [k for k in samples if k.startswith("kappa_") and k.split("_")[-1].isdigit()]
         n_bins = len(kappa_keys)
         # Create the kappa fields class
         kappa_meta_data = samples["kappa_meta_data"]
-        kappa_array = jnp.stack([samples[f"kappa_{i}"] for i in range(n_bins)], axis=0)
-        kappa_field = KappaFieldCls.FromDensityMetadata(
-            array=kappa_array,
-            field=kappa_meta_data,
-        )
-
-        kappa_catalog = Catalog(field=kappa_field, cosmology=cosmo)
+        cosmo_arr = np.asarray(cosmo.Omega_c)
+        if cosmo_arr.ndim > 0:
+            # Batched cosmology (Predictive mode): build one catalog entry per sample
+            n_samples = int(cosmo_arr.size)
+            fields_list = []
+            cosmo_list = []
+            for s_idx in range(n_samples):
+                cosmo_s = jax.tree.map(lambda p: p[s_idx], cosmo)
+                meta_s = kappa_meta_data[s_idx]
+                kappa_s = jnp.stack([samples[f"kappa_{i}"][s_idx] for i in range(n_bins)], axis=0)
+                fields_list.append(KappaFieldCls.FromDensityMetadata(array=kappa_s, field=meta_s))
+                cosmo_list.append(cosmo_s)
+            kappa_catalog = Catalog(field=fields_list, cosmology=cosmo_list)
+        else:
+            kappa_array = jnp.stack([samples[f"kappa_{i}"] for i in range(n_bins)], axis=0)
+            kappa_field = KappaFieldCls.FromDensityMetadata(array=kappa_array, field=kappa_meta_data)
+            kappa_catalog = Catalog(field=kappa_field, cosmology=cosmo)
         kappa_catalog.to_parquet(os.path.join(fields_dir, f"fields_{batch_id}.parquet"))
 
         if "lightcone" in samples:

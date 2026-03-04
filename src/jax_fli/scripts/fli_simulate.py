@@ -431,7 +431,7 @@ def _validate_args(args: Namespace, parser: ArgumentParser) -> None:
 # ---------------------------------------------------------------------------
 
 
-@partial(jax.jit, static_argnums=(3, 4, 6, 7, 10, 12, 13, 14))
+@partial(jax.jit, static_argnums=(3, 4, 6, 7, 8, 9, 10, 12, 13, 14))
 def run_simulations(
     cosmo,
     initial_conditions,
@@ -582,7 +582,7 @@ def main() -> None:
             print("Error: jax-hpc-profiler not found. Please install it to use --perf.", file=sys.stderr)
             sys.exit(1)
 
-        timer = JaxTimer(save_jaxpr=False, static_argnums=(3, 4, 6, 7, 10, 12, 13, 14))
+        timer = JaxTimer(save_jaxpr=False, static_argnums=(3, 4, 6, 7, 8, 9, 10, 12, 13, 14))
         print("Compiling and running first iteration...")
         # chrono_jit measures compilation + first run
         result = timer.chrono_jit(run_simulations, **run_kwargs)
@@ -614,7 +614,9 @@ def main() -> None:
         }
 
         report_file = f"perf_{sim_type}.csv"
-        timer.report(report_file, function=sim_type, extra_info=extra_info, **metadata)
+        nb_steps = getattr(args, "nb_steps", "")
+        func_name = f"{sim_type}{nb_steps}"
+        timer.report(report_file, function=func_name, extra_info=extra_info, **metadata)
         print(f"Performance report saved to {report_file}")
     else:
         result = jax.block_until_ready(run_simulations(**run_kwargs))
