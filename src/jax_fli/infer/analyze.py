@@ -38,7 +38,6 @@ def analyze(
     catalog_extract: list[CatalogExtract] | CatalogExtract,
     outfolder: str,
     outformat: str = "png",
-    extract_labels: list[str] | None = None,
     dpi: int = 300,
     truth: dict | None = None,
 ) -> None:
@@ -69,9 +68,6 @@ def analyze(
         Output directory.  Created if absent.
     outformat : str, optional
         Image format: ``"png"``, ``"pdf"``, etc.  Default ``"png"``.
-    extract_labels : list of str, optional
-        Human-readable label per model, used in filenames and the summary.
-        Defaults to ``["model_0", "model_1", ...]``.
     dpi : int, optional
         Resolution for saved figures.  Default 300.
     labels : dict, optional
@@ -94,6 +90,9 @@ def analyze(
     summary_parts: list[str] = []
 
     for ce in catalog_extract:
+        # Auto-use truth_cosmo embedded in CatalogExtract when no external truth is given
+        effective_truth = truth if truth is not None else ce.truth_cosmo
+
         safe = ce.name.replace(" ", "_").replace("/", "_")
         n_chains = ce.n_chains
 

@@ -3,15 +3,15 @@
 # `fli-samples`, submitting each (chain, batch) pair as a SLURM job.
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=false # (true, false, or dryrun)
+RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
-GPUS_PER_NODE=1
+GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-NODES=1
-PDIMS="1 1"
+NODES=4
+PDIMS="16 1"
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
@@ -47,6 +47,7 @@ NUM_SAMPLES=10
 CHAINS=(0)
 # Make 20 batches
 BATCHES=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
+BATCHES=(0)
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
 TOTAL_GPUS=$((GPUS_PER_NODE * NODES))
@@ -89,7 +90,11 @@ for chain in "${CHAINS[@]}"; do
         echo "Submitting $JOB_NAME"
 
         if [ "$RUN_LOCALLY" = true ]; then
-            SBATCH_CMD=""
+            if [ "$TOTAL_GPUS" -eq 1 ]; then
+                SBATCH_CMD=""
+            else
+                SBATCH_CMD="mpirun -n $TOTAL_GPUS --oversubscribe"
+            fi
         elif [ "$RUN_LOCALLY" = dryrun ]; then
             SBATCH_CMD=dry_run_submit
         else

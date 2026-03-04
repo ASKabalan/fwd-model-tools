@@ -51,7 +51,7 @@ def batched_sampling(
     backend: str = "numpyro",
     init_params: PyTree | None = None,
     progress_bar: bool = True,
-    save_callback: Callable[[dict, dict, str, int], None] = default_save,
+    save_callback: Callable[[dict, str, int, dict | None], None] = default_save,
     *model_args,
     **model_kwargs,
 ):
@@ -310,7 +310,7 @@ def batched_sampling(
 
         if save:
             print(f"Saving batch {i + 1} samples and state...")
-            save_callback(samples, metrics, samples_prefix, i)
+            save_callback(samples, samples_prefix, i, metrics)
             inference_state = {"nb_samples": jnp.array(nb_samples), "last_state": last_state, "parameters": parameters}
             save_sharded(inference_state, state_path, overwrite=True, dump_structure=False)
         del samples

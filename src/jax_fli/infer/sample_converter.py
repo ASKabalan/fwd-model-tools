@@ -20,6 +20,12 @@ __all__ = ["sample2catalog"]
 
 def _append_metrics_row(metrics: dict, batch_id: int, base_path: str) -> None:
     """Append one row to {base_path}/metrics.md, creating headers on first write."""
+    if metrics is None:
+        metrics = {
+            "mean_num_steps": None,
+            "total_divergences": None,
+            "mean_accept_prob": None,
+        }
     md_path = os.path.join(base_path, "metrics.md")
     headers = (
         "| Batch | Avg Steps | Divergences | Mean Accept |",
@@ -38,7 +44,7 @@ def _append_metrics_row(metrics: dict, batch_id: int, base_path: str) -> None:
         f.write(row + "\n")
 
 
-def default_save(samples, metrics, path, batch_id):
+def default_save(samples, path, batch_id, metrics=None):
     """Default save callback that just saves the samples as an orbax checkpoint."""
     os.makedirs(path, exist_ok=True)
     base_path = os.path.dirname(path)
@@ -67,7 +73,7 @@ def sample2catalog(config: Configurations):
     is_spherical = config.geometry == "spherical"
     KappaFieldCls = SphericalKappaField if is_spherical else FlatKappaField
 
-    def cb(samples, metrics, path, batch_id):
+    def cb(samples, path, batch_id, metrics=None):
         """Save orbax checkpoint and parquet Catalogs for one batch.
 
         Parameters

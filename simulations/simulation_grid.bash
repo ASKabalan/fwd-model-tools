@@ -104,7 +104,11 @@ echo "Submitting single fli-grid job, time limit $TIME_LIMIT"
 JOB_NAME="fli_grid_${SIMULATION_TYPE}"
 
 if [ "$RUN_LOCALLY" = true ]; then
-    SBATCH_CMD=""
+    if [ "$TOTAL_GPUS" -eq 1 ]; then
+        SBATCH_CMD=""
+    else
+        SBATCH_CMD="mpirun -n $TOTAL_GPUS --oversubscribe"
+    fi    
 elif [ "$RUN_LOCALLY" = dryrun ]; then
     SBATCH_CMD=dry_run_submit
 else

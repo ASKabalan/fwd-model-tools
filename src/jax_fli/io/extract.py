@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import ParamSpec, TypeVar
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -118,6 +119,46 @@ def _detect_chains(path: Path) -> list[str]:
     return chains
 
 
+def _field_to_metadata_dict(field: DensityField, prefix: str) -> dict:
+    """Convert a DensityField's metadata to a flat dict with given prefix."""
+    d: dict = {
+        f"{prefix}mesh_size": list(field.mesh_size),
+        f"{prefix}box_size": list(field.box_size),
+        f"{prefix}observer_position": list(field.observer_position),
+        f"{prefix}halo_size": list(field.halo_size),
+        f"{prefix}status": field.status.name,
+        f"{prefix}unit": field.unit.name,
+    }
+    for attr in ["z_sources", "scale_factors", "comoving_centers", "density_width"]:
+        val = getattr(field, attr, None)
+        d[f"{prefix}{attr}"] = np.asarray(val).flatten().tolist() if val is not None else []
+    return d
+
+
+def _metadata_dict_to_field_kwargs(row: dict, prefix: str) -> dict:
+    """Convert a parquet row back to DensityField constructor kwargs."""
+    from .._src.base._enums import DensityUnit, FieldStatus
+
+    def _to_tuple(v, _type):
+        return tuple(_type(x) for x in v)
+
+    kwargs: dict = {
+        "mesh_size": _to_tuple(row[f"{prefix}mesh_size"], int),
+        "box_size": _to_tuple(row[f"{prefix}box_size"], float),
+        "observer_position": _to_tuple(row[f"{prefix}observer_position"], float),
+        "halo_size": _to_tuple(row[f"{prefix}halo_size"], float),
+        "status": FieldStatus[str(row[f"{prefix}status"])],
+        "unit": DensityUnit[str(row[f"{prefix}unit"])],
+    }
+    for attr in ["z_sources", "scale_factors", "comoving_centers", "density_width"]:
+        val = row.get(f"{prefix}{attr}")
+        if val is not None and len(val) > 0:
+            kwargs[attr] = jnp.asarray(val, dtype=jnp.float64)
+        else:
+            kwargs[attr] = None
+    return kwargs
+
+
 class CatalogExtract(eqx.Module):
     """Typed container for extract_catalog results.
 
@@ -128,6 +169,7 @@ class CatalogExtract(eqx.Module):
 
     name: str = eqx.field(static=True)  # for pretty printing
     cosmo: dict  # {key: np.ndarray (n_chains, n_samples)}
+    truth_cosmo: dict | None = None  # flat dict of truth cosmology params (per-run, not chain-indexed)
     true_ic: DensityField | None = None  # reference IC if provided
     mean_field: DensityField | None = None  # array shape (n_chains, X, Y, Z)
     std_field: DensityField | None = None  # array shape (n_chains, X, Y, Z)
@@ -173,23 +215,242 @@ class CatalogExtract(eqx.Module):
         )
 
         return CatalogExtract(
+            name=self.name,
             cosmo=new_cosmo,
+            truth_cosmo=self.truth_cosmo,  # per-run, not chain-indexed
             true_ic=self.true_ic,
             mean_field=new_mean_field,
             std_field=new_std_field,
             power_spectra=new_power_spectra,
         )
 
+    @requires_datasets
+    def to_dataset(self):
+        """Serialise this CatalogExtract to a HuggingFace Dataset (one row).
+
+        Columns are added dynamically: truth cosmo, field arrays, and power spectra
+        columns are omitted when the corresponding attribute is ``None``.
+
+        Returns
+        -------
+        datasets.Dataset
+            Single-row dataset with all present data.
+        """
+        from datasets import Array2D, Array3D, Array4D, Dataset, Features, Sequence, Value
+
+        data: dict = {"name": [self.name], "cosmo_keys": [self.cosmo_keys]}
+        feature_dict: dict = {
+            "name": Value("string"),
+            "cosmo_keys": Sequence(Value("string")),
+        }
+
+        # --- Truth cosmology (one column per param) ---
+        if self.truth_cosmo is not None:
+            for k, v in self.truth_cosmo.items():
+                col = f"truth_cosmo_{k}"
+                data[col] = [float(v)]
+                feature_dict[col] = Value("float64")
+
+        # --- Cosmo samples: shape (n_chains, n_samples) ---
+        for key in self.cosmo_keys:
+            col = f"cosmo_{key}"
+            arr = np.asarray(self.cosmo[key], dtype=np.float64)
+            data[col] = [arr]
+            feature_dict[col] = Array2D(shape=arr.shape, dtype="float64")
+
+        # --- True IC field ---
+        if self.true_ic is not None:
+            ic_arr = np.asarray(self.true_ic.array, dtype=np.float64)
+            data["ic_array"] = [ic_arr]
+            feature_dict["ic_array"] = Array3D(shape=ic_arr.shape, dtype="float64")
+            for k, v in _field_to_metadata_dict(self.true_ic, "ic_").items():
+                data[k] = [v]
+            feature_dict.update(
+                {
+                    "ic_mesh_size": Sequence(Value("int32"), length=3),
+                    "ic_box_size": Sequence(Value("float32"), length=3),
+                    "ic_observer_position": Sequence(Value("float32"), length=3),
+                    "ic_halo_size": Sequence(Value("int32"), length=2),
+                    "ic_status": Value("string"),
+                    "ic_unit": Value("string"),
+                    "ic_z_sources": Sequence(Value("float64")),
+                    "ic_scale_factors": Sequence(Value("float64")),
+                    "ic_comoving_centers": Sequence(Value("float64")),
+                    "ic_density_width": Sequence(Value("float64")),
+                }
+            )
+
+        # --- Mean / std field arrays: shape (n_chains, X, Y, Z) ---
+        if self.mean_field is not None:
+            assert self.std_field is not None
+            mean_arr = np.asarray(self.mean_field.array, dtype=np.float64)
+            std_arr = np.asarray(self.std_field.array, dtype=np.float64)
+            data["mean_field_array"] = [mean_arr]
+            data["std_field_array"] = [std_arr]
+            feature_dict["mean_field_array"] = Array4D(shape=mean_arr.shape, dtype="float64")
+            feature_dict["std_field_array"] = Array4D(shape=std_arr.shape, dtype="float64")
+            for k, v in _field_to_metadata_dict(self.mean_field, "field_").items():
+                data[k] = [v]
+            feature_dict.update(
+                {
+                    "field_mesh_size": Sequence(Value("int32"), length=3),
+                    "field_box_size": Sequence(Value("float32"), length=3),
+                    "field_observer_position": Sequence(Value("float32"), length=3),
+                    "field_halo_size": Sequence(Value("int32"), length=2),
+                    "field_status": Value("string"),
+                    "field_unit": Value("string"),
+                    "field_z_sources": Sequence(Value("float64")),
+                    "field_scale_factors": Sequence(Value("float64")),
+                    "field_comoving_centers": Sequence(Value("float64")),
+                    "field_density_width": Sequence(Value("float64")),
+                }
+            )
+
+        # --- Power spectra: wavenumber (n_k,), each ps array (n_chains, n_k) ---
+        if self.power_spectra is not None:
+            mean_tf, std_tf, mean_coh, std_coh = self.power_spectra
+            k = np.asarray(mean_tf.wavenumber, dtype=np.float64)
+            data["ps_wavenumber"] = [k.tolist()]
+            feature_dict["ps_wavenumber"] = Sequence(Value("float64"))
+            for col, ps in [
+                ("ps_mean_tf", mean_tf),
+                ("ps_std_tf", std_tf),
+                ("ps_mean_coh", mean_coh),
+                ("ps_std_coh", std_coh),
+            ]:
+                arr = np.asarray(ps.array, dtype=np.float64)
+                data[col] = [arr]
+                feature_dict[col] = Array2D(shape=arr.shape, dtype="float64")
+
+        return Dataset.from_dict(data, features=Features(feature_dict))
+
+    @requires_datasets
+    def to_parquet(self, path: str) -> None:
+        """Save this CatalogExtract to a parquet file.
+
+        Parameters
+        ----------
+        path : str
+            Destination parquet file path.
+        """
+        self.to_dataset().to_parquet(path)
+
+    @classmethod
+    @requires_datasets
+    def from_dataset(cls, ds, sharding=None) -> CatalogExtract:
+        """Reconstruct a CatalogExtract from a HuggingFace Dataset or single-row dict.
+
+        Parameters
+        ----------
+        ds : datasets.Dataset or dict
+            A HuggingFace Dataset (as returned by :meth:`to_dataset`) or a single-row
+            dict (e.g. from iterating a streaming dataset).
+        sharding : jax.sharding.Sharding, optional
+            If provided, apply ``lax.with_sharding_constraint`` to loaded arrays.
+
+        Returns
+        -------
+        CatalogExtract
+        """
+        import datasets as hf_datasets
+
+        if isinstance(ds, (hf_datasets.Dataset, hf_datasets.IterableDataset)):
+            row = ds.with_format("numpy")[0]
+        elif isinstance(ds, dict):
+            row = ds
+        else:
+            raise ValueError(f"Unsupported dataset type: {type(ds)}")
+
+        name = str(row["name"])
+        cosmo_keys = [str(k) for k in row["cosmo_keys"]]
+
+        # --- Truth cosmology ---
+        _truth_params = ["Omega_c", "Omega_b", "h", "n_s", "sigma8", "w0", "wa", "Omega_k", "Omega_nu"]
+        truth_cosmo = None
+        if any(f"truth_cosmo_{k}" in row for k in _truth_params):
+            truth_cosmo = {k: float(row[f"truth_cosmo_{k}"]) for k in _truth_params if f"truth_cosmo_{k}" in row}
+
+        # --- Cosmo samples ---
+        cosmo = {key: np.asarray(row[f"cosmo_{key}"], dtype=np.float64) for key in cosmo_keys}
+
+        # --- True IC ---
+        true_ic = None
+        if "ic_array" in row and row.get("ic_array") is not None:
+            ic_arr = jnp.asarray(row["ic_array"])
+            if sharding is not None:
+                ic_arr = jax.lax.with_sharding_constraint(ic_arr, sharding)
+            kwargs = _metadata_dict_to_field_kwargs(row, "ic_")
+            true_ic = DensityField(array=ic_arr, sharding=sharding, **kwargs)
+
+        # --- Mean / std fields ---
+        mean_field = None
+        std_field = None
+        if "mean_field_array" in row and row.get("mean_field_array") is not None:
+            mean_arr = jnp.asarray(row["mean_field_array"])
+            std_arr = jnp.asarray(row["std_field_array"])
+            if sharding is not None:
+                mean_arr = jax.lax.with_sharding_constraint(mean_arr, sharding)
+                std_arr = jax.lax.with_sharding_constraint(std_arr, sharding)
+            kwargs = _metadata_dict_to_field_kwargs(row, "field_")
+            mean_field = DensityField(array=mean_arr, sharding=sharding, **kwargs)
+            std_field = DensityField(array=std_arr, sharding=sharding, **kwargs)
+
+        # --- Power spectra ---
+        power_spectra = None
+        if "ps_wavenumber" in row and row.get("ps_wavenumber") is not None:
+            from ..power.power_spec import PowerSpectrum
+
+            k = jnp.asarray(row["ps_wavenumber"], dtype=jnp.float64)
+            mean_tf = PowerSpectrum(wavenumber=k, array=jnp.asarray(row["ps_mean_tf"], dtype=jnp.float64))
+            std_tf = PowerSpectrum(wavenumber=k, array=jnp.asarray(row["ps_std_tf"], dtype=jnp.float64))
+            mean_coh = PowerSpectrum(wavenumber=k, array=jnp.asarray(row["ps_mean_coh"], dtype=jnp.float64))
+            std_coh = PowerSpectrum(wavenumber=k, array=jnp.asarray(row["ps_std_coh"], dtype=jnp.float64))
+            power_spectra = (mean_tf, std_tf, mean_coh, std_coh)
+
+        return cls(
+            name=name,
+            cosmo=cosmo,
+            truth_cosmo=truth_cosmo,
+            true_ic=true_ic,
+            mean_field=mean_field,
+            std_field=std_field,
+            power_spectra=power_spectra,
+        )
+
+    @classmethod
+    @requires_datasets
+    def from_parquet(cls, path: str, sharding=None) -> CatalogExtract:
+        """Load a CatalogExtract from a parquet file.
+
+        Parameters
+        ----------
+        path : str
+            Path to the parquet file saved by :meth:`to_parquet`.
+        sharding : jax.sharding.Sharding, optional
+            If provided, apply ``lax.with_sharding_constraint`` to loaded arrays.
+
+        Returns
+        -------
+        CatalogExtract
+        """
+        from datasets import load_dataset
+
+        ds = load_dataset("parquet", data_files=path, split="train")
+        return cls.from_dataset(ds, sharding=sharding)
+
 
 @requires_datasets
 def extract_catalog(
-    path: str,
-    set_name: str,
     cosmo_keys: list[str] | tuple[str, ...],
-    true_ic: DensityField | None = None,
+    set_name: str,
+    path: str | None = None,
+    repo_id: str | None = None,
+    config: str | list[str] | None = None,
+    truth: Catalog | None = None,
     field_statistic: bool = False,
     power_statistic: bool = False,
     ddof: int = 0,
+    sharding=None,
 ) -> CatalogExtract:
     """Stream MCMC catalog parquet files and compute per-chain statistics.
 
@@ -199,56 +460,86 @@ def extract_catalog(
 
     Parameters
     ----------
-    path : str
-        Root directory.  Must contain either ``samples/`` (single chain) or
-        ``chain_N/samples/`` subdirectories (multi-chain).
     cosmo_keys : list or tuple of str
         Cosmological parameter names to collect (e.g. ``["Omega_c", "sigma8"]``).
-    true_ic : DensityField, optional
-        Reference initial-condition field used for transfer / coherence spectra.
-        Required when ``power_statistic=True``.
+    set_name : str
+        Name for the returned :class:`CatalogExtract`.
+    path : str, optional
+        Root directory.  Must contain either ``samples/`` (single chain) or
+        ``chain_N/samples/`` subdirectories (multi-chain).
+        Mutually exclusive with ``repo_id``.
+    repo_id : str, optional
+        HuggingFace Hub repository ID (e.g. ``"user/repo"``).
+        Mutually exclusive with ``path``.
+    config : str or list of str, optional
+        HF Hub dataset config name(s), one per chain.  A single string is
+        auto-wrapped into a one-element list.  Required when ``repo_id`` is set.
+    truth : Catalog, optional
+        Truth Catalog. ``truth.field[0]`` is used as the reference IC for
+        transfer/coherence spectra; ``truth.cosmology[0]`` is stored in
+        ``CatalogExtract.truth_cosmo``.  Required when ``power_statistic=True``.
     field_statistic : bool
         If *True*, compute per-chain mean and std of the density fields.
     power_statistic : bool
         If *True*, compute per-chain mean and std of the transfer function and
-        coherence spectrum relative to ``true_ic``.
+        coherence spectrum relative to the truth IC.
     ddof : int
         Delta degrees of freedom for std computation (0 = population, 1 = sample).
+    sharding : jax.sharding.Sharding, optional
+        Device sharding forwarded to :meth:`Catalog.from_dataset` during streaming.
 
     Returns
     -------
     CatalogExtract
-        Typed container with attributes ``cosmo``, ``true_ic``, ``mean_field``,
-        ``std_field``, and ``power_spectra``.
+        Typed container with attributes ``cosmo``, ``truth_cosmo``, ``true_ic``,
+        ``mean_field``, ``std_field``, and ``power_spectra``.
     """
-    if power_statistic and true_ic is None:
-        raise ValueError("power_statistic=True requires true_ic to be provided.")
+    if (path is None) == (repo_id is None):
+        raise ValueError("Exactly one of 'path' or 'repo_id' must be provided.")
+    if power_statistic and truth is None:
+        raise ValueError("power_statistic=True requires 'truth' to be provided.")
 
     import datasets as hf_datasets
 
-    path = Path(path)
-    chain_globs = _detect_chains(path)
-    n_chains = len(chain_globs)
+    # --- Resolve truth ---
+    true_ic_field = None
+    truth_cosmo = None
+    if truth is not None:
+        true_ic_field = truth.field[0]
+        _cosmo_param_keys = ["Omega_c", "Omega_b", "h", "n_s", "sigma8", "w0", "wa", "Omega_k", "Omega_nu"]
+        truth_cosmo = {k: float(getattr(truth.cosmology[0], k)) for k in _cosmo_param_keys}
+
+    # --- Build per-chain streaming datasets ---
+    if repo_id is not None:
+        if config is None:
+            raise ValueError("'config' must be provided when 'repo_id' is set.")
+        configs: list[str] = [config] if isinstance(config, str) else list(config)
+        n_chains = len(configs)
+        chain_streams = [
+            hf_datasets.load_dataset(repo_id, name=cfg, streaming=True, split="train").with_format("numpy")
+            for cfg in configs
+        ]
+    else:
+        assert path is not None
+        chain_globs = _detect_chains(Path(path))
+        n_chains = len(chain_globs)
+        chain_streams = [
+            hf_datasets.load_dataset("parquet", data_files=glob, split="train", streaming=True).with_format("numpy")
+            for glob in chain_globs
+        ]
 
     cosmo_lists: dict[str, list[list[float]]] = {key: [[] for _ in range(n_chains)] for key in cosmo_keys}
     chain_field_stats: list[_RunningStats | None] = [None] * n_chains
     chain_transfer_stats: list[_RunningStats | None] = [None] * n_chains
     chain_coherence_stats: list[_RunningStats | None] = [None] * n_chains
 
-    for chain_idx, chain_glob in enumerate(chain_globs):
-        streaming_ds = hf_datasets.load_dataset(
-            "parquet",
-            data_files=chain_glob,
-            split="train",
-            streaming=True,
-        ).with_format("numpy")
-
+    for chain_idx, streaming_ds in enumerate(chain_streams):
         field_stats: _RunningStats | None = None
         transfer_stats: _RunningStats | None = None
         coherence_stats: _RunningStats | None = None
 
         for sample in streaming_ds:
-            catalog = Catalog.from_dataset(sample)
+            catalog = Catalog.from_dataset(sample, sharding=sharding)
             cosmo = catalog.cosmology[0]
 
             # --- cosmological parameters ---
@@ -267,8 +558,8 @@ def extract_catalog(
 
             # --- power spectra statistics ---
             if power_statistic:
-                transfer_ps = field.transfer(true_ic).apply_fn(lambda x: np.asarray(x, dtype=np.float64))
-                coherence_ps = field.coherence(true_ic).apply_fn(lambda x: np.asarray(x, dtype=np.float64))
+                transfer_ps = field.transfer(true_ic_field).apply_fn(lambda x: np.asarray(x, dtype=np.float64))
+                coherence_ps = field.coherence(true_ic_field).apply_fn(lambda x: np.asarray(x, dtype=np.float64))
                 if transfer_stats is None:
                     transfer_stats = _RunningStats(transfer_ps)
                     coherence_stats = _RunningStats(coherence_ps)
@@ -289,7 +580,6 @@ def extract_catalog(
 
     # --- Stack field statistics across chains ---
     if field_statistic:
-        assert chain_transfer_stats is not None
         chain_means = [chain_field_stats[c].get_mean() for c in range(n_chains)]
         chain_stds = [chain_field_stats[c].get_std(ddof) for c in range(n_chains)]
         stacked_mean = np.stack([np.asarray(f.array) for f in chain_means], axis=0)
@@ -311,9 +601,10 @@ def extract_catalog(
         result_power_spectra = (mean_transfer, std_transfer, mean_coherence, std_coherence)
 
     return CatalogExtract(
-        cosmo=cosmo_dict,
         name=set_name,
-        true_ic=true_ic,
+        cosmo=cosmo_dict,
+        truth_cosmo=truth_cosmo,
+        true_ic=true_ic_field,
         mean_field=result_mean_field,
         std_field=result_std_field,
         power_spectra=result_power_spectra,

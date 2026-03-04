@@ -257,8 +257,9 @@ def main() -> None:
     pred = Predictive(model, num_samples=args.num_samples)
     samples = pred(rng_key)
 
+    print(f"sharding {samples['initial_conditions'].array.sharding} samples with {config.sharding}...")
     # --- save via sample2catalog ---
-    saving_fn = jfli.ppl.sample2catalog(config)
+    saving_fn = jfli.infer.sample2catalog(config)
     saving_fn(samples, args.path, args.batch_id)
 
 
