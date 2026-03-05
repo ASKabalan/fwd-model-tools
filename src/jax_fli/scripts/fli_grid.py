@@ -259,12 +259,6 @@ def parser() -> ArgumentParser:
         help="Source redshifts or 's3'/'s3[i]' for Stage-3 bins",
     )
     lensing_p.add_argument(
-        "--lensing",
-        choices=["born", "raytrace", "both"],
-        default="born",
-        help="Lensing method: born (default), raytrace, or both",
-    )
-    lensing_p.add_argument(
         "--min-z",
         type=float,
         default=0.01,
@@ -282,18 +276,6 @@ def parser() -> ArgumentParser:
         default=32,
         help="Number of Simpson quadrature points for n(z) distributions (default: 32)",
     )
-    lensing_p.add_argument(
-        "--rt-interp",
-        choices=["bilinear", "ngp", "nufft"],
-        default="bilinear",
-        help="Pixel interpolation for raytrace (default: bilinear)",
-    )
-    lensing_p.add_argument(
-        "--no-parallel-transport",
-        action="store_true",
-        help="Disable parallel transport in raytrace",
-    )
-
     return p
 
 
@@ -431,7 +413,7 @@ def main() -> None:
         sim_type = args.subcommand
         lpt_order = combo.lpt_order
         if args.subcommand == "lensing":
-            sim_type = combo.lensing
+            sim_type = "born"
 
         run_kwargs = {
             "cosmo": cosmo,
@@ -455,15 +437,8 @@ def main() -> None:
         result = jax.block_until_ready(run_simulations(**run_kwargs))
 
         out_path = output_dir / f"{stem}.parquet"
-        if sim_type == "both":
-            result_rt, result_born = result
-            base = str(out_path.with_suffix(""))
-            _save_result(result_rt, cosmo, combo, output=base + "_raytraced.parquet")
-            _save_result(result_born, cosmo, combo, output=base + "_born.parquet")
-            del result_rt, result_born
-        else:
-            _save_result(result, cosmo, combo, output=str(out_path))
-            del result
+        _save_result(result, cosmo, combo, output=str(out_path))
+        del result
 
         del cosmo, initial_field, solver, painting, ts
 

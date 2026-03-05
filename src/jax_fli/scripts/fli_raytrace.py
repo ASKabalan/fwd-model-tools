@@ -11,6 +11,15 @@ import os
 from argparse import ArgumentParser
 from pathlib import Path
 
+try:
+    from mpi4py import MPI
+
+    comm = MPI.COMM_WORLD
+    print(f"MPI Detected: rank {comm.Get_rank()} of {comm.Get_size()}")
+except ImportError:
+    print("No MPI detected, raytracing cannot be parallelized across multiple processes.")
+    comm = None
+
 
 def parser() -> ArgumentParser:
     """Build the argument parser for fli-raytrace."""
@@ -74,6 +83,8 @@ def main() -> None:
     args = p.parse_args()
     jax.config.update("jax_enable_x64", args.enable_x64)
     sharding = _build_sharding(args)
+    if args.lensing in ("raytrace", "both"):
+        sharding = None
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -112,19 +123,19 @@ def main() -> None:
             del born_result
 
         if lensing in ("raytrace", "both"):
-            kappa_rt, kappa_born = jax.block_until_ready(
-                jfli.raytrace(
-                    cosmo,
-                    field,
-                    nz_shear,
-                    born=(lensing == "both"),
-                    raytrace=True,
-                    min_z=min_z,
-                    max_z=max_z,
-                    n_integrate=n_integrate,
-                    interp=args.rt_interp,
-                    parallel_transport=not args.no_parallel_transport,
-                )
+            field = field.ud_sample(new_nside=64)
+            kappa_rt, kappa_born = jfli.raytrace(
+                cosmo,
+                field,
+                nz_shear,
+                born=(lensing == "both"),
+                raytrace=True,
+                min_z=min_z,
+                max_z=max_z,
+                n_integrate=n_integrate,
+                interp=args.rt_interp,
+                parallel_transport=not args.no_parallel_transport,
+                comm=comm,
             )
             out_path_rt = output_dir / f"RAYTRACE{suffix}.parquet"
             out_path_born = output_dir / f"RAYTRACE_BORN{suffix}.parquet"

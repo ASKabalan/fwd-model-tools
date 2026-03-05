@@ -340,12 +340,6 @@ def parser() -> ArgumentParser:
         help="Source redshifts or 'stage3'/'s3' for 4-bin Stage 3 distributions",
     )
     lensing_p.add_argument(
-        "--lensing",
-        choices=["born", "raytrace", "both"],
-        default="born",
-        help="Lensing method: 'born' (default), 'raytrace' (dorian multi-plane), or 'both' (saves two output files)",
-    )
-    lensing_p.add_argument(
         "--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)"
     )
     lensing_p.add_argument(
@@ -354,16 +348,6 @@ def parser() -> ArgumentParser:
     lensing_p.add_argument(
         "--n-integrate", type=int, default=32, help="Number of integration points for nz distributions (default: 32)"
     )
-    lensing_p.add_argument(
-        "--rt-interp",
-        choices=["bilinear", "ngp", "nufft"],
-        default="bilinear",
-        help="Interpolation method for raytrace (default: bilinear)",
-    )
-    lensing_p.add_argument(
-        "--no-parallel-transport", action="store_true", help="Disable parallel transport in raytrace"
-    )
-
     return parser
 
 
@@ -408,11 +392,8 @@ def _validate_args(args: Namespace, parser: ArgumentParser) -> None:
     if args.subcommand == "lensing":
         nside = getattr(args, "nside", None)
         flatsky_npix = getattr(args, "flatsky_npix", None)
-        lensing_method = getattr(args, "lensing", "born")
         if nside is None and flatsky_npix is None:
             parser.error("lensing subcommand requires --nside or --flatsky-npix")
-        if lensing_method in ("raytrace", "both") and nside is None:
-            parser.error("--lensing raytrace/both requires --nside (spherical painting)")
 
     # --perf and --trace are mutually exclusive (perf wins)
     if getattr(args, "perf", False) and getattr(args, "trace", False):
@@ -496,12 +477,6 @@ def run_simulations(
     # Run lensing
     if sim_type == "born":
         return jfli.born(cosmo, lightcone, nz_shear)
-    elif sim_type == "raytrace":
-        kappa_rt, _ = jfli.raytrace(cosmo, lightcone, nz_shear)
-        return kappa_rt
-    elif sim_type == "both":
-        kappa_rt, kappa_born = jfli.raytrace(cosmo, lightcone, nz_shear, born=True, raytrace=True)
-        return kappa_rt, kappa_born
     else:
         raise ValueError(f"Unknown sim_type: {sim_type}")
 
@@ -552,7 +527,7 @@ def main() -> None:
     sim_type = args.subcommand
     lpt_order = args.lpt_order
     if args.subcommand == "lensing":
-        sim_type = args.lensing
+        sim_type = "born"
 
     run_kwargs = {
         "solver": solver,
@@ -620,13 +595,7 @@ def main() -> None:
     print("Simulation completed... saving results.")
     sync_global_devices("Done")
     # --- Save output ---
-    if sim_type == "both":
-        result_rt, result_born = result  # pyright: ignore
-        base, ext = os.path.splitext(args.output)
-        _save_result(result_rt, cosmo, args, output=base + "_raytraced" + ext)
-        _save_result(result_born, cosmo, args, output=base + "_born" + ext)
-    else:
-        _save_result(result, cosmo, args)  # pyright: ignore
+    _save_result(result, cosmo, args)  # pyright: ignore
     jax.distributed.shutdown()
 
 

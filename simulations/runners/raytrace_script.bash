@@ -26,8 +26,8 @@ ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 NZ_SHEAR="s3"
 LENSING="both"      # born | raytrace | both
 MIN_Z=0.01          # minimum redshift for n(z) integration (default: 0.01)
-MAX_Z=3.0           # maximum redshift for n(z) integration (default: 1.5)
-N_INTEGRATE=2       # Simpson quadrature points for n(z) distributions (default: 32)
+MAX_Z=1.5           # maximum redshift for n(z) integration (default: 1.5)
+N_INTEGRATE=32       # Simpson quadrature points for n(z) distributions (default: 32)
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
 TOTAL_GPUS=$((GPUS_PER_NODE * NODES))

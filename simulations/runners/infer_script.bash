@@ -3,15 +3,15 @@
 # via SLURM using `fli-infer`.
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=true # (true, false, or dryrun)
+RUN_LOCALLY=dryrun # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="h100"
-GPUS_PER_NODE=2
+GPUS_PER_NODE=1
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
 NODES=1
-PDIMS="2 1"          # e.g. "2 1" for 2-GPU mesh
+PDIMS="16 1"          # e.g. "2 1" for 2-GPU mesh
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
@@ -20,7 +20,7 @@ OBSERVABLE_DIR="/home/wassim/Projects/NBody/jax-fli/simulations/results/lensing/
 OUTPUT_DIR="results/inference_runs"
 
 # --- Simulation parameters ---
-MESH_SIZE="64 64 64"
+MESH_SIZE="16 16 16"
 BOX_SIZE="1000.0 1000.0 1000.0"
 LPT_ORDER=2
 INTERP="none"
@@ -46,11 +46,12 @@ N_INTEGRATE=32
 # --- Sampling / MCMC parameters ---
 ADJOINT="checkpointed"
 CHECKPOINTS=10
+CHAIN_INDX=0
 NUM_WARMUP=1
 NUM_SAMPLES=1
 BATCH_COUNT=2
 SAMPLER="NUTS"       # NUTS | HMC | MCLMC
-BACKEND="numpyro"    # numpyro | blackjax
+BACKEND="blackjax"    # numpyro | blackjax
 SIGMA_E=0.26
 INITIAL_CONDITION="" # path to IC parquet; empty = don't pass
 INIT_COSMO=false     # set to true to warm-start cosmology from observable (only if --sample includes 'ic' but not 'cosmo')
@@ -65,7 +66,7 @@ SIGMA_8=0.8159
 H=0.6774
 
 # --- Job settings ---
-OBSERVABLE="BORN_row0000.parquet"
+OBSERVABLE="BORN_SMALL.parquet"
 SEED=0
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
@@ -100,7 +101,7 @@ if [ "$RUN_LOCALLY" = false ] && [ -z "$SLURM_SCRIPT" ]; then
 fi
 
 export JAX_PLATFORMS=cpu
-
+export JAX_TRACEBACK_FILTERING=off
 # Common SBATCH arguments (no --qos: inference jobs may need long queues)
 BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=$TIME_LIMIT --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"
 
@@ -110,7 +111,7 @@ read -r PX PY <<< "$PDIMS"
 OBS_PATH="$OBSERVABLE_DIR/$OBSERVABLE"
 OBS_NAME="${OBSERVABLE%.*}"
 JOB_NAME="${CONSTRAINT}_infer_${OBS_NAME}_Oc${OMEGA_C}_S8${SIGMA_8}_s${SEED}"
-OUT_PATH="$OUTPUT_DIR/${JOB_NAME}"
+OUT_PATH="$OUTPUT_DIR/chain_${CHAIN_INDX}"
 
 echo "Submitting $JOB_NAME"
 echo "  -> Observable: $OBS_PATH | Seed: $SEED | Mesh: $MESH_SIZE"
@@ -158,5 +159,5 @@ $SBATCH_CMD fli-infer \
     --sample $SAMPLE \
     $([ -n "$INITIAL_CONDITION" ] && echo "--initial-condition $INITIAL_CONDITION") \
     $([ "$INIT_COSMO" = "true" ] && echo "--init-cosmo") \
-    --seed $SEED \
-    $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64")
+    $([ "$ENABLE_X64" = "true" ] && echo "--enable-x64") \
+    --seed $SEED

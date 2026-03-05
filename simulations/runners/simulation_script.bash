@@ -42,7 +42,6 @@ ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
-LENSING_METHOD='born' # born | raytrace | both (only used when SIMULATION_TYPE=lensing)
 MIN_Z=0.01            # minimum redshift for n(z) integration (default: 0.01)
 MAX_Z=1.5             # maximum redshift for n(z) integration (default: 1.5)
 N_INTEGRATE=32        # Simpson quadrature points for n(z) distributions (default: 32)
@@ -54,12 +53,10 @@ N_INTEGRATE=32        # Simpson quadrature points for n(z) distributions (defaul
 #   Range notation: OMEGA_C=("0.25:0.45:0.05")   → 0.25 0.30 0.35 0.40 0.45 (stop inclusive)
 #   Seed range:     SEED=("0:9:1")                → seeds 0..9
 MESH_SIZES=(
-    "64 64 64"
-    "128 128 128"
+    "16 16 16"
 )
 BOX_SIZES=(
     "1000.0 1000.0 1000.0"
-    "6000.0 6000.0 6000.0"
 )
 OMEGA_C=(0.2589)
 SIGMA_8=(0.8159)
@@ -161,7 +158,6 @@ run_simulations() {
                             $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
                             --min-width $MIN_WIDTH \
                             --nz-shear $NZ_SHEAR \
-                            --lensing $LENSING_METHOD \
                             --min-z $MIN_Z \
                             --max-z $MAX_Z \
                             --n-integrate $N_INTEGRATE \
