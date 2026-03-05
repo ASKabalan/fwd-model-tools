@@ -55,6 +55,7 @@ def make_full_field_model(
             cosmo,
             dx_field,
             p_field,
+            t0=config.t0,
             t1=config.t1,
             dt0=config.dt0,
             nb_shells=config.number_of_shells,

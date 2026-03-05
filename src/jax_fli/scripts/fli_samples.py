@@ -6,29 +6,10 @@ import argparse
 
 import jax
 import jax_cosmo as jc
-from jax.sharding import AxisType, NamedSharding
-from jax.sharding import PartitionSpec as P
 from numpyro.infer import Predictive
 
 import jax_fli as jfli
-
-# ---------------------------------------------------------------------------
-# Sharding setup
-# ---------------------------------------------------------------------------
-
-
-def _build_sharding(args: argparse.Namespace):
-    """Return sharding or None for single-device runs."""
-
-    print(f"jax devices: {jax.devices()}")
-    pdim = tuple(args.pdim)
-    if pdim == (1, 1):
-        return None
-
-    mesh = jax.make_mesh(pdim, ("x", "y"), axis_types=(AxisType.Auto, AxisType.Auto))
-    sharding = NamedSharding(mesh, P("x", "y"))
-    return sharding
-
+from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear
 
 # ---------------------------------------------------------------------------
 # Argument parser
@@ -36,9 +17,9 @@ def _build_sharding(args: argparse.Namespace):
 
 
 def parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser for ffi-samples."""
+    """Build the CLI argument parser for fli-samples."""
     p = argparse.ArgumentParser(
-        prog="ffi-samples",
+        prog="fli-samples",
         description="Generate prior-predictive samples from a probabilistic model.",
     )
 
@@ -74,6 +55,22 @@ def parser() -> argparse.ArgumentParser:
         metavar=("PX", "PY"),
         help="Process mesh dimensions (default: 1 1 = single device)",
     )
+    p.add_argument("--nodes", type=int, default=1, help="Number of nodes (default: 1)")
+    p.add_argument(
+        "--halo-fraction",
+        type=int,
+        default=8,
+        metavar="F",
+        help="Halo size as mesh // fraction for distributed painting (default: 8)",
+    )
+    p.add_argument(
+        "--observer-position",
+        type=float,
+        nargs=3,
+        default=[0.5, 0.5, 0.5],
+        metavar=("OX", "OY", "OZ"),
+        help="Observer position in box coordinates (default: 0.5 0.5 0.5)",
+    )
 
     # Geometry (mutually exclusive)
     geom_group = p.add_mutually_exclusive_group()
@@ -92,7 +89,70 @@ def parser() -> argparse.ArgumentParser:
         help="Flat-sky pixel resolution (height width)",
     )
 
+    # Simulation parameters
+    p.add_argument("--lpt-order", type=int, choices=[1, 2], default=2, help="LPT order (default: 2)")
+    p.add_argument("--t0", type=float, default=0.01, help="Start scale factor (default: 0.01)")
+    p.add_argument("--t1", type=float, default=1.0, help="End scale factor (default: 1.0)")
+    p.add_argument(
+        "--nb-steps",
+        type=int,
+        default=100,
+        dest="nb_steps",
+        help="Number of integration steps (>= 2); dt0 = (t1 - t0) / (nb_steps - 1). (default: 100)",
+    )
+    p.add_argument("--nb-shells", type=int, default=8, help="Number of lightcone shells (default: 8)")
+    p.add_argument(
+        "--density-widths", type=float, nargs="+", default=None, metavar="W", help="Override shell widths (Mpc/h)"
+    )
+    # Shell spec alternatives
+    ts_group = p.add_mutually_exclusive_group()
+    ts_group.add_argument(
+        "--ts", type=float, nargs="+", default=None, metavar="A", help="Scale factors for snapshot/shell output"
+    )
+    ts_group.add_argument(
+        "--ts-near",
+        type=float,
+        nargs="+",
+        default=None,
+        metavar="A_NEAR",
+        help="Near scale factor edge(s) (use with --ts-far)",
+    )
+    p.add_argument(
+        "--ts-far",
+        type=float,
+        nargs="+",
+        default=None,
+        metavar="A_FAR",
+        help="Far scale factor edge(s) (use with --ts-near)",
+    )
+    p.add_argument(
+        "--interp",
+        choices=["none", "onion", "telephoto"],
+        default="none",
+        help="Interpolation kernel (default: none)",
+    )
+    p.add_argument(
+        "--drift-on-lightcone", action="store_true", help="Apply drift correction when painting lightcone shells"
+    )
+    p.add_argument("--equal-vol", action="store_true", default=False, help="Use equal-volume shell partitioning")
+    p.add_argument(
+        "--min-width", type=float, default=50.0, dest="min_width", help="Minimum shell width in Mpc/h (default: 50.0)"
+    )
+
     # Lensing / noise
+    p.add_argument(
+        "--lensing",
+        choices=["born", "raytrace", "both"],
+        default="born",
+        help="Lensing method (default: born)",
+    )
+    p.add_argument(
+        "--nz-shear",
+        nargs="+",
+        default=["s3"],
+        metavar="Z",
+        help="Source redshift bins: 's3'/'s3[i]'/'s3[start:stop]' or floats (default: s3)",
+    )
     p.add_argument("--sigma-e", type=float, default=0.26, help="Shape-noise dispersion (default: 0.26)")
     p.add_argument(
         "--density-plane-smoothing",
@@ -100,13 +160,11 @@ def parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Density plane smoothing scale (default: 0.0)",
     )
-
-    # Time-stepping
-    p.add_argument("--t0", type=float, default=0.01, help="Start scale factor (default: 0.01)")
-    p.add_argument("--t1", type=float, default=1.0, help="End scale factor (default: 1.0)")
-    p.add_argument("--dt0", type=float, default=0.01, help="Integration time step (default: 0.01)")
-    p.add_argument("--lpt-order", type=int, choices=[1, 2], default=2, help="LPT order (default: 2)")
-    p.add_argument("--nb-shells", type=int, default=8, help="Number of lightcone shells (default: 8)")
+    p.add_argument("--min-z", type=float, default=0.01, help="Minimum redshift for nz integration (default: 0.01)")
+    p.add_argument("--max-z", type=float, default=1.5, help="Maximum redshift for nz integration (default: 1.5)")
+    p.add_argument(
+        "--n-integrate", type=int, default=32, help="Number of integration points for nz distributions (default: 32)"
+    )
 
     # Sampling
     p.add_argument("--num-samples", type=int, default=100, help="Number of prior-predictive samples (default: 100)")
@@ -128,7 +186,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """CLI entry point registered as ffi-samples."""
+    """CLI entry point registered as fli-samples."""
     args = parser().parse_args()
 
     jax.config.update("jax_enable_x64", args.enable_x64)
@@ -139,8 +197,9 @@ def main() -> None:
     if args.nside is not None and args.flatsky_npix is not None:
         parser().error("Only one of --nside or --flatsky-npix can be specified.")
 
-    # --- hardcoded priors and nz_shear ---
-    nz_shear = jfli.io.get_stage3_nz_shear()
+    # --- resolve nz_shear ---
+    nz_shear = _resolve_nz_shear(args)
+
     priors = {
         "Omega_c": jfli.infer.PreconditionnedUniform(0.1, 0.5),
         "sigma8": jfli.infer.PreconditionnedUniform(0.6, 1.0),
@@ -155,9 +214,13 @@ def main() -> None:
     # -- determine sharding ---
     sharding = _build_sharding(args)
 
+    # --- compute halo_size ---
+    mesh = tuple(args.mesh_size)
+    halo_size = (mesh[0] // args.halo_fraction, mesh[1] // args.halo_fraction)
+
     # --- build Configurations ---
     config = jfli.ppl.Configurations(
-        mesh_size=tuple(args.mesh_size),
+        mesh_size=mesh,
         box_size=tuple(args.box_size),
         nside=nside,
         flatsky_npix=flatsky_npix,
@@ -166,13 +229,21 @@ def main() -> None:
         priors=priors,
         sigma_e=args.sigma_e,
         density_plane_smoothing=args.density_plane_smoothing,
+        halo_size=halo_size,
+        observer_position=tuple(args.observer_position),
         t0=args.t0,
-        dt0=args.dt0,
+        nb_steps=args.nb_steps,
         t1=args.t1,
         lpt_order=args.lpt_order,
         number_of_shells=args.nb_shells,
         geometry=geometry,
         sharding=sharding,
+        lensing=args.lensing,
+        drift_on_lightcone=args.drift_on_lightcone,
+        equal_vol=args.equal_vol,
+        min_width=args.min_width,
+        min_redshift=args.min_z,
+        max_redshift=args.max_z,
     )
 
     # --- select model ---
@@ -186,8 +257,9 @@ def main() -> None:
     pred = Predictive(model, num_samples=args.num_samples)
     samples = pred(rng_key)
 
+    print(f"sharding {samples['initial_conditions'].array.sharding} samples with {config.sharding}...")
     # --- save via sample2catalog ---
-    saving_fn = jfli.ppl.sample2catalog(config)
+    saving_fn = jfli.infer.sample2catalog(config)
     saving_fn(samples, args.path, args.batch_id)
 
 

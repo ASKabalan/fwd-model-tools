@@ -68,12 +68,14 @@ def main() -> None:
     import jax
 
     from jax_fli.io import Catalog
-    from jax_fli.scripts.fli_simulate import _build_sharding, _resolve_nz_shear
+    from jax_fli.scripts._common import _build_sharding, _resolve_nz_shear
 
     p = parser()
     args = p.parse_args()
     jax.config.update("jax_enable_x64", args.enable_x64)
     sharding = _build_sharding(args)
+    if args.lensing in ("raytrace", "both"):
+        sharding = None
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +103,7 @@ def main() -> None:
 
         print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
 
-        if lensing in ("born", "both"):
+        if lensing in ("born"):
             born_result = jax.block_until_ready(
                 jfli.born(cosmo, field, nz_shear, min_z=min_z, max_z=max_z, n_integrate=n_integrate)
             )
@@ -112,19 +114,18 @@ def main() -> None:
             del born_result
 
         if lensing in ("raytrace", "both"):
-            kappa_rt, kappa_born = jax.block_until_ready(
-                jfli.raytrace(
-                    cosmo,
-                    field,
-                    nz_shear,
-                    born=(lensing == "both"),
-                    raytrace=True,
-                    min_z=min_z,
-                    max_z=max_z,
-                    n_integrate=n_integrate,
-                    interp=args.rt_interp,
-                    parallel_transport=not args.no_parallel_transport,
-                )
+            kappa_rt, kappa_born = jfli.raytrace(
+                cosmo,
+                field,
+                nz_shear,
+                born=(lensing == "both"),
+                raytrace=True,
+                min_z=min_z,
+                max_z=max_z,
+                n_integrate=n_integrate,
+                interp=args.rt_interp,
+                parallel_transport=not args.no_parallel_transport,
+                n_workers=8,
             )
             out_path_rt = output_dir / f"RAYTRACE{suffix}.parquet"
             out_path_born = output_dir / f"RAYTRACE_BORN{suffix}.parquet"
