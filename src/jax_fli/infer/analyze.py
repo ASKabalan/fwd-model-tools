@@ -20,6 +20,9 @@ _Return = TypeVar("_Return")
 def requires_arviz(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]:
     """Decorator that raises ImportError when 'arviz' is not installed."""
     try:
+        import warnings
+
+        warnings.filterwarnings("ignore", category=FutureWarning, module="arviz")
         import arviz  # noqa: F401
 
         return func
