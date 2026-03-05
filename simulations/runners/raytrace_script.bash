@@ -60,9 +60,16 @@ if [ "$RUN_LOCALLY" = false ] && [ -z "$SLURM_SCRIPT" ]; then
     exit 1
 fi
 
-BASE_SBATCH_ARGS="--account=$ACCOUNT -C $CONSTRAINT --time=$TIME_LIMIT \
-  --gres=gpu:$GPUS_PER_NODE --cpus-per-task=$CPUS_PER_TASK \
-  --gpus-per-task=1 --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"
+# IF CONTRAIN is CPU then no contrain and no gres gpu
+if [ "$CONSTRAINT" = "cpu" ]; then
+    CONST_STR=""
+    GPU_STR=""
+else
+    CONST_STR="-C $CONSTRAINT"
+    GPU_STR="--gres=gpu:$GPUS_PER_NODE"
+fi
+BASE_SBATCH_ARGS="--account=$ACCOUNT $CONST_STR --time=$TIME_LIMIT $GPU_STR --cpus-per-task=$CPUS_PER_TASK \
+  --nodes=$NODES --tasks-per-node=$TASKS_PER_NODE --qos=$QOS"
 
 read -r PX PY <<< "$PDIMS"
 

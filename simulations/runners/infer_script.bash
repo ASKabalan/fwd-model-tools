@@ -16,7 +16,7 @@ QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
 # --- I/O paths ---
-OBSERVABLE_DIR="/home/wassim/Projects/NBody/jax-fli/simulations/results/lensing/"
+OBSERVABLE_DIR="observables"
 OUTPUT_DIR="results/inference_runs"
 
 # --- Simulation parameters ---
