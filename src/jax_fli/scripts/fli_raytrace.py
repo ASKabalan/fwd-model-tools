@@ -123,7 +123,6 @@ def main() -> None:
             del born_result
 
         if lensing in ("raytrace", "both"):
-            field = field.ud_sample(new_nside=64)
             kappa_rt, kappa_born = jfli.raytrace(
                 cosmo,
                 field,
