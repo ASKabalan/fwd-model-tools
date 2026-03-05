@@ -11,15 +11,6 @@ import os
 from argparse import ArgumentParser
 from pathlib import Path
 
-try:
-    from mpi4py import MPI
-
-    comm = MPI.COMM_WORLD
-    print(f"MPI Detected: rank {comm.Get_rank()} of {comm.Get_size()}")
-except ImportError:
-    print("No MPI detected, raytracing cannot be parallelized across multiple processes.")
-    comm = None
-
 
 def parser() -> ArgumentParser:
     """Build the argument parser for fli-raytrace."""
@@ -134,7 +125,7 @@ def main() -> None:
                 n_integrate=n_integrate,
                 interp=args.rt_interp,
                 parallel_transport=not args.no_parallel_transport,
-                comm=comm,
+                n_workers=8,
             )
             out_path_rt = output_dir / f"RAYTRACE{suffix}.parquet"
             out_path_born = output_dir / f"RAYTRACE_BORN{suffix}.parquet"

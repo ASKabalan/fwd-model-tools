@@ -61,7 +61,7 @@ def _raytrace_z_grid(
     raytrace: bool = True,
     shell_widths: np.ndarray | None = None,
     nufft_threads: int = 4,
-    comm=None,
+    n_workers=None,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Run dorian ray-tracing for each source redshift.
 
@@ -119,7 +119,7 @@ def _raytrace_z_grid(
         interp=interp,
         shell_widths=list(shell_widths),
         parallel_transport=parallel_transport,
-        comm=comm,
+        n_workers=n_workers,
     )
     if raytrace and born:
         return result["convergence_raytraced"], result["convergence_born"]
@@ -177,7 +177,7 @@ def raytrace(
     parallel_transport=True,
     born=False,
     raytrace=True,
-    comm=None,
+    n_workers=None,
 ) -> tuple[SphericalKappaField | None, SphericalKappaField | None]:
     """Multi-plane ray-tracing using dorian.
 
@@ -327,7 +327,7 @@ def raytrace(
             born=born,
             raytrace=raytrace,
             shell_widths=density_widths_np,
-            comm=comm,
+            n_workers=n_workers,
         )
         if born and raytrace:
             kappa_grid_rt, kappa_grid_born = kappa_grid
@@ -354,7 +354,7 @@ def raytrace(
             born=born,
             raytrace=raytrace,
             shell_widths=density_widths_np,
-            comm=comm,
+            n_workers=n_workers,
         )
 
     # 5. Build output fields — helper avoids repetition across the three return paths
