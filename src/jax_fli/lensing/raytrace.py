@@ -61,7 +61,7 @@ def _raytrace_z_grid(
     raytrace: bool = True,
     shell_widths: np.ndarray | None = None,
     nufft_threads: int = 4,
-    n_workers=None,
+    comm=None,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Run dorian ray-tracing for each source redshift.
 
@@ -119,7 +119,7 @@ def _raytrace_z_grid(
         interp=interp,
         shell_widths=list(shell_widths),
         parallel_transport=parallel_transport,
-        n_workers=n_workers,
+        comm=comm,
     )
     if raytrace and born:
         return result["convergence_raytraced"], result["convergence_born"]
@@ -177,7 +177,7 @@ def raytrace(
     parallel_transport=True,
     born=False,
     raytrace=True,
-    n_workers=None,
+    comm=None,
 ) -> tuple[SphericalKappaField | None, SphericalKappaField | None]:
     """Multi-plane ray-tracing using dorian.
 
@@ -222,6 +222,8 @@ def raytrace(
         Whether to compute the Born approximation convergence. Default: False.
     raytrace : bool, optional
         Whether to compute the full ray-traced convergence. Default: True.
+    comm : mpi4py.MPI.Comm or None, optional
+        MPI communicator to pass to dorian. Default: None (no MPI).
 
     Returns
     -------
@@ -327,7 +329,7 @@ def raytrace(
             born=born,
             raytrace=raytrace,
             shell_widths=density_widths_np,
-            n_workers=n_workers,
+            comm=comm,
         )
         if born and raytrace:
             kappa_grid_rt, kappa_grid_born = kappa_grid
@@ -354,7 +356,7 @@ def raytrace(
             born=born,
             raytrace=raytrace,
             shell_widths=density_widths_np,
-            n_workers=n_workers,
+            comm=comm,
         )
 
     # 5. Build output fields — helper avoids repetition across the three return paths

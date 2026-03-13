@@ -22,8 +22,10 @@ OUTPUT_DIR="test_fli_samples"
 MODEL="mock"
 MESH_SIZE="64 64 64"
 BOX_SIZE="250 250 250"
-NSIDE=4
+NSIDE=64
 LPT_ORDER=2
+SCHEME="bilinear"    # ngp | bilinear | rbf_neighbor
+PAINT_NSIDE=""       # empty = use --nside value; set integer to override
 
 # --- Integration parameters ---
 T0=0.01
@@ -37,7 +39,6 @@ OBSERVER_POSITION="0.5 0.5 0.5"
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
-LENSING="born"    # born | raytrace | both
 MIN_Z=0.01        # minimum redshift for n(z) integration (default: 0.01)
 MAX_Z=1.5         # maximum redshift for n(z) integration (default: 1.5)
 N_INTEGRATE=32    # Simpson quadrature points for n(z) distributions (default: 32)
@@ -50,9 +51,9 @@ ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 NUM_SAMPLES=10
 
 # --- Job settings ---
-CHAINS=(1)
+CHAINS=(0 1 2 3) # Chain IDs to run
 # Make 20 batches
-BATCHES=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
+BATCHES=(0 1 2 3 4 5)
 
 CPUS_PER_TASK=$((CPUS_PER_NODE / TASKS_PER_NODE))
 TOTAL_GPUS=$((GPUS_PER_NODE * NODES))
@@ -121,11 +122,12 @@ for chain in "${CHAINS[@]}"; do
             --halo-fraction $HALO_FRACTION \
             --observer-position $OBSERVER_POSITION \
             --nz-shear $NZ_SHEAR \
-            --lensing $LENSING \
             --min-z $MIN_Z \
             --max-z $MAX_Z \
             --n-integrate $N_INTEGRATE \
             --interp $INTERP \
+            --scheme $SCHEME \
+            $([ -n "$PAINT_NSIDE" ] && echo "--paint-nside $PAINT_NSIDE") \
             --num-samples $NUM_SAMPLES \
             --seed $batch \
             --path "$OUTPUT_DIR/chain_$chain" \

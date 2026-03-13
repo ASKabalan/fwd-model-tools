@@ -3,7 +3,7 @@
 Provides subcommands:
   lpt      — IC → LPT → lightcone / particles
   nbody    — IC → LPT(particles) → NBody → lightcone / particles
-  lensing  — IC → LPT → NBody → Born/raytrace → kappa
+  lensing  — IC → LPT → NBody → Born → kappa
 
 JAX is imported lazily (after argument parsing) so --help is instantaneous.
 """
@@ -55,7 +55,7 @@ def _build_painting(args: Namespace):
     density = getattr(args, "density", False)
 
     if nside is not None:
-        return PaintingOptions(target="spherical"), nside, None
+        return PaintingOptions(target="spherical", scheme=args.scheme, paint_nside=args.paint_nside), nside, None
     elif flatsky_npix is not None:
         h, w = flatsky_npix
         return PaintingOptions(target="flat"), None, (h, w)
@@ -233,6 +233,20 @@ def parser() -> ArgumentParser:
     )
     paint_group.add_argument("--density", action="store_true", default=False, help="3D density field painting")
 
+    common.add_argument(
+        "--scheme",
+        choices=["ngp", "bilinear", "rbf_neighbor"],
+        default="bilinear",
+        help="Spherical painting interpolation scheme (default: bilinear)",
+    )
+    common.add_argument(
+        "--paint-nside",
+        type=int,
+        default=None,
+        dest="paint_nside",
+        help="Override nside for spherical painting (default: same as --nside)",
+    )
+
     # ------------------------------------------------------------------
     # LPT parent (shared by lpt, nbody, lensing)
     # ------------------------------------------------------------------
@@ -329,7 +343,7 @@ def parser() -> ArgumentParser:
     lensing_p = subparsers.add_parser(
         "lensing",
         parents=[common, lpt_parent, nbody_parent],
-        help="Run IC → LPT → NBody → lensing (Born or raytrace)",
+        help="Run IC → LPT → NBody → Born lensing",
         description="Run full pipeline including weak lensing convergence maps.",
     )
     lensing_p.add_argument(

@@ -1,12 +1,12 @@
 #!/bin/bash
-# Submits a SLURM job to apply raytrace/Born lensing post-processing to
-# pre-computed simulation outputs using `fli-raytrace`.
+# Submits a SLURM job to apply Born lensing post-processing to
+# pre-computed simulation outputs using `fli-born-rt`.
 
 # --- SLURM / Cluster configuration ---
 RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
-CONSTRAINT="h100"
+CONSTRAINT=""
 GPUS_PER_NODE=1
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
@@ -16,15 +16,14 @@ QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
 # --- I/O paths ---
-INPUT_DIR="results/grid_runs"
-OUTPUT_DIR="results/lensing"
+INPUT_DIR="/home/wassim/Projects/NBody/jax-fli-result/results/02-density_width_shell_selection/catalogs/multi_shell"
+OUTPUT_DIR="results/lensing/multi_shell"
 
 # --- Precision ---
 ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"
-LENSING="both"      # born | raytrace | both
 MIN_Z=0.01          # minimum redshift for n(z) integration (default: 0.01)
 MAX_Z=1.5           # maximum redshift for n(z) integration (default: 1.5)
 N_INTEGRATE=32       # Simpson quadrature points for n(z) distributions (default: 32)
@@ -60,7 +59,7 @@ if [ "$RUN_LOCALLY" = false ] && [ -z "$SLURM_SCRIPT" ]; then
     exit 1
 fi
 
-# IF CONTRAIN is CPU then no contrain and no gres gpu
+# IF CONSTRAINT is CPU then no constraint and no gres gpu
 if [ "$CONSTRAINT" = "cpu" ]; then
     CONST_STR=""
     GPU_STR=""
@@ -73,9 +72,9 @@ BASE_SBATCH_ARGS="--account=$ACCOUNT $CONST_STR --time=$TIME_LIMIT $GPU_STR --cp
 
 read -r PX PY <<< "$PDIMS"
 
-echo "Submitting fli-raytrace job for $INPUT_DIR/*.parquet"
+echo "Submitting fli-born-rt job for $INPUT_DIR/*.parquet"
 
-JOB_NAME="fli_raytrace"
+JOB_NAME="fli_born_rt"
 
 if [ "$RUN_LOCALLY" = true ]; then
     if [ "$TOTAL_GPUS" -eq 1 ]; then
@@ -86,15 +85,14 @@ if [ "$RUN_LOCALLY" = true ]; then
 elif [ "$RUN_LOCALLY" = dryrun ]; then
     SBATCH_CMD=dry_run_submit
 else
-    SBATCH_CMD="sbatch $BASE_SBATCH_ARGS --job-name=$JOB_NAME --output=SLURM_LOGS/%x_%j.out --error=SLURM_LOGS/%x_%j.err $SLURM_SCRIPT FLI_RAYTRACE"
+    SBATCH_CMD="sbatch $BASE_SBATCH_ARGS --job-name=$JOB_NAME --output=SLURM_LOGS/%x_%j.out --error=SLURM_LOGS/%x_%j.err $SLURM_SCRIPT FLI_BORN_RT"
 fi
 
-$SBATCH_CMD fli-raytrace \
+$SBATCH_CMD fli-born-rt \
     --pdim $PX $PY \
     --nodes $NODES \
     --input "$INPUT_DIR/*.parquet" \
     --output "$OUTPUT_DIR" \
-    --lensing $LENSING \
     --nz-shear $NZ_SHEAR \
     --min-z $MIN_Z \
     --max-z $MAX_Z \

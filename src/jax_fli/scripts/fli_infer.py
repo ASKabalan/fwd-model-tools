@@ -234,6 +234,19 @@ def parser() -> argparse.ArgumentParser:
         help="Interpolation kernel.",
     )
     p.add_argument(
+        "--scheme",
+        choices=["ngp", "bilinear", "rbf_neighbor"],
+        default="bilinear",
+        help="Spherical painting interpolation scheme (default: bilinear)",
+    )
+    p.add_argument(
+        "--paint-nside",
+        type=int,
+        default=None,
+        dest="paint_nside",
+        help="Override nside used for painting (default: same as observable nside)",
+    )
+    p.add_argument(
         "--drift-on-lightcone", action="store_true", help="Apply drift correction when painting lightcone shells."
     )
     p.add_argument("--equal-vol", action="store_true", default=False, help="Use equal-volume shell partitioning.")
@@ -242,12 +255,6 @@ def parser() -> argparse.ArgumentParser:
     )
 
     # --- Lensing ---
-    p.add_argument(
-        "--lensing",
-        choices=["born", "raytrace"],
-        default="born",
-        help="Lensing method.",
-    )
     p.add_argument("--min-z", type=float, default=0.01, help="Minimum redshift for nz integration.")
     p.add_argument("--max-z", type=float, default=1.5, help="Maximum redshift for nz integration.")
     p.add_argument("--n-integrate", type=int, default=32, help="Number of integration points for nz distributions.")
@@ -398,7 +405,9 @@ def main() -> None:
         t1=args.t1,
         lpt_order=args.lpt_order,
         number_of_shells=args.nb_shells,
-        lensing=args.lensing,
+        lensing="born",
+        scheme=args.scheme,
+        paint_nside=args.paint_nside,
         adjoint=args.adjoint,
         checkpoints=args.checkpoints,
         sharding=sharding,

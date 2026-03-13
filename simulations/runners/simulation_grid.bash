@@ -23,6 +23,8 @@ OUTPUT_DIR="results/grid_runs"
 SIMULATION_TYPE='lensing'   # lpt | nbody | lensing
 LPT_ORDER=2
 INTERP="none"
+SCHEME="bilinear"    # ngp | bilinear | rbf_neighbor
+PAINT_NSIDE=""       # empty = use --nside value; set integer to override
 
 # --- Integration parameters ---
 T0=0.1
@@ -134,6 +136,8 @@ $SBATCH_CMD fli-grid $SIMULATION_TYPE \
     --pdim $PX $PY \
     --nodes $NODES \
     --interp $INTERP \
+    --scheme $SCHEME \
+    $([ -n "$PAINT_NSIDE" ] && echo "--paint-nside $PAINT_NSIDE") \
     $DRIFT_ON_LC \
     --min-width $MIN_WIDTH \
     $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \

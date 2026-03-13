@@ -24,6 +24,8 @@ MESH_SIZE="16 16 16"
 BOX_SIZE="1000.0 1000.0 1000.0"
 LPT_ORDER=2
 INTERP="none"
+SCHEME="bilinear"    # ngp | bilinear | rbf_neighbor
+PAINT_NSIDE=""       # empty = use observable nside; set integer to override
 
 # --- Integration parameters ---
 T0=0.1
@@ -38,7 +40,6 @@ NB_SHELLS=10
 HALO_FRACTION=8
 
 # --- Lensing parameters ---
-LENSING="born"         # born | raytrace
 MIN_Z=0.01
 MAX_Z=1.5
 N_INTEGRATE=32
@@ -141,10 +142,11 @@ $SBATCH_CMD fli-infer \
     --nb-steps $NB_STEPS \
     --lpt-order $LPT_ORDER \
     --interp $INTERP \
+    --scheme $SCHEME \
+    $([ -n "$PAINT_NSIDE" ] && echo "--paint-nside $PAINT_NSIDE") \
     $([ "$DRIFT_ON_LC" = "true" ] && echo "--drift-on-lightcone") \
     $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
     --min-width $MIN_WIDTH \
-    --lensing $LENSING \
     --min-z $MIN_Z \
     --max-z $MAX_Z \
     --n-integrate $N_INTEGRATE \

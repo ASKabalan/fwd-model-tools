@@ -19,15 +19,17 @@ TIME_LIMIT="00:30:00"
 OUTPUT_DIR="results/cosmology_runs"
 
 # --- Simulation parameters ---
-SIMULATION_TYPE='lpt' # lpt | nbody | lensing
+SIMULATION_TYPE='lensing' # lpt | nbody | lensing
 NSIDE=64
 LPT_ORDER=2
 INTERP="none"
+SCHEME="bilinear"    # ngp | bilinear | rbf_neighbor
+PAINT_NSIDE=""       # empty = use --nside value; set integer to override
 
 # --- Integration parameters ---
 T0=0.1
 T1=1.0
-NB_STEPS=40
+NB_STEPS=30
 DRIFT_ON_LC="--drift-on-lightcone"
 EQUAL_VOL=false    # set to "true" to enable equal-volume shells
 MIN_WIDTH=50.0     # minimum shell width in Mpc/h (used when EQUAL_VOL=true)
@@ -41,7 +43,7 @@ OBSERVER_POSITION="0.5 0.5 0.5"
 ENABLE_X64=false       # set to "true" to enable JAX 64-bit precision
 
 # --- Lensing parameters ---
-NZ_SHEAR="s3"
+NZ_SHEAR="0.05 0.1"
 MIN_Z=0.01            # minimum redshift for n(z) integration (default: 0.01)
 MAX_Z=1.5             # maximum redshift for n(z) integration (default: 1.5)
 N_INTEGRATE=32        # Simpson quadrature points for n(z) distributions (default: 32)
@@ -53,7 +55,8 @@ N_INTEGRATE=32        # Simpson quadrature points for n(z) distributions (defaul
 #   Range notation: OMEGA_C=("0.25:0.45:0.05")   → 0.25 0.30 0.35 0.40 0.45 (stop inclusive)
 #   Seed range:     SEED=("0:9:1")                → seeds 0..9
 MESH_SIZES=(
-    "16 16 16"
+    "64 64 64"
+    "32 32 32"
 )
 BOX_SIZES=(
     "1000.0 1000.0 1000.0"
@@ -154,6 +157,8 @@ run_simulations() {
                             --t1 $T1 \
                             --lpt-order $LPT_ORDER \
                             --interp $INTERP \
+                            --scheme $SCHEME \
+                            $([ -n "$PAINT_NSIDE" ] && echo "--paint-nside $PAINT_NSIDE") \
                             $DRIFT_ON_LC \
                             $([ "$EQUAL_VOL" = "true" ] && echo "--equal-vol") \
                             --min-width $MIN_WIDTH \

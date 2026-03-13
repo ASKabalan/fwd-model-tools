@@ -47,7 +47,8 @@ def _append_metrics_row(metrics: dict, batch_id: int, base_path: str) -> None:
 
 def default_save(samples, path, batch_id, metrics=None):
     """Default save callback that just saves the samples as an orbax checkpoint."""
-    os.makedirs(path, exist_ok=True)
+    save_path = os.path.join(path, "samples")
+    os.makedirs(save_path, exist_ok=True)
     base_path = os.path.dirname(path)
     _append_metrics_row(metrics, batch_id, base_path)
     np.savez(os.path.join(path, f"samples_batch_{batch_id}.npz"), **samples)
@@ -97,7 +98,7 @@ def sample2catalog(config: Configurations):
         if initial_conditions is None:
             # Power-spectrum model: no IC field, save cosmo params as npz instead
             print("No initial conditions found, saving cosmo parameters to npz.")
-            cosmo_dir = path
+            cosmo_dir = os.path.join(path, "samples")
             os.makedirs(cosmo_dir, exist_ok=True)
             cosmo_dict = {
                 "Omega_c": cosmo.Omega_c,
@@ -113,7 +114,7 @@ def sample2catalog(config: Configurations):
             np.savez(os.path.join(cosmo_dir, f"cosmo_{batch_id}.npz"), **cosmo_dict)
         else:
             # Save the IC samples as a parquet Catalog
-            ic_dir = path
+            ic_dir = os.path.join(path, "samples")
             os.makedirs(ic_dir, exist_ok=True)
 
             intitial_condition_meta_data = samples["initial_conditions_meta_data"]

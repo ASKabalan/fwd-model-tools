@@ -42,9 +42,13 @@ def make_full_field_model(
 
         # Create solver with appropriate interp_kernel based on geometry
         if config.drift_on_lightcone:
-            interp_kernel = DriftInterp(painting=PaintingOptions(target=geometry))
+            interp_kernel = DriftInterp(
+                painting=PaintingOptions(target=geometry, scheme=config.scheme, paint_nside=config.paint_nside)
+            )
         else:
-            interp_kernel = NoInterp(painting=PaintingOptions(target=geometry))
+            interp_kernel = NoInterp(
+                painting=PaintingOptions(target=geometry, scheme=config.scheme, paint_nside=config.paint_nside)
+            )
 
         solver = ReversibleDoubleKickDrift(
             pgd_kernel=NoCorrection(),

@@ -213,6 +213,19 @@ def parser() -> ArgumentParser:
     # --- Fixed: LPT / solver ---
     grid_parent.add_argument("--lpt-order", type=int, default=2, choices=[1, 2])
     grid_parent.add_argument("--interp", choices=["none", "onion", "telephoto"], default="none")
+    grid_parent.add_argument(
+        "--scheme",
+        choices=["ngp", "bilinear", "rbf_neighbor"],
+        default="bilinear",
+        help="Spherical painting interpolation scheme (default: bilinear)",
+    )
+    grid_parent.add_argument(
+        "--paint-nside",
+        type=int,
+        default=None,
+        dest="paint_nside",
+        help="Override nside for spherical painting (default: same as --nside)",
+    )
     grid_parent.add_argument("--drift-on-lightcone", action="store_true")
 
     # --- Fixed: lightcone geometry ---

@@ -132,6 +132,19 @@ def parser() -> argparse.ArgumentParser:
         help="Interpolation kernel (default: none)",
     )
     p.add_argument(
+        "--scheme",
+        choices=["ngp", "bilinear", "rbf_neighbor"],
+        default="bilinear",
+        help="Spherical painting interpolation scheme (default: bilinear)",
+    )
+    p.add_argument(
+        "--paint-nside",
+        type=int,
+        default=None,
+        dest="paint_nside",
+        help="Override nside used for painting (default: same as --nside)",
+    )
+    p.add_argument(
         "--drift-on-lightcone", action="store_true", help="Apply drift correction when painting lightcone shells"
     )
     p.add_argument("--equal-vol", action="store_true", default=False, help="Use equal-volume shell partitioning")
@@ -140,12 +153,6 @@ def parser() -> argparse.ArgumentParser:
     )
 
     # Lensing / noise
-    p.add_argument(
-        "--lensing",
-        choices=["born", "raytrace", "both"],
-        default="born",
-        help="Lensing method (default: born)",
-    )
     p.add_argument(
         "--nz-shear",
         nargs="+",
@@ -237,8 +244,10 @@ def main() -> None:
         lpt_order=args.lpt_order,
         number_of_shells=args.nb_shells,
         geometry=geometry,
+        scheme=args.scheme,
+        paint_nside=args.paint_nside,
         sharding=sharding,
-        lensing=args.lensing,
+        lensing="born",
         drift_on_lightcone=args.drift_on_lightcone,
         equal_vol=args.equal_vol,
         min_width=args.min_width,
