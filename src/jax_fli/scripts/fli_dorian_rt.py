@@ -10,18 +10,6 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 
-def _make_suffix(field) -> str:
-    """Build a descriptive suffix from field metadata."""
-    mesh = field.mesh_size
-    box = field.box_size
-    mesh_str = str(mesh[0])
-    box_str = str(int(box[0]))
-    nside = getattr(field, "nside", None)
-    if nside is not None:
-        return f"M_{mesh_str}_B_{box_str}_N_{nside}"
-    return f"M_{mesh_str}_B_{box_str}"
-
-
 def parser() -> ArgumentParser:
     """Build the argument parser for fli-dorian-rt."""
     p = ArgumentParser(
@@ -97,7 +85,6 @@ def main() -> None:
         field = catalog.field[0]
         cosmo = catalog.cosmology[0]
 
-        suffix = _make_suffix(field)
         if rank == 0:
             print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
 
@@ -116,12 +103,18 @@ def main() -> None:
         )
 
         if rank == 0:
-            out_path = output_dir / f"RAYTRACE_{suffix}_row{i:04d}.parquet"
+            out_path = (
+                output_dir
+                / f"RAYTRACE_M_{field.mesh_size[0]}_B_{int(field.box_size[0])}_N_{field.nside}_row{i:04d}.parquet"
+            )
             Catalog(field=kappa_rt, cosmology=cosmo).to_parquet(str(out_path))
             print(f"    Saved raytrace kappa → {out_path}")
 
         del kappa_rt, field, cosmo, catalog
         row_count += 1
+
+        if comm is not None:
+            comm.Barrier()  # Ensure all ranks have finished processing the current row before moving on
 
     if rank == 0:
         print(f"  Done: {row_count} row(s)")

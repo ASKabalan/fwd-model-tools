@@ -3,20 +3,20 @@
 # pre-computed simulation outputs using `fli-born-rt`.
 
 # --- SLURM / Cluster configuration ---
-RUN_LOCALLY=true # (true, false, or dryrun)
+RUN_LOCALLY=dryrun # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT=""
-GPUS_PER_NODE=1
+GPUS_PER_NODE=4
 CPUS_PER_NODE=16
 TASKS_PER_NODE=$GPUS_PER_NODE
-PDIMS="1 1"
+PDIMS="4 1"
 NODES=1
 QOS="qos_gpu_h100-t3"
 TIME_LIMIT="00:30:00"
 
 # --- I/O paths ---
-INPUT_DIR="/home/wassim/Projects/NBody/jax-fli-result/results/02-density_width_shell_selection/catalogs/multi_shell"
+INPUT_DIR="results/cosmology_runs"
 OUTPUT_DIR="results/lensing/multi_shell"
 
 # --- Precision ---

@@ -7,14 +7,14 @@ RUN_LOCALLY=true # (true, false, or dryrun)
 # If set to false then it is launched with sbatch, if set to true then it is launched locally, if set to dryrun then it prints the sbatch command without executing it.
 ACCOUNT="XXX"
 CONSTRAINT="cpu"
-CPUS_PER_NODE=64
+CPUS_PER_NODE=24
 TASKS_PER_NODE=4
 NODES=1
 QOS="qos_cpu"
 TIME_LIMIT="01:00:00"
 
 # --- I/O paths ---
-INPUT_DIR="/home/wassim/Projects/NBody/jax-fli-result/results/02-density_width_shell_selection/catalogs/multi_shell"
+INPUT_DIR="results/cosmology_runs"
 OUTPUT_DIR="results/lensing/multi_shell_raytrace"
 
 # --- Lensing parameters ---

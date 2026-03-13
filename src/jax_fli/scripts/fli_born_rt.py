@@ -12,18 +12,6 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 
-def _make_suffix(field) -> str:
-    """Build a descriptive suffix from field metadata."""
-    mesh = field.mesh_size
-    box = field.box_size
-    mesh_str = str(mesh[0])
-    box_str = str(int(box[0]))
-    nside = getattr(field, "nside", None)
-    if nside is not None:
-        return f"M_{mesh_str}_B_{box_str}_N_{nside}"
-    return f"M_{mesh_str}_B_{box_str}"
-
-
 def parser() -> ArgumentParser:
     """Build the argument parser for fli-born-rt."""
     p = ArgumentParser(
@@ -94,13 +82,14 @@ def main() -> None:
         field = catalog.field[0]
         cosmo = catalog.cosmology[0]
 
-        suffix = _make_suffix(field)
         print(f"  row {i}: field={type(field).__name__} cosmo=Oc={float(cosmo.Omega_c):.4f}")
 
         born_result = jax.block_until_ready(
             jfli.born(cosmo, field, nz_shear, min_z=min_z, max_z=max_z, n_integrate=n_integrate)
         )
-        out_path = output_dir / f"BORN_{suffix}_row{i:04d}.parquet"
+        out_path = (
+            output_dir / f"BORN_M_{field.mesh_size[0]}_B_{int(field.box_size[0])}_N_{field.nside}_row{i:04d}.parquet"
+        )
         os.makedirs(out_path.parent, exist_ok=True)
         Catalog(field=born_result, cosmology=cosmo).to_parquet(str(out_path))
         print(f"    Saved Born kappa → {out_path}")

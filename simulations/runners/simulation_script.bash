@@ -19,7 +19,7 @@ TIME_LIMIT="00:30:00"
 OUTPUT_DIR="results/cosmology_runs"
 
 # --- Simulation parameters ---
-SIMULATION_TYPE='lensing' # lpt | nbody | lensing
+SIMULATION_TYPE='nbody' # lpt | nbody | lensing
 NSIDE=64
 LPT_ORDER=2
 INTERP="none"

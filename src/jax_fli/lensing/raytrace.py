@@ -121,6 +121,8 @@ def _raytrace_z_grid(
         parallel_transport=parallel_transport,
         comm=comm,
     )
+    if comm is not None and comm.Get_rank() != 0:  # type: ignore
+        return None, None  # Only rank 0 has the results in this case
     if raytrace and born:
         return result["convergence_raytraced"], result["convergence_born"]
     elif raytrace:
@@ -331,6 +333,8 @@ def raytrace(
             shell_widths=density_widths_np,
             comm=comm,
         )
+        if comm is not None and comm.Get_rank() != 0:  # type: ignore
+            return None, None  # Only rank 0 has the results in this case
         if born and raytrace:
             kappa_grid_rt, kappa_grid_born = kappa_grid
             kappa = (
@@ -358,6 +362,8 @@ def raytrace(
             shell_widths=density_widths_np,
             comm=comm,
         )
+        if comm is not None and comm.Get_rank() != 0:  # type: ignore
+            return None, None  # Only rank 0 has the results in this case
 
     # 5. Build output fields — helper avoids repetition across the three return paths
     def _build_field(arr):
