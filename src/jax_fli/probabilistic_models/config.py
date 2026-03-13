@@ -39,7 +39,7 @@ class Configurations:
     # Simulation parameters
     lpt_order: int = 2
     t0: float = 0.01
-    dt0: float = 0.01
+    nb_steps: int = 100
     t1: float = 1.0
     adjoint: str = "checkpointed"
     checkpoints: int = 10
@@ -47,7 +47,14 @@ class Configurations:
     equal_vol: bool = False
     min_width: float = 50.0  # Mpc/h comoving, minimum shell width for equal_vol mode
     geometry: str = "spherical"
+    scheme: str = "bilinear"
+    paint_nside: int | None = None
     drift_on_lightcone: bool = False
     # Power spectrum settings (for power-spectrum model, not used in full-field model)
     ells: Array = field(default_factory=lambda: jnp.arange(2, 2048))
     f_sky: float = 1.0  # sky fraction for Gaussian covariance mode-count
+
+    @property
+    def dt0(self) -> float:
+        """Compute integration time step from nb_steps: dt0 = (t1 - t0) / (nb_steps - 1)."""
+        return (self.t1 - self.t0) / (self.nb_steps - 1)

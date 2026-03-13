@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -20,6 +21,12 @@ __all__ = ["sample2catalog"]
 
 def _append_metrics_row(metrics: dict, batch_id: int, base_path: str) -> None:
     """Append one row to {base_path}/metrics.md, creating headers on first write."""
+    if metrics is None:
+        metrics = {
+            "mean_num_steps": None,
+            "total_divergences": None,
+            "mean_accept_prob": None,
+        }
     md_path = os.path.join(base_path, "metrics.md")
     headers = (
         "| Batch | Avg Steps | Divergences | Mean Accept |",
@@ -38,9 +45,10 @@ def _append_metrics_row(metrics: dict, batch_id: int, base_path: str) -> None:
         f.write(row + "\n")
 
 
-def default_save(samples, metrics, path, batch_id):
+def default_save(samples, path, batch_id, metrics=None):
     """Default save callback that just saves the samples as an orbax checkpoint."""
-    os.makedirs(path, exist_ok=True)
+    save_path = os.path.join(path, "samples")
+    os.makedirs(save_path, exist_ok=True)
     base_path = os.path.dirname(path)
     _append_metrics_row(metrics, batch_id, base_path)
     np.savez(os.path.join(path, f"samples_batch_{batch_id}.npz"), **samples)
@@ -67,7 +75,7 @@ def sample2catalog(config: Configurations):
     is_spherical = config.geometry == "spherical"
     KappaFieldCls = SphericalKappaField if is_spherical else FlatKappaField
 
-    def cb(samples, metrics, path, batch_id):
+    def cb(samples, path, batch_id, metrics=None):
         """Save orbax checkpoint and parquet Catalogs for one batch.
 
         Parameters
@@ -133,17 +141,27 @@ def sample2catalog(config: Configurations):
         fields_dir = os.path.join(path, "kappa_fields")
         os.makedirs(fields_dir, exist_ok=True)
         # find out how many kappa bins there are by counting keys
-        kappa_keys = [k for k in samples if k.startswith("kappa_")]
+        kappa_keys = [k for k in samples if k.startswith("kappa_") and k.split("_")[-1].isdigit()]
         n_bins = len(kappa_keys)
         # Create the kappa fields class
         kappa_meta_data = samples["kappa_meta_data"]
-        kappa_array = jnp.stack([samples[f"kappa_{i}"] for i in range(n_bins)], axis=0)
-        kappa_field = KappaFieldCls.FromDensityMetadata(
-            array=kappa_array,
-            field=kappa_meta_data,
-        )
-
-        kappa_catalog = Catalog(field=kappa_field, cosmology=cosmo)
+        cosmo_arr = np.asarray(cosmo.Omega_c)
+        if cosmo_arr.ndim > 0:
+            # Batched cosmology (Predictive mode): build one catalog entry per sample
+            n_samples = int(cosmo_arr.size)
+            fields_list = []
+            cosmo_list = []
+            for s_idx in range(n_samples):
+                cosmo_s = jax.tree.map(lambda p: p[s_idx], cosmo)
+                meta_s = kappa_meta_data[s_idx]
+                kappa_s = jnp.stack([samples[f"kappa_{i}"][s_idx] for i in range(n_bins)], axis=0)
+                fields_list.append(KappaFieldCls.FromDensityMetadata(array=kappa_s, field=meta_s))
+                cosmo_list.append(cosmo_s)
+            kappa_catalog = Catalog(field=fields_list, cosmology=cosmo_list)
+        else:
+            kappa_array = jnp.stack([samples[f"kappa_{i}"] for i in range(n_bins)], axis=0)
+            kappa_field = KappaFieldCls.FromDensityMetadata(array=kappa_array, field=kappa_meta_data)
+            kappa_catalog = Catalog(field=kappa_field, cosmology=cosmo)
         kappa_catalog.to_parquet(os.path.join(fields_dir, f"fields_{batch_id}.parquet"))
 
         if "lightcone" in samples:

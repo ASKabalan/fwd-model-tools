@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""fli-raytrace: raw script entry point.
+"""fli-extract: raw script entry point.
 
 Runs JAX distributed init BEFORE importing the package, so that
 jax.distributed.initialize() happens before any JAX backend touches.
@@ -30,7 +30,7 @@ def _maybe_init_distributed():
 
 _maybe_init_distributed()
 
-from jax_fli.scripts.fli_raytrace import main
+from jax_fli.scripts.fli_extract import main
 
 if __name__ == "__main__":
     main()

@@ -20,6 +20,9 @@ _Return = TypeVar("_Return")
 def requires_arviz(func: Callable[_Param, _Return]) -> Callable[_Param, _Return]:
     """Decorator that raises ImportError when 'arviz' is not installed."""
     try:
+        import warnings
+
+        warnings.filterwarnings("ignore", category=FutureWarning, module="arviz")
         import arviz  # noqa: F401
 
         return func
@@ -38,7 +41,6 @@ def analyze(
     catalog_extract: list[CatalogExtract] | CatalogExtract,
     outfolder: str,
     outformat: str = "png",
-    extract_labels: list[str] | None = None,
     dpi: int = 300,
     truth: dict | None = None,
 ) -> None:
@@ -69,9 +71,6 @@ def analyze(
         Output directory.  Created if absent.
     outformat : str, optional
         Image format: ``"png"``, ``"pdf"``, etc.  Default ``"png"``.
-    extract_labels : list of str, optional
-        Human-readable label per model, used in filenames and the summary.
-        Defaults to ``["model_0", "model_1", ...]``.
     dpi : int, optional
         Resolution for saved figures.  Default 300.
     labels : dict, optional
