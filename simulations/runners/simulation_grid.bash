@@ -40,6 +40,9 @@ DENSITY_WIDTHS=""
 # --- Shell / Lightcone parameters ---
 NB_SHELLS=10
 HALO_FRACTION=8
+TS=""         # explicit shell-center scale factors, e.g. "0.5 0.7 0.9"  (overrides NB_SHELLS)
+TS_NEAR=""   # near-side shell boundary scale factors, e.g. "0.4 0.6 0.8" (use with TS_FAR)
+TS_FAR=""    # far-side shell boundary scale factors,  e.g. "0.6 0.8 1.0" (use with TS_NEAR)
 
 # --- Lensing parameters ---
 NZ_SHEAR="s3"           # only used when SIMULATION_TYPE=lensing
@@ -126,7 +129,10 @@ $SBATCH_CMD fli-grid $SIMULATION_TYPE \
     --Omega-c ${OMEGA_C[*]} \
     --sigma8 ${SIGMA_8[*]} \
     --seed ${SEED[*]} \
-    --nb-shells $NB_SHELLS \
+    $([ -n "$NB_SHELLS" ] && echo "--nb-shells $NB_SHELLS") \
+    $([ -n "$TS" ] && echo "--ts $TS") \
+    $([ -n "$TS_NEAR" ] && echo "--ts-near $TS_NEAR") \
+    $([ -n "$TS_FAR" ] && echo "--ts-far $TS_FAR") \
     --nb-steps $NB_STEPS \
     --nside ${NSIDE[*]} \
     --t0 $T0 \

@@ -63,7 +63,7 @@ plot = [
 ]
 benchmark = ["jax-hpc-profiler"]
 legacy = ["diffrax"]
-raytrace = ["dorian-raytrace@git+https://github.com/ASKabalan/Dorian.git@main"]
+raytrace = ["dorian-raytrace-mpi"]
 
 all = ["jax_fli[catalog, sampling, legacy, raytrace, plot, benchmark]"]
 
